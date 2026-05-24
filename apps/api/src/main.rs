@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use api::auth::session::AuthSessionService;
 use auth::password::PasswordService;
+
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -32,17 +34,18 @@ async fn main() {
         .await
         .expect("database migrations should run");
     info!("database migrations complete");
-    let password_service = PasswordService::new();
 
-    let app = api::router::build_router(api::state::AppState {
+    let password_service = PasswordService::new();
+    let auth_session_service = AuthSessionService::new(&config.jwt_secret, redis_connection);
+
+    let app_state = api::state::AppState {
         config: Arc::new(config.clone()),
         pool,
-        auth_session: api::auth::session::AuthSessionService::new(
-            &config.jwt_secret,
-            redis_connection,
-        ),
+        auth_session_service,
         password_service,
-    });
+    };
+
+    let app = api::router::build_router(app_state);
     info!(bind_addr = %config.bind_addr, "binding api listener");
     let listener = tokio::net::TcpListener::bind(&config.bind_addr)
         .await

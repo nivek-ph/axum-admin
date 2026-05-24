@@ -23,7 +23,7 @@ pub async fn login(
 ) -> AppResult<Json<ApiResponse<Value>>> {
     let username = payload.username.clone();
     let login_result = match state
-        .auth_session
+        .auth_session_service
         .login(&state.pool, &state.password_service, payload)
         .await
     {

@@ -46,7 +46,7 @@ pub async fn require_auth(
         .to_string();
     let token = extract_bearer_token(headers).ok_or_spec(errors::LOGIN_REQUIRED)?;
     let claims = state
-        .auth_session
+        .auth_session_service
         .decode_active_token(token)
         .await
         .map_err(|error| match error {

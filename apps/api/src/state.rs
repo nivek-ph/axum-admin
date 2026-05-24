@@ -35,7 +35,7 @@ impl AppConfig {
 pub struct AppState {
     pub config: Arc<AppConfig>,
     pub pool: DbPool,
-    pub auth_session: AuthSessionService,
+    pub auth_session_service: AuthSessionService,
     pub password_service: PasswordService,
 }
 
@@ -53,7 +53,7 @@ impl Default for AppState {
             }),
             pool: DbPool::connect_lazy("postgres://postgres:postgres@localhost/axum_vue_admin")
                 .expect("lazy pool should construct"),
-            auth_session: AuthSessionService::without_revocation_store("change-me-in-env"),
+            auth_session_service: AuthSessionService::without_revocation_store("change-me-in-env"),
             password_service: PasswordService::new(),
         }
     }

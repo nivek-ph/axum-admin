@@ -20,7 +20,7 @@ pub async fn logout(
 ) -> AppResult<Json<ApiResponse<Value>>> {
     let token = extract_bearer_token(&headers).ok_or_spec(errors::LOGIN_REQUIRED)?;
     state
-        .auth_session
+        .auth_session_service
         .revoke_token(token)
         .await
         .map_err(|error| errors::AUTH_RESOLVE_FAILED.into_error().with_source(error))?;
