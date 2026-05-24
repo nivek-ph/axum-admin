@@ -8,7 +8,7 @@ use axum::{
 use admin_httpz::{AppResult, OptionAppExt};
 use system::users::LoginError;
 
-use crate::auth::errors;
+use crate::errors::auth::{self as errors, AUTH_RESOLVE_FAILED, SESSION_INVALID};
 use crate::state::AppState;
 
 const X_FORWARDED_FOR: &str = "x-forwarded-for";
@@ -49,21 +49,18 @@ pub async fn require_auth(
         .auth_session_service
         .decode_active_token(token)
         .await?;
-    let user = match system::users::load_authenticated_user(&state.pool, claims.user_id).await {
-        Ok(user) => user,
-        Err(LoginError::InvalidCredentials | LoginError::UserNotFound) => {
-            return Err(errors::SESSION_INVALID.into());
-        }
-        Err(LoginError::Disabled) => {
-            return Err(system::errors::users::USER_DISABLED.into());
-        }
-        Err(LoginError::UserAlreadyExists | LoginError::InvalidPassword) => {
-            return Err(errors::AUTH_RESOLVE_FAILED.into_error());
-        }
-        Err(error @ (LoginError::Auth(_) | LoginError::Database(_))) => {
-            return Err(errors::AUTH_RESOLVE_FAILED.into_error().with_source(error));
-        }
-    };
+    let user = system::users::load_authenticated_user(&state.pool, claims.user_id)
+        .await
+        .map_err(|error| match error {
+            LoginError::InvalidCredentials | LoginError::UserNotFound => SESSION_INVALID.into(),
+            LoginError::Disabled => system::errors::users::USER_DISABLED.into(),
+            LoginError::UserAlreadyExists | LoginError::InvalidPassword => {
+                AUTH_RESOLVE_FAILED.into_error()
+            }
+            LoginError::Auth(_) | LoginError::Database(_) => {
+                AUTH_RESOLVE_FAILED.into_error().with_source(error)
+            }
+        })?;
     let user_id = user.id;
 
     request.extensions_mut().insert(user);

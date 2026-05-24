@@ -1,9 +1,8 @@
 use admin_httpz::{ApiResponse, AppResult};
 use axum::{Json, extract::State, http::HeaderMap};
 use serde_json::Value;
-use system::users::LoginError;
 
-use crate::auth::errors;
+use crate::errors::auth::LOGIN_OPERATION_FAILED;
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -26,7 +25,26 @@ pub async fn login(
         .auth_session_service
         .login(&state.pool, &state.password_service, payload)
         .await
-    {
+        .map_err(|error| {
+            let error_message = error.to_string();
+            let app_error = match error {
+                system::users::LoginError::InvalidCredentials
+                | system::users::LoginError::UserNotFound => {
+                    system::errors::users::INVALID_CREDENTIALS.into()
+                }
+                system::users::LoginError::Disabled => system::errors::users::USER_DISABLED.into(),
+                system::users::LoginError::UserAlreadyExists => {
+                    system::errors::users::USER_ALREADY_EXISTS.into()
+                }
+                system::users::LoginError::InvalidPassword => {
+                    system::errors::users::INVALID_PASSWORD.into()
+                }
+                system::users::LoginError::Auth(_) | system::users::LoginError::Database(_) => {
+                    LOGIN_OPERATION_FAILED.into_error().with_source(error)
+                }
+            };
+            (app_error, error_message)
+        }) {
         Ok(result) => {
             let _ = system::logs::create_login_log(
                 &state.pool,
@@ -42,18 +60,7 @@ pub async fn login(
             .await;
             result
         }
-        Err(error) => {
-            let error_message = error.to_string();
-            let app_error = match &error {
-                LoginError::InvalidCredentials => system::errors::users::INVALID_CREDENTIALS.into(),
-                LoginError::Disabled => system::errors::users::USER_DISABLED.into(),
-                LoginError::UserNotFound => errors::SESSION_INVALID.into(),
-                LoginError::UserAlreadyExists => system::errors::users::USER_ALREADY_EXISTS.into(),
-                LoginError::InvalidPassword => system::errors::users::INVALID_PASSWORD.into(),
-                LoginError::Auth(_) | LoginError::Database(_) => errors::LOGIN_OPERATION_FAILED
-                    .into_error()
-                    .with_source(error),
-            };
+        Err((app_error, error_message)) => {
             let _ = system::logs::create_login_log(
                 &state.pool,
                 system::logs::CreateLoginLog {

@@ -2,7 +2,7 @@ use admin_httpz::{ApiResponse, AppResult, OptionAppExt};
 use axum::{Json, extract::State, http::HeaderMap};
 use serde_json::Value;
 
-use crate::{auth::errors, middleware::auth::extract_bearer_token, state::AppState};
+use crate::{errors::auth as errors, middleware::auth::extract_bearer_token, state::AppState};
 
 #[utoipa::path(
     post,

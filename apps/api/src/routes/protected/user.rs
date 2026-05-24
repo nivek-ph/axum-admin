@@ -5,8 +5,8 @@ use axum::{
 };
 use serde_json::Value;
 
+use crate::errors::request as errors;
 use crate::extractors::current_user::CurrentUser;
-use crate::request::errors;
 use crate::state::AppState;
 
 #[utoipa::path(

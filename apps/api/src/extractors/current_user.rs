@@ -5,7 +5,7 @@ use axum::{extract::FromRequestParts, http::request::Parts};
 use admin_httpz::{AppError, OptionAppExt};
 use system::users::AuthenticatedUser;
 
-use crate::auth::errors;
+use crate::errors::auth as errors;
 
 #[derive(Debug, Clone)]
 pub struct CurrentUser(pub AuthenticatedUser);

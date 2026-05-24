@@ -30,6 +30,21 @@ This file gives repo-specific guidance for agents working in this project.
 - Keep `sqlx::migrate!("../../migrations")` working from `apps/api`.
 - Prefer explicit domain errors over generic string errors.
 
+### Error Design
+
+- Route and middleware handlers should return `admin_httpz::AppResult<T>`.
+- `crates/httpz` owns the shared HTTP boundary types: `AppError`, `AppResult<T>`, `ErrorSpec`, `ErrorSpecExt`, and `OptionAppExt`.
+- Keep stable error specs in the owning layer:
+  - domain errors: `crates/system/src/errors.rs` and `crates/file-storage/src/errors.rs`
+  - API boundary errors: `apps/api/src/errors.rs`
+- Add `impl From<...> for AppError` only when the source error has one stable API meaning in every context.
+- When the same error type has context-specific semantics, map it explicitly at the call site with `.map_err(...)`.
+- Do not collapse `LoginError` into one API mapping:
+  - CRUD/user management keeps `crates/system/src/users.rs` `From<LoginError> for AppError`.
+  - Login maps `InvalidCredentials` and `UserNotFound` to `INVALID_CREDENTIALS` to avoid account enumeration.
+  - Auth middleware maps a missing/deleted token user to `SESSION_INVALID`.
+- `AuthSessionError` has one auth-session semantic, so `From<AuthSessionError> for AppError` is acceptable.
+
 ## Frontend
 
 - The desktop app is Vue 3 + Vite + Pinia + Vue Router + Axios + Nuxt UI.

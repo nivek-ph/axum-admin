@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json::Value;
 
-use crate::request::errors;
+use crate::errors::request as errors;
 use crate::state::AppState;
 
 pub async fn create_sys_dictionary(

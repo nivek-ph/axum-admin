@@ -62,8 +62,8 @@ Default local database URL from `.env.example`:
 postgres://root:root@localhost/axum_vue_admin
 ```
 
-On API startup, the server runs migrations and bootstraps the default authority,
-menu, route registry, and admin user.
+On API startup, the server runs migrations. Default authority, menu, route
+registry, and admin user data are bootstrapped by a separate CLI.
 
 ## Run
 
@@ -118,6 +118,12 @@ username: admin
 password: 123456
 ```
 
+Bootstrap default system data when setting up a database:
+
+```bash
+cargo run -p api --bin bootstrap
+```
+
 ## API Contract
 
 Successful responses use a stable envelope:
@@ -132,6 +138,27 @@ Successful responses use a stable envelope:
 
 Error responses use the same `code` and `message` shape where possible.
 Authenticated requests send the JWT in the `Authorization: Bearer <token>` header.
+
+## Error Design
+
+- `crates/httpz` owns the HTTP response envelope and the shared error boundary:
+  `AppError`, `AppResult<T>`, `ErrorSpec`, `ErrorSpecExt`, and `OptionAppExt`.
+- Stable user-facing error codes and messages live in the owning layer:
+  domain errors in `crates/system/src/errors.rs` and `crates/file-storage/src/errors.rs`,
+  API boundary errors in `apps/api/src/errors.rs`.
+- Route and middleware handlers should return `AppResult<T>`.
+- Use `impl From<DomainError> for AppError` only when the source error has one
+  stable HTTP/API meaning everywhere it is used.
+- Use explicit `.map_err(...)` at the call site when the same domain error needs
+  different HTTP semantics in different contexts.
+- `LoginError` is intentionally context-mapped:
+  - CRUD/user management uses `crates/system/src/users.rs` `From<LoginError> for AppError`.
+  - Login maps `InvalidCredentials` and `UserNotFound` to `INVALID_CREDENTIALS`
+    so the login API does not reveal whether an account exists.
+  - Auth middleware maps missing/deleted users to `SESSION_INVALID`, because an
+    already-issued token can no longer resolve to an active session.
+- `AuthSessionError` has a single auth-session meaning and can convert through
+  `From<AuthSessionError> for AppError`.
 
 ## API Overview
 

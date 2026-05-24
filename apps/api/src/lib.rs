@@ -1,9 +1,9 @@
 pub mod app;
 pub mod auth;
 pub mod docs;
+pub mod errors;
 pub mod extractors;
 pub mod middleware;
-pub mod request;
 pub mod router;
 pub mod routes;
 pub mod state;

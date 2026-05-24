@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::request::errors;
+use crate::errors::request as errors;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,16 +92,13 @@ pub async fn upload_file(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| errors::MULTIPART_FIELD_FAILED.into_error().with_source(e))?
+        .map_err(errors::multipart_field_error)?
     {
         let file_name = field
             .file_name()
             .map(ToString::to_string)
             .unwrap_or_else(|| "upload.bin".to_string());
-        let bytes = field
-            .bytes()
-            .await
-            .map_err(|e| errors::MULTIPART_FIELD_FAILED.into_error().with_source(e))?;
+        let bytes = field.bytes().await.map_err(errors::multipart_field_error)?;
         uploaded = Some(
             file_storage::files::store_uploaded_bytes(
                 &state.pool,
