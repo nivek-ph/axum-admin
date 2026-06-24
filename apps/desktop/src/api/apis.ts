@@ -29,6 +29,12 @@ export interface ApiRoleSelection {
   authorityIds: number[]
 }
 
+export interface ApiRoleMatrixItem {
+  path: string
+  method: string
+  authorityIds: number[]
+}
+
 export function normalizeApiListResponse(payload: ApiResponse<ApiListResult>) {
   return {
     list: payload?.data?.list || [],
@@ -42,6 +48,22 @@ export function normalizeApiRoleSelection(payload: ApiResponse<ApiRoleSelection>
   return {
     authorityIds: payload?.data?.authorityIds || []
   }
+}
+
+export function normalizeAuthorityApiListResponse(payload: ApiResponse<{ apis?: ApiRecord[] }>) {
+  return Array.isArray(payload?.data?.apis) ? payload.data.apis : []
+}
+
+export function apiPermissionKey(path: string, method: string) {
+  return `${method} ${path}`
+}
+
+export function normalizeApiRoleMatrixResponse(payload: ApiResponse<{ items?: ApiRoleMatrixItem[] }>) {
+  const items = Array.isArray(payload?.data?.items) ? payload.data.items : []
+  return items.reduce<Record<string, number[]>>((acc, item) => {
+    acc[apiPermissionKey(item.path, item.method)] = item.authorityIds || []
+    return acc
+  }, {})
 }
 
 export async function fetchApis(filters: ApiSearchFilters = {}) {
@@ -86,4 +108,17 @@ export async function fetchApiRoles(path: string, method: string) {
 
 export async function setApiRoles(path: string, method: string, authorityIds: number[]) {
   return http.put('/routes/roles', { path, method, authorityIds }, withAuthHeaders())
+}
+
+export async function fetchApiRoleMatrix() {
+  const response = await http.get('/routes/role-matrix', withAuthHeaders())
+  return normalizeApiRoleMatrixResponse(response)
+}
+
+export async function fetchAuthorityApis(authorityId: number) {
+  const response = await http.get('/routes/authority', {
+    ...withAuthHeaders(),
+    params: { authorityId }
+  })
+  return normalizeAuthorityApiListResponse(response)
 }

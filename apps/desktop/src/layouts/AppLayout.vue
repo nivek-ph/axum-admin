@@ -53,11 +53,11 @@ import AppSidebar from '@/components/AppSidebar.vue'
 
 @media (max-width: 1180px) {
   .layout-frame {
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: 220px minmax(0, 1fr);
   }
 }
 
-@media (max-width: 960px) {
+@media (max-width: 720px) {
   .layout-shell {
     padding: 12px;
   }

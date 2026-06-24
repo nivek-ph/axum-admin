@@ -25,10 +25,6 @@ async fn main() {
     system::menu::ensure_default_menu(&pool)
         .await
         .expect("default menu should be bootstrapped");
-    system::api_registry::ensure_default_apis(&pool)
-        .await
-        .expect("default apis should be bootstrapped");
-
     let password_service = PasswordService::new();
     system::users::ensure_admin_user(
         &pool,

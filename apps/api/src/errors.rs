@@ -17,6 +17,8 @@ pub mod auth {
         "AUTH_RESOLVE_FAILED",
         "failed to resolve authenticated user",
     );
+    pub const PERMISSION_DENIED: ErrorSpec =
+        ErrorSpec::forbidden("PERMISSION_DENIED", "permission denied");
     pub const LOGIN_OPERATION_FAILED: ErrorSpec =
         ErrorSpec::internal("LOGIN_OPERATION_FAILED", "login failed");
 

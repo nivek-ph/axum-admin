@@ -8,7 +8,9 @@ use axum::{
 use admin_httpz::{AppResult, OptionAppExt};
 use system::users::LoginError;
 
-use crate::errors::auth::{self as errors, AUTH_RESOLVE_FAILED, SESSION_INVALID};
+use crate::errors::auth::{
+    self as errors, AUTH_RESOLVE_FAILED, PERMISSION_DENIED, SESSION_INVALID,
+};
 use crate::state::AppState;
 
 const X_FORWARDED_FOR: &str = "x-forwarded-for";
@@ -33,6 +35,7 @@ pub async fn require_auth(
 ) -> AppResult<Response> {
     let method = request.method().to_string();
     let path = request.uri().path().to_string();
+    let permission_path = permission_registry_path(&path);
     let headers = request.headers();
     let ip = headers
         .get(X_FORWARDED_FOR)
@@ -63,6 +66,23 @@ pub async fn require_auth(
         })?;
     let user_id = user.id;
 
+    if !is_self_service_endpoint(&method, &permission_path) {
+        match system::api_registry::check_api_access(
+            &state.pool,
+            user.authority_id,
+            &permission_path,
+            &method,
+        )
+        .await?
+        {
+            system::api_registry::ApiAccessDecision::Allowed => {}
+            system::api_registry::ApiAccessDecision::Denied
+            | system::api_registry::ApiAccessDecision::Unregistered => {
+                return Err(PERMISSION_DENIED.into());
+            }
+        }
+    }
+
     request.extensions_mut().insert(user);
 
     let response = next.run(request).await;
@@ -83,6 +103,28 @@ pub async fn require_auth(
     .await;
 
     Ok(response)
+}
+
+fn is_self_service_endpoint(method: &str, path: &str) -> bool {
+    matches!(
+        (method, path),
+        ("GET", "/api/users/me")
+            | ("PUT", "/api/users/me")
+            | ("PUT", "/api/users/me/password")
+            | ("PUT", "/api/users/me/settings")
+            | ("GET", "/api/menus/current")
+            | ("POST", "/api/auth/logout")
+    )
+}
+
+fn permission_registry_path(path: &str) -> String {
+    if path == "/api" || path.starts_with("/api/") {
+        path.to_string()
+    } else if path.starts_with('/') {
+        format!("/api{path}")
+    } else {
+        format!("/api/{path}")
+    }
 }
 
 #[cfg(test)]
@@ -117,5 +159,25 @@ mod tests {
             "Bearer ".parse().expect("valid header value"),
         );
         assert_eq!(extract_bearer_token(&headers), None);
+    }
+
+    #[test]
+    fn self_service_endpoints_exclude_role_switching() {
+        assert!(is_self_service_endpoint("GET", "/api/users/me"));
+        assert!(is_self_service_endpoint("GET", "/api/menus/current"));
+        assert!(is_self_service_endpoint("POST", "/api/auth/logout"));
+        assert!(!is_self_service_endpoint("PUT", "/api/users/me/authority",));
+    }
+
+    #[test]
+    fn permission_registry_path_restores_nested_api_prefix() {
+        assert_eq!(
+            permission_registry_path("/menus/1/roles"),
+            "/api/menus/1/roles"
+        );
+        assert_eq!(
+            permission_registry_path("/api/menus/current"),
+            "/api/menus/current"
+        );
     }
 }

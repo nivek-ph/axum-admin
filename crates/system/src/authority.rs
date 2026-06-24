@@ -5,6 +5,8 @@ use admin_httpz::AppError;
 
 use crate::errors;
 
+pub const SUPER_ADMIN_AUTHORITY_ID: i64 = 888;
+
 #[derive(Debug, Clone, FromRow)]
 pub struct AuthorityRecord {
     pub authority_id: i64,
@@ -38,7 +40,7 @@ pub struct AuthorityDataView {
 
 pub fn default_authorities() -> Vec<AuthorityView> {
     vec![AuthorityView {
-        authority_id: 888,
+        authority_id: SUPER_ADMIN_AUTHORITY_ID,
         authority_name: "Super Admin".to_string(),
         parent_id: 0,
         default_router: "dashboard".to_string(),

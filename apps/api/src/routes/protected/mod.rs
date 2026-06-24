@@ -39,6 +39,8 @@ pub fn router() -> Router<crate::state::AppState> {
         .route("/routes/all", get(api::get_all_apis))
         .route("/routes/groups", get(api::get_api_groups))
         .route("/routes/casbin/refresh", post(api::fresh_casbin))
+        .route("/routes/authority", get(api::get_authority_apis))
+        .route("/routes/role-matrix", get(api::get_api_role_matrix))
         .route(
             "/routes/roles",
             get(api::get_api_roles).put(api::set_api_roles),
@@ -162,6 +164,7 @@ pub fn router() -> Router<crate::state::AppState> {
         .route("/menus/current", get(menu::get_menu))
         .route("/menus", get(menu::get_menu_list).post(menu::add_base_menu))
         .route("/menus/tree", get(menu::get_base_menu_tree))
+        .route("/menus/role-matrix", get(menu::get_menu_role_matrix))
         .route(
             "/menus/{id}",
             get(menu::get_base_menu_by_path_id)
@@ -174,7 +177,9 @@ pub fn router() -> Router<crate::state::AppState> {
         )
         .route(
             "/menus/authority",
-            get(menu::get_menu_authority).post(menu::add_menu_authority),
+            get(menu::get_menu_authority)
+                .post(menu::add_menu_authority)
+                .put(menu::set_menu_authority),
         )
         .route("/files", get(file::get_file_list_by_query))
         .route("/files/import-url", post(file::import_url))

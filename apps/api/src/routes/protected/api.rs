@@ -161,6 +161,28 @@ pub async fn get_api_roles(
     Ok(Json(ApiResponse::ok(serde_json::json!(selection))))
 }
 
+pub async fn get_authority_apis(
+    State(state): State<AppState>,
+    Query(payload): Query<system::api_registry::AuthorityApiQuery>,
+) -> AppResult<Json<ApiResponse<Value>>> {
+    let apis =
+        system::api_registry::get_apis_by_authority_id(&state.pool, payload.authority_id).await?;
+
+    Ok(Json(ApiResponse::ok(serde_json::json!({
+        "apis": apis,
+    }))))
+}
+
+pub async fn get_api_role_matrix(
+    State(state): State<AppState>,
+) -> AppResult<Json<ApiResponse<Value>>> {
+    let items = system::api_registry::get_api_role_matrix(&state.pool).await?;
+
+    Ok(Json(ApiResponse::ok(serde_json::json!({
+        "items": items,
+    }))))
+}
+
 pub async fn set_api_roles(
     State(state): State<AppState>,
     Json(payload): Json<system::api_registry::SetApiRolesRequest>,

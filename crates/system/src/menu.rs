@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -62,27 +62,84 @@ pub struct MenuView {
 }
 
 pub fn default_menus() -> Vec<MenuView> {
-    vec![MenuView {
-        id: 1,
+    [
+        (
+            1,
+            "dashboard",
+            "Dashboard",
+            "view/dashboard/index.vue",
+            "odometer",
+        ),
+        (2, "users", "User", "view/users/index.vue", "user"),
+        (3, "roles", "Role", "view/roles/index.vue", "shield"),
+        (4, "menus", "Menu", "view/menus/index.vue", "menu"),
+        (5, "apis", "API", "view/apis/index.vue", "route"),
+        (6, "params", "Param", "view/params/index.vue", "sliders"),
+        (
+            7,
+            "dictionaries",
+            "Dictionary",
+            "view/dictionaries/index.vue",
+            "book",
+        ),
+        (8, "files", "File", "view/files/index.vue", "file"),
+        (
+            9,
+            "login-logs",
+            "Login logs",
+            "view/login-logs/index.vue",
+            "history",
+        ),
+        (
+            10,
+            "operation-logs",
+            "Operation logs",
+            "view/operation-logs/index.vue",
+            "list",
+        ),
+        (11, "profile", "Profile", "view/profile/index.vue", "user"),
+        (
+            12,
+            "system-config",
+            "System config",
+            "view/system-config/index.vue",
+            "settings",
+        ),
+        (
+            13,
+            "system-state",
+            "System status",
+            "view/system-state/index.vue",
+            "activity",
+        ),
+    ]
+    .into_iter()
+    .map(|(id, name, title, component, icon)| default_menu(id, name, title, component, icon))
+    .collect()
+}
+
+fn default_menu(id: i64, name: &str, title: &str, component: &str, icon: &str) -> MenuView {
+    MenuView {
+        id,
         parent_id: 0,
-        path: "dashboard".to_string(),
-        name: "dashboard".to_string(),
+        path: name.to_string(),
+        name: name.to_string(),
         hidden: false,
-        component: "view/dashboard/index.vue".to_string(),
-        sort: 1,
+        component: component.to_string(),
+        sort: id as i32,
         meta: MenuMeta {
             active_name: String::new(),
             keep_alive: false,
             default_menu: false,
-            title: "Dashboard".to_string(),
-            icon: "odometer".to_string(),
+            title: title.to_string(),
+            icon: icon.to_string(),
             close_tab: false,
             transition_type: String::new(),
         },
         parameters: Vec::new(),
         menu_btn: Vec::new(),
         children: Vec::new(),
-    }]
+    }
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -105,6 +162,12 @@ pub struct MenuRecord {
     pub menu_btn: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, FromRow)]
+struct MenuRoleMatrixRow {
+    pub menu_id: i64,
+    pub authority_id: i64,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct MenuIdRequest {
     #[serde(rename = "ID", alias = "id", alias = "menuId")]
@@ -122,6 +185,14 @@ pub struct AddMenuAuthorityRequest {
     pub menus: Vec<MenuView>,
     #[serde(rename = "authorityId")]
     pub authority_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetAuthorityMenusRequest {
+    #[serde(rename = "authorityId")]
+    pub authority_id: i64,
+    #[serde(rename = "menuIds")]
+    pub menu_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -155,47 +226,65 @@ impl From<MenuError> for AppError {
 }
 
 pub async fn ensure_default_menu(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        insert into sys_menus (
-            id, parent_id, path, name, hidden, component, sort,
-            active_name, keep_alive, default_menu, title, icon, close_tab, transition_type,
-            parameters, menu_btn
-        ) values (
-            1, 0, 'dashboard', 'dashboard', false, 'view/dashboard/index.vue', 1,
-            '', false, false, 'Dashboard', 'odometer', false, '',
-            '[]'::jsonb, '[]'::jsonb
+    for menu in default_menus() {
+        let menu_id: i64 = sqlx::query_scalar(
+            r#"
+            insert into sys_menus (
+                parent_id, path, name, hidden, component, sort,
+                active_name, keep_alive, default_menu, title, icon, close_tab, transition_type,
+                parameters, menu_btn
+            ) values (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11, $12, $13,
+                $14, $15
+            )
+            on conflict (name) do update
+            set parent_id = excluded.parent_id,
+                path = excluded.path,
+                hidden = excluded.hidden,
+                component = excluded.component,
+                sort = excluded.sort,
+                active_name = excluded.active_name,
+                keep_alive = excluded.keep_alive,
+                default_menu = excluded.default_menu,
+                title = excluded.title,
+                icon = excluded.icon,
+                close_tab = excluded.close_tab,
+                transition_type = excluded.transition_type,
+                parameters = excluded.parameters,
+                menu_btn = excluded.menu_btn
+            returning id
+            "#,
         )
-        on conflict (id) do update
-        set parent_id = excluded.parent_id,
-            path = excluded.path,
-            name = excluded.name,
-            hidden = excluded.hidden,
-            component = excluded.component,
-            sort = excluded.sort,
-            active_name = excluded.active_name,
-            keep_alive = excluded.keep_alive,
-            default_menu = excluded.default_menu,
-            title = excluded.title,
-            icon = excluded.icon,
-            close_tab = excluded.close_tab,
-            transition_type = excluded.transition_type,
-            parameters = excluded.parameters,
-            menu_btn = excluded.menu_btn
-        "#,
-    )
-    .execute(pool)
-    .await?;
+        .bind(menu.parent_id)
+        .bind(menu.path)
+        .bind(menu.name)
+        .bind(menu.hidden)
+        .bind(menu.component)
+        .bind(menu.sort)
+        .bind(menu.meta.active_name)
+        .bind(menu.meta.keep_alive)
+        .bind(menu.meta.default_menu)
+        .bind(menu.meta.title)
+        .bind(menu.meta.icon)
+        .bind(menu.meta.close_tab)
+        .bind(menu.meta.transition_type)
+        .bind(serde_json::to_value(menu.parameters).unwrap_or_else(|_| serde_json::json!([])))
+        .bind(serde_json::to_value(menu.menu_btn).unwrap_or_else(|_| serde_json::json!([])))
+        .fetch_one(pool)
+        .await?;
 
-    sqlx::query(
-        r#"
-        insert into sys_role_menus (authority_id, menu_id)
-        values (888, 1)
-        on conflict do nothing
-        "#,
-    )
-    .execute(pool)
-    .await?;
+        sqlx::query(
+            r#"
+            insert into sys_role_menus (authority_id, menu_id)
+            values (888, $1)
+            on conflict do nothing
+            "#,
+        )
+        .bind(menu_id)
+        .execute(pool)
+        .await?;
+    }
 
     sqlx::query(
         r#"
@@ -425,6 +514,13 @@ pub async fn add_menu_authority(
     replace_authority_menus(pool, payload.authority_id, &menu_ids).await
 }
 
+pub async fn set_authority_menus(
+    pool: &sqlx::PgPool,
+    payload: SetAuthorityMenusRequest,
+) -> Result<(), MenuError> {
+    replace_authority_menus(pool, payload.authority_id, &payload.menu_ids).await
+}
+
 pub async fn get_menu_roles(
     pool: &sqlx::PgPool,
     menu_id: i64,
@@ -446,6 +542,36 @@ pub async fn get_menu_roles(
         authority_ids,
         default_router_authority_ids,
     })
+}
+
+pub async fn get_menu_role_matrix(
+    pool: &sqlx::PgPool,
+) -> Result<Vec<MenuRoleMatrixItem>, MenuError> {
+    let rows = sqlx::query_as::<_, MenuRoleMatrixRow>(
+        r#"
+        select menu_id, authority_id
+        from sys_role_menus
+        order by menu_id, authority_id
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut grouped = BTreeMap::<i64, Vec<i64>>::new();
+    for row in rows {
+        grouped
+            .entry(row.menu_id)
+            .or_default()
+            .push(row.authority_id);
+    }
+
+    Ok(grouped
+        .into_iter()
+        .map(|(menu_id, authority_ids)| MenuRoleMatrixItem {
+            menu_id,
+            authority_ids,
+        })
+        .collect())
 }
 
 pub async fn set_menu_roles(
@@ -592,6 +718,14 @@ pub struct MenuRoleSelection {
     pub authority_ids: Vec<i64>,
     #[serde(rename = "defaultRouterAuthorityIds")]
     pub default_router_authority_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MenuRoleMatrixItem {
+    #[serde(rename = "menuId")]
+    pub menu_id: i64,
+    #[serde(rename = "authorityIds")]
+    pub authority_ids: Vec<i64>,
 }
 
 #[cfg(test)]

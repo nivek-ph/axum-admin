@@ -5,15 +5,7 @@ use sqlx::FromRow;
 
 use admin_httpz::AppError;
 
-use crate::errors;
-
-const DEFAULT_APIS: [(&str, &str, &str, &str); 5] = [
-    ("/api/auth/login", "User login", "auth", "POST"),
-    ("/api/users/me", "Get current user", "user", "GET"),
-    ("/api/users", "List users", "user", "GET"),
-    ("/api/menus/current", "Get menus", "menu", "GET"),
-    ("/api/roles", "List roles", "role", "GET"),
-];
+use crate::{authority::SUPER_ADMIN_AUTHORITY_ID, errors};
 
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct ApiRecord {
@@ -24,6 +16,19 @@ pub struct ApiRecord {
     #[serde(rename = "apiGroup")]
     pub api_group: String,
     pub method: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ApiRoleMatrixRow {
+    pub path: String,
+    pub method: String,
+    pub authority_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct RegisteredApiPath {
+    pub id: i64,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -70,6 +75,12 @@ pub struct ApiRoleQuery {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct AuthorityApiQuery {
+    #[serde(rename = "authorityId")]
+    pub authority_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SetApiRolesRequest {
     pub path: String,
     pub method: String,
@@ -103,6 +114,21 @@ pub struct ApiRoleSelection {
     pub authority_ids: Vec<i64>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiRoleMatrixItem {
+    pub path: String,
+    pub method: String,
+    #[serde(rename = "authorityIds")]
+    pub authority_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiAccessDecision {
+    Allowed,
+    Denied,
+    Unregistered,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("API already exists")]
@@ -123,35 +149,6 @@ impl From<ApiError> for AppError {
                 .with_source(error),
         }
     }
-}
-
-pub async fn ensure_default_apis(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-    for (path, description, api_group, method) in DEFAULT_APIS {
-        sqlx::query(
-            r#"
-            insert into sys_apis (path, description, api_group, method)
-            values ($1, $2, $3, $4)
-            on conflict (path, method) do update
-            set description = excluded.description,
-                api_group = excluded.api_group
-            "#,
-        )
-        .bind(path)
-        .bind(description)
-        .bind(api_group)
-        .bind(method)
-        .execute(pool)
-        .await?;
-    }
-
-    Ok(())
-}
-
-pub fn default_api_descriptions() -> Vec<&'static str> {
-    DEFAULT_APIS
-        .iter()
-        .map(|(_, description, _, _)| *description)
-        .collect()
 }
 
 pub async fn get_api_list(
@@ -347,6 +344,54 @@ pub async fn get_api_roles(
     Ok(ApiRoleSelection { authority_ids })
 }
 
+pub async fn get_apis_by_authority_id(
+    pool: &sqlx::PgPool,
+    authority_id: i64,
+) -> Result<Vec<ApiRecord>, ApiError> {
+    Ok(sqlx::query_as::<_, ApiRecord>(
+        r#"
+        select a.id, a.path, a.description, a.api_group, a.method
+        from sys_role_apis ra
+        inner join sys_apis a on a.id = ra.api_id
+        where ra.authority_id = $1
+        order by a.api_group, a.path, a.method
+        "#,
+    )
+    .bind(authority_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn get_api_role_matrix(pool: &sqlx::PgPool) -> Result<Vec<ApiRoleMatrixItem>, ApiError> {
+    let rows = sqlx::query_as::<_, ApiRoleMatrixRow>(
+        r#"
+        select a.path, a.method, ra.authority_id
+        from sys_apis a
+        left join sys_role_apis ra on a.id = ra.api_id
+        order by a.api_group, a.path, a.method, ra.authority_id
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut grouped = BTreeMap::<(String, String), Vec<i64>>::new();
+    for row in rows {
+        let authority_ids = grouped.entry((row.path, row.method)).or_default();
+        if let Some(authority_id) = row.authority_id {
+            authority_ids.push(authority_id);
+        }
+    }
+
+    Ok(grouped
+        .into_iter()
+        .map(|((path, method), authority_ids)| ApiRoleMatrixItem {
+            path,
+            method,
+            authority_ids,
+        })
+        .collect())
+}
+
 pub async fn set_api_roles(
     pool: &sqlx::PgPool,
     payload: SetApiRolesRequest,
@@ -430,4 +475,108 @@ pub async fn get_policy_path_by_authority_id(
     .bind(authority_id)
     .fetch_all(pool)
     .await?)
+}
+
+pub fn route_pattern_matches(pattern: &str, path: &str) -> bool {
+    let pattern_segments = pattern.trim_matches('/').split('/').collect::<Vec<_>>();
+    let path_segments = path.trim_matches('/').split('/').collect::<Vec<_>>();
+
+    if pattern_segments.len() != path_segments.len() {
+        return false;
+    }
+
+    pattern_segments
+        .iter()
+        .zip(path_segments.iter())
+        .all(|(pattern_segment, path_segment)| {
+            is_dynamic_segment(pattern_segment) || pattern_segment == path_segment
+        })
+}
+
+fn is_dynamic_segment(segment: &str) -> bool {
+    (segment.starts_with('{') && segment.ends_with('}')) || segment.starts_with(':')
+}
+
+pub async fn check_api_access(
+    pool: &sqlx::PgPool,
+    authority_id: i64,
+    path: &str,
+    method: &str,
+) -> Result<ApiAccessDecision, ApiError> {
+    if authority_id == SUPER_ADMIN_AUTHORITY_ID {
+        return Ok(ApiAccessDecision::Allowed);
+    }
+
+    let method = method.to_ascii_uppercase();
+    let candidates = sqlx::query_as::<_, RegisteredApiPath>(
+        r#"
+        select id, path
+        from sys_apis
+        where method = $1
+        order by path
+        "#,
+    )
+    .bind(method)
+    .fetch_all(pool)
+    .await?;
+
+    let exact_ids = candidates
+        .iter()
+        .filter(|api| api.path == path)
+        .map(|api| api.id)
+        .collect::<Vec<_>>();
+    let matched_api_ids = if exact_ids.is_empty() {
+        candidates
+            .iter()
+            .filter(|api| route_pattern_matches(&api.path, path))
+            .map(|api| api.id)
+            .collect::<Vec<_>>()
+    } else {
+        exact_ids
+    };
+
+    if matched_api_ids.is_empty() {
+        return Ok(ApiAccessDecision::Unregistered);
+    }
+
+    let allowed: Option<i64> = sqlx::query_scalar(
+        r#"
+        select api_id
+        from sys_role_apis
+        where authority_id = $1 and api_id = any($2)
+        limit 1
+        "#,
+    )
+    .bind(authority_id)
+    .bind(&matched_api_ids)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(if allowed.is_some() {
+        ApiAccessDecision::Allowed
+    } else {
+        ApiAccessDecision::Denied
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn route_pattern_matches_dynamic_segments() {
+        assert!(route_pattern_matches(
+            "/api/menus/{id}/roles",
+            "/api/menus/1/roles",
+        ));
+        assert!(route_pattern_matches("/api/routes/{id}", "/api/routes/42",));
+        assert!(!route_pattern_matches(
+            "/api/menus/{id}/roles",
+            "/api/menus/1",
+        ));
+        assert!(!route_pattern_matches(
+            "/api/menus/{id}/roles",
+            "/api/routes/1/roles",
+        ));
+    }
 }
