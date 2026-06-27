@@ -1,11 +1,10 @@
-use admin_httpz::{ApiResponse, AppResult, OptionAppExt};
+use admin_httpz::{ApiResponse, AppResult};
 use axum::{
     Json,
     extract::{Path, Query, State},
 };
 use serde_json::Value;
 
-use crate::errors::request as errors;
 use crate::extractors::current_user::CurrentUser;
 use crate::state::AppState;
 
@@ -168,30 +167,6 @@ pub async fn reset_password_by_id(
     Ok(Json(ApiResponse::ok_message("password reset")))
 }
 
-pub async fn set_user_authorities(
-    State(state): State<AppState>,
-    CurrentUser(user): CurrentUser,
-    Json(payload): Json<system::users::SetUserAuthoritiesRequest>,
-) -> AppResult<Json<ApiResponse<Value>>> {
-    system::users::ensure_user_in_scope(&state.pool, user.id, payload.id).await?;
-    system::users::set_user_authorities(&state.pool, payload).await?;
-
-    Ok(Json(ApiResponse::ok_message("role updated")))
-}
-
-pub async fn set_user_authorities_by_id(
-    State(state): State<AppState>,
-    CurrentUser(user): CurrentUser,
-    Path(id): Path<i64>,
-    Json(mut payload): Json<system::users::SetUserAuthoritiesRequest>,
-) -> AppResult<Json<ApiResponse<Value>>> {
-    payload.id = id;
-    system::users::ensure_user_in_scope(&state.pool, user.id, id).await?;
-    system::users::set_user_authorities(&state.pool, payload).await?;
-
-    Ok(Json(ApiResponse::ok_message("role updated")))
-}
-
 pub async fn set_user_roles_by_id(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -202,18 +177,4 @@ pub async fn set_user_roles_by_id(
     system::users::set_user_roles(&state.pool, id, payload).await?;
 
     Ok(Json(ApiResponse::ok_message("roles updated")))
-}
-
-pub async fn set_user_authority(
-    State(state): State<AppState>,
-    CurrentUser(user): CurrentUser,
-    Json(payload): Json<serde_json::Value>,
-) -> AppResult<Json<ApiResponse<Value>>> {
-    let authority_id = payload
-        .get("authorityId")
-        .and_then(|value| value.as_i64())
-        .ok_or_spec(errors::AUTHORITY_ID_REQUIRED)?;
-    system::users::set_user_authority(&state.pool, user.id, authority_id).await?;
-
-    Ok(Json(ApiResponse::ok_message("switched")))
 }

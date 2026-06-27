@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/api/authorities', () => ({
   fetchAuthorities: vi.fn().mockResolvedValue([
     {
-      authorityId: 1,
+      authorityId: 2,
       authorityName: 'Developer',
       parentId: 0,
       defaultRouter: 'dashboard',
@@ -23,9 +23,9 @@ vi.mock('@/api/authorities', () => ({
       dataAuthorityId: [],
     },
     {
-      authorityId: 888,
+      authorityId: 1,
       authorityName: 'Super Admin',
-      code: 'legacy_super_admin',
+      code: 'super_admin',
       parentId: 0,
       defaultRouter: 'dashboard',
       children: [],
@@ -197,22 +197,22 @@ async function flushWorkbench() {
   await Promise.resolve();
 }
 
-function mountWithAuthority(authorityId = 888, permissions?: string[]) {
+function mountWithAuthority(authorityId = 1, permissions?: string[]) {
   const pinia = createPinia();
   setActivePinia(pinia);
   const authStore = useAuthStore();
   authStore.setSession('token-123', {
-    ID: authorityId === 888 ? 1 : 2,
-    userName: authorityId === 888 ? 'admin' : 'nick',
-    nickName: authorityId === 888 ? 'admin' : 'nick',
+    ID: authorityId === 1 ? 1 : 2,
+    userName: authorityId === 1 ? 'admin' : 'nick',
+    nickName: authorityId === 1 ? 'admin' : 'nick',
     authority: {
       authorityId,
-      authorityName: authorityId === 888 ? 'Super Admin' : 'Developer',
+      authorityName: authorityId === 1 ? 'Super Admin' : 'Developer',
       defaultRouter: 'dashboard',
     },
     permissions:
       permissions ??
-      (authorityId === 888
+      (authorityId === 1
         ? []
         : ['system:role:list', 'system:role:update-permission']),
   });
@@ -277,14 +277,14 @@ describe('RoleListView', () => {
     await wrapper.find('[data-test="role-list"] button:first-child').trigger('click');
     await flushWorkbench();
 
-    const developerMenuCheckbox = wrapper.find('[data-test="menu-permission-2-1"]');
+    const developerMenuCheckbox = wrapper.find('[data-test="menu-permission-2-2"]');
     expect((developerMenuCheckbox.element as HTMLInputElement).checked).toBe(true);
     await developerMenuCheckbox.setValue(false);
 
     await wrapper.find('[data-test="save-function-permissions"]').trigger('click');
     await flushWorkbench();
 
-    expect(mocks.setRolePermissionIds).toHaveBeenCalledWith(1, []);
+    expect(mocks.setRolePermissionIds).toHaveBeenCalledWith(2, []);
   });
 
   it('preserves non-menu permission resources when menu authorization changes', async () => {
@@ -295,11 +295,11 @@ describe('RoleListView', () => {
     await wrapper.find('[data-test="role-list"] button:first-child').trigger('click');
     await flushWorkbench();
 
-    await wrapper.find('[data-test="menu-permission-2-1"]').setValue(false);
+    await wrapper.find('[data-test="menu-permission-2-2"]').setValue(false);
     await wrapper.find('[data-test="save-function-permissions"]').trigger('click');
     await flushWorkbench();
 
-    expect(mocks.setRolePermissionIds).toHaveBeenCalledWith(1, [2]);
+    expect(mocks.setRolePermissionIds).toHaveBeenCalledWith(2, [2]);
   });
 
   it('edits unified permission resources for the selected role', async () => {
@@ -317,7 +317,7 @@ describe('RoleListView', () => {
     await wrapper.find('[data-test="save-role-permissions"]').trigger('click');
     await flushWorkbench();
 
-    expect(mocks.setRolePermissionIds).toHaveBeenCalledWith(1, [1, 2]);
+    expect(mocks.setRolePermissionIds).toHaveBeenCalledWith(2, [1, 2]);
   });
 
   it('edits data scope and custom departments for the selected role', async () => {
@@ -337,10 +337,10 @@ describe('RoleListView', () => {
     await flushWorkbench();
 
     expect(mocks.updateRole).toHaveBeenCalledWith(
-      1,
+      2,
       expect.objectContaining({ data_scope: 'custom_depts' })
     );
-    expect(mocks.setRoleDeptIds).toHaveBeenCalledWith(1, [1, 2]);
+    expect(mocks.setRoleDeptIds).toHaveBeenCalledWith(2, [1, 2]);
   });
 
   it('disables permission editing for the super admin role', async () => {
@@ -352,14 +352,14 @@ describe('RoleListView', () => {
 
     expect(wrapper.find('[data-test="save-function-permissions"]').exists()).toBe(false);
 
-    const superAdminMenuCheckbox = wrapper.find('[data-test="menu-permission-2-888"]');
+    const superAdminMenuCheckbox = wrapper.find('[data-test="menu-permission-2-1"]');
     expect((superAdminMenuCheckbox.element as HTMLInputElement).disabled).toBe(true);
 
-    const superAdminActionCheckbox = wrapper.find('[data-test="action-permission-system:user:list-888"]');
+    const superAdminActionCheckbox = wrapper.find('[data-test="action-permission-system:user:list-1"]');
     expect((superAdminActionCheckbox.element as HTMLInputElement).disabled).toBe(true);
   });
 
-  it('disables permission editing for system roles that do not use the legacy authority id', async () => {
+  it('disables permission editing for system roles that do not use the system role id', async () => {
     const wrapper = mountWithAuthority();
 
     await flushWorkbench();
@@ -373,15 +373,15 @@ describe('RoleListView', () => {
   });
 
   it('hides permission save controls without role permission', async () => {
-    const wrapper = mountWithAuthority(1, ['system:role:list']);
+    const wrapper = mountWithAuthority(2, ['system:role:list']);
 
     await flushWorkbench();
 
     expect(wrapper.find('[data-test="save-function-permissions"]').exists()).toBe(false);
-    const menuCheckbox = wrapper.find('[data-test="menu-permission-2-1"]');
+    const menuCheckbox = wrapper.find('[data-test="menu-permission-2-2"]');
     expect((menuCheckbox.element as HTMLInputElement).disabled).toBe(true);
 
-    const actionCheckbox = wrapper.find('[data-test="action-permission-system:user:list-1"]');
+    const actionCheckbox = wrapper.find('[data-test="action-permission-system:user:list-2"]');
     expect((actionCheckbox.element as HTMLInputElement).disabled).toBe(true);
   });
 });

@@ -50,8 +50,7 @@ vi.mock('@/api/menus', () => ({
   updateMenu: vi.fn(),
   deleteMenu: vi.fn(),
   fetchMenuRoles: vi.fn().mockResolvedValue({
-    authorityIds: [],
-    defaultRouterAuthorityIds: []
+    roleIds: []
   }),
   setMenuRoles: vi.fn()
 }))

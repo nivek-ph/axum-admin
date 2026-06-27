@@ -17,7 +17,6 @@ VALUES
 ('system', 'user', 'delete', 'system:user:delete', 'Delete User', 'action', 'DELETE', '/api/users/{id}'),
 ('system', 'user', 'reset-password', 'system:user:reset-password', 'Reset User Password', 'action', 'POST', '/api/users/{id}/password/reset'),
 ('system', 'user', 'assign-roles', 'system:user:assign-roles', 'Assign User Roles', 'action', 'PUT', '/api/users/{id}/roles'),
-('system', 'user', 'assign-authorities', 'system:user:assign-authorities', 'Assign User Authorities', 'action', 'PUT', '/api/users/{id}/authorities'),
 ('system', 'role', 'list', 'system:role:list', 'List Roles', 'action', 'GET', '/api/roles'),
 ('system', 'role', 'create', 'system:role:create', 'Create Role', 'action', 'POST', '/api/roles'),
 ('system', 'role', 'update', 'system:role:update', 'Update Role', 'action', 'PUT', '/api/roles/{id}'),
@@ -100,75 +99,7 @@ VALUES
 ('system', 'config', 'get', 'system:config:get', 'Get System Config', 'action', 'GET', '/api/system/config'),
 ('system', 'config', 'update', 'system:config:update', 'Update System Config', 'action', 'PUT', '/api/system/config'),
 ('system', 'state', 'get', 'system:state:get', 'Get System State', 'action', 'GET', '/api/system/server-info'),
-('system', 'state', 'reload', 'system:state:reload', 'Reload System', 'action', 'POST', '/api/system/reload'),
-('system', 'user', 'switch-authority', 'system:user:switch-authority', 'Switch User Authority', 'action', 'PUT', '/api/users/me/authority');
-
-DELETE FROM sys_role_permissions
-WHERE permission_id IN (
-    SELECT id
-    FROM sys_permissions
-    WHERE code IN (
-        'system:role:permission-tree',
-        'system:role:permission-matrix',
-        'system:role:data-authority',
-        'system:menu:role-matrix',
-        'system:menu:get-authority',
-        'system:menu:set-authority'
-    )
-);
-
-DELETE FROM sys_permission_apis
-WHERE path_pattern IN (
-    '/api/roles/permissions/tree',
-    '/api/roles/permissions/role-matrix',
-    '/api/roles/data-authority',
-    '/api/menus/role-matrix',
-    '/api/menus/authority'
-)
-OR permission_id IN (
-    SELECT id
-    FROM sys_permissions
-    WHERE code IN (
-        'system:role:permission-tree',
-        'system:role:permission-matrix',
-        'system:role:data-authority',
-        'system:menu:role-matrix',
-        'system:menu:get-authority',
-        'system:menu:set-authority'
-    )
-);
-
-DELETE FROM sys_permissions
-WHERE code IN (
-    'system:role:permission-tree',
-    'system:role:permission-matrix',
-    'system:role:data-authority',
-    'system:menu:role-matrix',
-    'system:menu:get-authority',
-    'system:menu:set-authority'
-);
-
-DELETE FROM sys_role_apis
-WHERE api_id IN (
-    SELECT id
-    FROM sys_apis
-    WHERE path IN (
-        '/api/roles/permissions/tree',
-        '/api/roles/permissions/role-matrix',
-        '/api/roles/data-authority',
-        '/api/menus/role-matrix',
-        '/api/menus/authority'
-    )
-);
-
-DELETE FROM sys_apis
-WHERE path IN (
-    '/api/roles/permissions/tree',
-    '/api/roles/permissions/role-matrix',
-    '/api/roles/data-authority',
-    '/api/menus/role-matrix',
-    '/api/menus/authority'
-);
+('system', 'state', 'reload', 'system:state:reload', 'Reload System', 'action', 'POST', '/api/system/reload');
 
 INSERT INTO sys_permissions (module_key, resource, action, code, name, type, status)
 SELECT DISTINCT module_key, resource, action, code, name, permission_type, 'enabled'
@@ -179,9 +110,4 @@ INSERT INTO sys_permission_apis (permission_id, method, path_pattern)
 SELECT p.id, seed.method, seed.path_pattern
 FROM _permission_api_seed seed
 JOIN sys_permissions p ON p.code = seed.code
-ON CONFLICT DO NOTHING;
-
-INSERT INTO sys_role_permissions (role_id, permission_id)
-SELECT 1, id
-FROM sys_permissions
 ON CONFLICT DO NOTHING;

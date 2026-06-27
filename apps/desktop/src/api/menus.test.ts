@@ -25,13 +25,11 @@ describe('menu api adapter', () => {
   it('normalizes assigned role ids', () => {
     const result = normalizeMenuRoleSelection({
       data: {
-        authorityIds: [888],
-        defaultRouterAuthorityIds: [888]
+        roleIds: [1]
       }
     })
 
-    expect(result.authorityIds).toEqual([888])
-    expect(result.defaultRouterAuthorityIds).toEqual([888])
+    expect(result.roleIds).toEqual([1])
   })
 
 })

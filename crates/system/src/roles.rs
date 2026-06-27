@@ -83,6 +83,133 @@ pub async fn list(pool: &PgPool) -> Result<Vec<RoleSummary>, sqlx::Error> {
     .await
 }
 
+pub async fn ensure_builtin_roles(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        insert into sys_roles (id, code, name, status, sort, data_scope, is_system)
+        values
+            (1, 'super_admin', 'Super Admin', 'enabled', 0, 'all', true),
+            (2, 'dev', 'Dev', 'enabled', 10, 'self', false),
+            (3, 'ops', 'Ops', 'enabled', 20, 'all', false)
+        on conflict (id) do update
+        set code = excluded.code,
+            name = excluded.name,
+            status = excluded.status,
+            sort = excluded.sort,
+            data_scope = excluded.data_scope,
+            is_system = excluded.is_system,
+            updated_at = now()
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "select setval(pg_get_serial_sequence('sys_roles', 'id'), (select max(id) from sys_roles))",
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn ensure_builtin_role_permissions(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let dev_permissions = [
+        "system:dashboard:page",
+        "system:users:page",
+        "system:profile:page",
+        "system:user:list",
+        "system:user:update",
+    ];
+    let ops_permissions = [
+        "system:dashboard:page",
+        "system:params:page",
+        "system:dictionaries:page",
+        "system:files:page",
+        "system:login-logs:page",
+        "system:operation-logs:page",
+        "system:profile:page",
+        "system:system-config:page",
+        "system:system-state:page",
+        "system:param:list",
+        "system:param:create",
+        "system:param:get",
+        "system:param:update",
+        "system:param:delete",
+        "system:param:get-by-key",
+        "system:param:batch-delete",
+        "system:dictionary:list",
+        "system:dictionary:create",
+        "system:dictionary:get",
+        "system:dictionary:update",
+        "system:dictionary:delete",
+        "system:dictionary:import",
+        "system:dictionary:export",
+        "system:dictionary:details-tree",
+        "system:dictionary-detail:create",
+        "system:dictionary-detail:tree-by-type",
+        "system:dictionary-detail:by-parent",
+        "system:dictionary-detail:get",
+        "system:dictionary-detail:update",
+        "system:dictionary-detail:delete",
+        "system:dictionary-detail:path",
+        "system:file:list",
+        "system:file:import-url",
+        "system:file:upload",
+        "system:file:delete",
+        "system:file:rename",
+        "system:login-log:list",
+        "system:login-log:batch-delete",
+        "system:login-log:get",
+        "system:login-log:delete",
+        "system:operation-log:list",
+        "system:operation-log:batch-delete",
+        "system:operation-log:delete",
+        "system:config:get",
+        "system:config:update",
+        "system:state:get",
+        "system:state:reload",
+    ];
+
+    sqlx::query(
+        r#"
+        insert into sys_role_permissions (role_id, permission_id)
+        select 1, id
+        from sys_permissions
+        on conflict do nothing
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    ensure_role_permissions(pool, 2, &dev_permissions).await?;
+    ensure_role_permissions(pool, 3, &ops_permissions).await?;
+
+    Ok(())
+}
+
+async fn ensure_role_permissions(
+    pool: &PgPool,
+    role_id: i64,
+    permission_codes: &[&str],
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        insert into sys_role_permissions (role_id, permission_id)
+        select $1, id
+        from sys_permissions
+        where code = any($2)
+        on conflict do nothing
+        "#,
+    )
+    .bind(role_id)
+    .bind(permission_codes)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn find(pool: &PgPool, id: i64) -> Result<Option<RoleSummary>, sqlx::Error> {
     sqlx::query_as::<_, RoleSummary>(
         r#"

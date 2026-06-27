@@ -140,14 +140,6 @@
     </UiDialog>
 
     <UiDialog v-model="roleDialogVisible" title="Assign roles" width="520px">
-      <UiAlert
-        v-if="defaultRouterAuthorityIds.length"
-        type="warning"
-        :closable="false"
-        class="dialog-alert"
-      >
-        {{ $t('Roles using this menu as default route: ') }}{{ defaultRouterAuthorityIds.join(', ') }}
-      </UiAlert>
       <UiSelect
         v-model="selectedAuthorityIds"
         multiple
@@ -202,7 +194,6 @@ const roleDialogVisible = ref(false)
 const roleSubmitting = ref(false)
 const selectedMenu = ref<MenuRecord | null>(null)
 const selectedAuthorityIds = ref<number[]>([])
-const defaultRouterAuthorityIds = ref<number[]>([])
 const form = reactive(createEmptyMenu())
 
 const navigationMenus = computed(() => filterNavigationMenus(menus.value))
@@ -340,8 +331,7 @@ async function openRoleDialog(menu: MenuRecord) {
   roleDialogVisible.value = true
   try {
     const selection = await fetchMenuRoles(menu.ID)
-    selectedAuthorityIds.value = selection.authorityIds
-    defaultRouterAuthorityIds.value = selection.defaultRouterAuthorityIds
+    selectedAuthorityIds.value = selection.roleIds
   } catch {
     ElMessage.error(t('Failed to load menu roles'))
   }

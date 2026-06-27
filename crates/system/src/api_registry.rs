@@ -78,13 +78,13 @@ pub struct AuthorityApiQuery {
 pub struct SetApiRolesRequest {
     pub path: String,
     pub method: String,
-    #[serde(rename = "authorityIds")]
+    #[serde(rename = "roleIds")]
     pub authority_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiRoleSelection {
-    #[serde(rename = "authorityIds")]
+    #[serde(rename = "roleIds")]
     pub authority_ids: Vec<i64>,
 }
 
@@ -92,7 +92,7 @@ pub struct ApiRoleSelection {
 pub struct ApiRoleMatrixItem {
     pub path: String,
     pub method: String,
-    #[serde(rename = "authorityIds")]
+    #[serde(rename = "roleIds")]
     pub authority_ids: Vec<i64>,
 }
 

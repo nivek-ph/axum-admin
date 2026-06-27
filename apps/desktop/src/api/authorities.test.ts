@@ -7,7 +7,7 @@ describe('authority api adapter', () => {
     const result = normalizeAuthorityListResponse({
       data: [
         {
-          authorityId: 888,
+          authorityId: 1,
           authorityName: 'Super Admin',
           children: [{ authorityId: 999, authorityName: 'Operator' }],
         },

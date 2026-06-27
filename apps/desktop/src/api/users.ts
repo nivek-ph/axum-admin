@@ -37,7 +37,6 @@ export interface CreateUserForm {
   phone?: string
   email?: string
   enable: number
-  authorityId?: number
   roleIds?: number[]
   deptId?: number
 }
@@ -49,14 +48,8 @@ export interface CreateUserPayload {
   phone?: string
   email?: string
   enable: number
-  authorityId?: number
   roleIds?: number[]
   deptId?: number
-}
-
-export interface UpdateUserAuthoritiesPayload {
-  ID: number
-  authorityIds: number[]
 }
 
 export interface AssignUserRolesPayload {
@@ -80,16 +73,8 @@ export function buildCreateUserPayload(form: CreateUserForm): CreateUserPayload 
     phone: form.phone?.trim() || undefined,
     email: form.email?.trim() || undefined,
     enable: form.enable,
-    authorityId: form.authorityId ?? form.roleIds?.[0],
     roleIds: form.roleIds,
     deptId: form.deptId
-  }
-}
-
-export function buildUpdateUserAuthoritiesPayload(id: number, authorityId: number): UpdateUserAuthoritiesPayload {
-  return {
-    ID: id,
-    authorityIds: [authorityId]
   }
 }
 
@@ -103,10 +88,6 @@ export async function fetchUsers(page = 1, pageSize = 10) {
 
 export async function createUser(form: CreateUserForm) {
   return http.post('/users', buildCreateUserPayload(form), withAuthHeaders())
-}
-
-export async function updateUserAuthorities(id: number, authorityId: number) {
-  return http.put(`/users/${id}/authorities`, buildUpdateUserAuthoritiesPayload(id, authorityId), withAuthHeaders())
 }
 
 export async function assignUserRoles(id: number, payload: AssignUserRolesPayload) {

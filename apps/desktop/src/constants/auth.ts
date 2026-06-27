@@ -1,1 +1,1 @@
-export const SUPER_ADMIN_AUTHORITY_ID = 888;
+export const SUPER_ADMIN_AUTHORITY_ID = 1;

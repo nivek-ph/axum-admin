@@ -68,7 +68,7 @@ pub async fn require_auth(
 
     let has_super_admin_role =
         system::roles::user_has_role_code(&state.pool, user.id, "super_admin").await?;
-    let is_super_admin = is_super_admin_identity(user.authority_id, has_super_admin_role);
+    let is_super_admin = is_super_admin_identity(has_super_admin_role);
 
     if !is_super_admin && !is_self_service_endpoint(&method, &permission_path) {
         let required_permission = system::permission_apis::resolve_required_permission(
@@ -125,8 +125,8 @@ fn is_self_service_endpoint(method: &str, path: &str) -> bool {
     )
 }
 
-fn is_super_admin_identity(authority_id: i64, has_super_admin_role: bool) -> bool {
-    authority_id == 888 || has_super_admin_role
+fn is_super_admin_identity(has_super_admin_role: bool) -> bool {
+    has_super_admin_role
 }
 
 fn permission_registry_path(path: &str) -> String {
@@ -187,10 +187,9 @@ mod tests {
     }
 
     #[test]
-    fn super_admin_identity_accepts_legacy_authority_or_role_code() {
-        assert!(is_super_admin_identity(888, false));
-        assert!(is_super_admin_identity(1, true));
-        assert!(!is_super_admin_identity(1, false));
+    fn super_admin_identity_uses_role_code() {
+        assert!(is_super_admin_identity(true));
+        assert!(!is_super_admin_identity(false));
     }
 
     #[test]

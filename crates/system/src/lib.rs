@@ -88,7 +88,7 @@ mod tests {
         let authorities = crate::authority::default_authorities();
 
         assert_eq!(authorities.len(), 1);
-        assert_eq!(authorities[0].authority_id, 888);
+        assert_eq!(authorities[0].authority_id, 1);
         assert_eq!(authorities[0].authority_name, "Super Admin");
     }
 }

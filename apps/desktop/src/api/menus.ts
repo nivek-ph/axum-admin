@@ -45,8 +45,7 @@ export interface MenuRecord {
 }
 
 export interface MenuRoleSelection {
-  authorityIds: number[]
-  defaultRouterAuthorityIds: number[]
+  roleIds: number[]
 }
 
 export function normalizeMenuListResponse(payload: ApiResponse<MenuRecord[]>) {
@@ -61,8 +60,7 @@ export function normalizeMenuListResponse(payload: ApiResponse<MenuRecord[]>) {
 
 export function normalizeMenuRoleSelection(payload: ApiResponse<MenuRoleSelection>) {
   return {
-    authorityIds: payload?.data?.authorityIds || [],
-    defaultRouterAuthorityIds: payload?.data?.defaultRouterAuthorityIds || []
+    roleIds: payload?.data?.roleIds || []
   }
 }
 
@@ -88,6 +86,6 @@ export async function fetchMenuRoles(menuId: number) {
   return normalizeMenuRoleSelection(response)
 }
 
-export async function setMenuRoles(menuId: number, authorityIds: number[]) {
-  return http.put(`/menus/${menuId}/roles`, { menuId, authorityIds }, withAuthHeaders())
+export async function setMenuRoles(menuId: number, roleIds: number[]) {
+  return http.put(`/menus/${menuId}/roles`, { menuId, roleIds }, withAuthHeaders())
 }

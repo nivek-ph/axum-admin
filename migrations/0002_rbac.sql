@@ -74,46 +74,24 @@ ON CONFLICT (id) DO NOTHING;
 
 SELECT setval(pg_get_serial_sequence('sys_depts', 'id'), (SELECT max(id) FROM sys_depts));
 
-INSERT INTO sys_roles (id, code, name, status, sort, data_scope, is_system)
-VALUES (1, 'super_admin', 'Super Admin', 'enabled', 0, 'all', true)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval(pg_get_serial_sequence('sys_roles', 'id'), (SELECT max(id) FROM sys_roles));
-
-UPDATE sys_users
-SET dept_id = COALESCE(dept_id, 1),
-    is_system = true
-WHERE username = 'admin';
-
-INSERT INTO sys_user_roles (user_id, role_id)
-SELECT id, 1 FROM sys_users WHERE username = 'admin'
-ON CONFLICT DO NOTHING;
-
-CREATE OR REPLACE FUNCTION ensure_super_admin_role_assignment()
-RETURNS trigger AS $$
-BEGIN
-    IF NEW.username = 'admin' THEN
-        UPDATE sys_users
-        SET dept_id = COALESCE(dept_id, 1),
-            is_system = true
-        WHERE id = NEW.id;
-
-        INSERT INTO sys_user_roles (user_id, role_id)
-        VALUES (NEW.id, 1)
-        ON CONFLICT DO NOTHING;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_ensure_super_admin_role_assignment ON sys_users;
-CREATE TRIGGER trg_ensure_super_admin_role_assignment
-AFTER INSERT ON sys_users
-FOR EACH ROW
-EXECUTE FUNCTION ensure_super_admin_role_assignment();
-
 INSERT INTO sys_permissions (module_key, resource, action, code, name, type, status)
 VALUES
+('system', 'dashboard', 'page', 'system:dashboard:page', 'Dashboard Page', 'page', 'enabled'),
+('system', 'users', 'page', 'system:users:page', 'Users Page', 'page', 'enabled'),
+('system', 'roles', 'page', 'system:roles:page', 'Roles Page', 'page', 'enabled'),
+('system', 'departments', 'page', 'system:departments:page', 'Departments Page', 'page', 'enabled'),
+('system', 'permissions', 'page', 'system:permissions:page', 'Permissions Page', 'page', 'enabled'),
+('system', 'api-permissions', 'page', 'system:api-permissions:page', 'API Permissions Page', 'page', 'enabled'),
+('system', 'menus', 'page', 'system:menus:page', 'Menus Page', 'page', 'enabled'),
+('system', 'apis', 'page', 'system:apis:page', 'APIs Page', 'page', 'enabled'),
+('system', 'params', 'page', 'system:params:page', 'Params Page', 'page', 'enabled'),
+('system', 'dictionaries', 'page', 'system:dictionaries:page', 'Dictionaries Page', 'page', 'enabled'),
+('system', 'files', 'page', 'system:files:page', 'Files Page', 'page', 'enabled'),
+('system', 'login-logs', 'page', 'system:login-logs:page', 'Login Logs Page', 'page', 'enabled'),
+('system', 'operation-logs', 'page', 'system:operation-logs:page', 'Operation Logs Page', 'page', 'enabled'),
+('system', 'profile', 'page', 'system:profile:page', 'Profile Page', 'page', 'enabled'),
+('system', 'system-config', 'page', 'system:system-config:page', 'System Config Page', 'page', 'enabled'),
+('system', 'system-state', 'page', 'system:system-state:page', 'System State Page', 'page', 'enabled'),
 ('system', 'user', 'list', 'system:user:list', 'List Users', 'action', 'enabled'),
 ('system', 'user', 'create', 'system:user:create', 'Create User', 'action', 'enabled'),
 ('system', 'user', 'update', 'system:user:update', 'Update User', 'action', 'enabled'),
@@ -125,3 +103,9 @@ VALUES
 ('system', 'menu', 'list', 'system:menu:list', 'List Menus', 'action', 'enabled'),
 ('system', 'permission', 'list', 'system:permission:list', 'List Permissions', 'action', 'enabled')
 ON CONFLICT (code) DO NOTHING;
+
+UPDATE sys_menus
+SET permission_id = sys_permissions.id
+FROM sys_permissions
+WHERE sys_menus.permission = sys_permissions.code
+  AND sys_menus.permission_id IS NULL;

@@ -1,6 +1,5 @@
 pub mod api;
 pub mod attachment_category;
-pub mod authority;
 pub mod dept;
 pub mod dictionary;
 pub mod dictionary_detail;
@@ -143,7 +142,6 @@ pub fn router() -> Router<crate::state::AppState> {
         )
         .route("/users/me/password", put(user::change_password))
         .route("/users/me/settings", put(user::set_self_setting))
-        .route("/users/me/authority", put(user::set_user_authority))
         .route(
             "/users",
             get(user::get_user_list_by_query).post(user::admin_register),
@@ -155,10 +153,6 @@ pub fn router() -> Router<crate::state::AppState> {
         .route(
             "/users/{id}/password/reset",
             post(user::reset_password_by_id),
-        )
-        .route(
-            "/users/{id}/authorities",
-            put(user::set_user_authorities_by_id),
         )
         .route("/users/{id}/roles", put(user::set_user_roles_by_id))
         .route("/menus/current", get(menu::get_menu))

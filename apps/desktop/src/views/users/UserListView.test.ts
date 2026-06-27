@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   assignUserRoles: vi.fn(),
   fetchAuthorities: vi.fn().mockResolvedValue([
     {
-      authorityId: 888,
+      authorityId: 1,
       authorityName: 'Super Admin',
       parentId: 0,
       defaultRouter: 'dashboard',

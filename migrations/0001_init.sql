@@ -5,7 +5,7 @@ create table if not exists sys_users (
     password_hash text not null,
     nick_name text not null,
     header_img text not null,
-    authority_id bigint not null default 888,
+    authority_id bigint not null default 1,
     authority_name text not null default 'Super Admin',
     default_router text not null default 'dashboard',
     enable boolean not null default true,
@@ -17,13 +17,6 @@ create table if not exists sys_users (
 );
 
 create index if not exists idx_sys_users_username on sys_users(username);
-
-create table if not exists sys_authorities (
-    authority_id bigint primary key,
-    authority_name text not null,
-    parent_id bigint not null default 0,
-    default_router text not null default 'dashboard'
-);
 
 create table if not exists sys_menus (
     id bigserial primary key,
@@ -52,12 +45,6 @@ create unique index if not exists idx_sys_menus_permission
     on sys_menus (permission)
     where permission is not null;
 
-create table if not exists sys_role_menus (
-    authority_id bigint not null,
-    menu_id bigint not null,
-    primary key (authority_id, menu_id)
-);
-
 create table if not exists sys_apis (
     id bigserial primary key,
     path text not null,
@@ -65,12 +52,6 @@ create table if not exists sys_apis (
     api_group text not null,
     method text not null,
     unique (path, method)
-);
-
-create table if not exists sys_role_apis (
-    authority_id bigint not null,
-    api_id bigint not null,
-    primary key (authority_id, api_id)
 );
 
 create table if not exists sys_login_logs (
@@ -150,26 +131,20 @@ with api_seed(path, description, api_group, method) as (
         ('/api/users/me', 'Update current user', 'user', 'PUT'),
         ('/api/users/me/password', 'Change current user password', 'user', 'PUT'),
         ('/api/users/me/settings', 'Update current user settings', 'user', 'PUT'),
-        ('/api/users/me/authority', 'Switch current user role', 'user', 'PUT'),
         ('/api/users', 'List users', 'user', 'GET'),
         ('/api/users', 'Create user', 'user', 'POST'),
         ('/api/users/{id}', 'Update user', 'user', 'PUT'),
         ('/api/users/{id}', 'Delete user', 'user', 'DELETE'),
         ('/api/users/{id}/password/reset', 'Reset user password', 'user', 'POST'),
-        ('/api/users/{id}/authorities', 'Update user roles', 'user', 'PUT'),
         ('/api/menus/current', 'Get menus', 'menu', 'GET'),
         ('/api/menus', 'List menus', 'menu', 'GET'),
         ('/api/menus', 'Create menu', 'menu', 'POST'),
         ('/api/menus/tree', 'Get menu tree', 'menu', 'GET'),
-        ('/api/menus/role-matrix', 'Get menu role matrix', 'menu', 'GET'),
         ('/api/menus/{id}', 'Get menu', 'menu', 'GET'),
         ('/api/menus/{id}', 'Update menu', 'menu', 'PUT'),
         ('/api/menus/{id}', 'Delete menu', 'menu', 'DELETE'),
         ('/api/menus/{id}/roles', 'Get menu roles', 'menu', 'GET'),
         ('/api/menus/{id}/roles', 'Update menu roles', 'menu', 'PUT'),
-        ('/api/menus/authority', 'Get role menus', 'menu', 'GET'),
-        ('/api/menus/authority', 'Add role menus', 'menu', 'POST'),
-        ('/api/menus/authority', 'Update role menus', 'menu', 'PUT'),
         ('/api/roles', 'List roles', 'role', 'GET'),
         ('/api/roles', 'Create role', 'role', 'POST'),
         ('/api/roles/{authority_id}', 'Update role', 'role', 'PUT'),
@@ -238,8 +213,3 @@ from api_seed
 on conflict (path, method) do update
 set description = excluded.description,
     api_group = excluded.api_group;
-
-insert into sys_role_apis (authority_id, api_id)
-select 888, id
-from sys_apis
-on conflict do nothing;

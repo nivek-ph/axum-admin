@@ -24,7 +24,7 @@ vi.mock('@/api/apis', () => ({
   updateApi: vi.fn(),
   deleteApi: vi.fn(),
   fetchApiRoles: vi.fn().mockResolvedValue({
-    authorityIds: [],
+    roleIds: [],
   }),
   setApiRoles: vi.fn(),
 }));
@@ -35,17 +35,17 @@ vi.mock('@/api/authorities', () => ({
 
 import ApiListView from './ApiListView.vue';
 
-function mountWithAuthority(authorityId = 888, permissions: string[] = []) {
+function mountWithAuthority(authorityId = 1, permissions: string[] = []) {
   const pinia = createPinia();
   setActivePinia(pinia);
   const authStore = useAuthStore();
   authStore.setSession('token-123', {
-    ID: authorityId === 888 ? 1 : 2,
-    userName: authorityId === 888 ? 'admin' : 'dev',
-    nickName: authorityId === 888 ? 'admin' : 'dev',
+    ID: authorityId === 1 ? 1 : 2,
+    userName: authorityId === 1 ? 'admin' : 'dev',
+    nickName: authorityId === 1 ? 'admin' : 'dev',
     authority: {
       authorityId,
-      authorityName: authorityId === 888 ? 'Super Admin' : 'Developer',
+      authorityName: authorityId === 1 ? 'Super Admin' : 'Developer',
       defaultRouter: 'dashboard',
     },
     permissions,

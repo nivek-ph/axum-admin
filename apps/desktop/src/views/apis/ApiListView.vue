@@ -312,7 +312,7 @@ async function openRoleDialog(api: ApiRecord) {
   roleDialogVisible.value = true
   try {
     const selection = await fetchApiRoles(api.path, api.method)
-    selectedAuthorityIds.value = selection.authorityIds
+    selectedAuthorityIds.value = selection.roleIds
   } catch {
     ElMessage.error(t('Failed to load API roles'))
   }

@@ -28,7 +28,7 @@ mod tests {
     fn jwt_service_round_trips_claims() {
         let jwt_service = JwtService::new("test-secret");
         let token = jwt_service
-            .issue_token(1, "admin", 888)
+            .issue_token(1, "admin", 1)
             .expect("token should be issued");
         let claims = jwt_service
             .decode_token(&token)
@@ -36,6 +36,6 @@ mod tests {
 
         assert_eq!(claims.user_id, 1);
         assert_eq!(claims.username, "admin");
-        assert_eq!(claims.authority_id, 888);
+        assert_eq!(claims.authority_id, 1);
     }
 }

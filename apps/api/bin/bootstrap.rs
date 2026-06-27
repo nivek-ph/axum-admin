@@ -19,9 +19,12 @@ async fn main() {
         .expect("database pool should connect");
     info!("database connected");
 
-    system::authority::ensure_default_authority(&pool)
+    system::roles::ensure_builtin_roles(&pool)
         .await
-        .expect("default authority should be bootstrapped");
+        .expect("builtin roles should be bootstrapped");
+    system::roles::ensure_builtin_role_permissions(&pool)
+        .await
+        .expect("builtin role permissions should be bootstrapped");
     system::menu::ensure_default_menu(&pool)
         .await
         .expect("default menu should be bootstrapped");
@@ -35,6 +38,12 @@ async fn main() {
     )
     .await
     .expect("admin user should be bootstrapped");
+    system::users::ensure_builtin_user(&pool, &password_service, "dev", "123456", "Dev", 2)
+        .await
+        .expect("dev user should be bootstrapped");
+    system::users::ensure_builtin_user(&pool, &password_service, "ops", "123456", "Ops", 3)
+        .await
+        .expect("ops user should be bootstrapped");
 
     info!("default system data bootstrapped");
 }

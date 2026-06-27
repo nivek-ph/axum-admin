@@ -20,11 +20,11 @@ describe('api registry adapter', () => {
   it('normalizes assigned api role ids', () => {
     const result = normalizeApiRoleSelection({
       data: {
-        authorityIds: [888],
+        roleIds: [1],
       },
     });
 
-    expect(result.authorityIds).toEqual([888]);
+    expect(result.roleIds).toEqual([1]);
   });
 
   it('normalizes APIs assigned to one role', () => {
@@ -41,12 +41,12 @@ describe('api registry adapter', () => {
   it('normalizes API role matrix payload', () => {
     const result = normalizeApiRoleMatrixResponse({
       data: {
-        items: [{ path: '/api/users', method: 'GET', authorityIds: [888] }],
+        items: [{ path: '/api/users', method: 'GET', roleIds: [1] }],
       },
     });
 
     expect(result).toEqual({
-      'GET /api/users': [888],
+      'GET /api/users': [1],
     });
   });
 });

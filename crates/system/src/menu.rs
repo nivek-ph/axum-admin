@@ -5,7 +5,7 @@ use sqlx::FromRow;
 
 use admin_httpz::AppError;
 
-use crate::{authority::SUPER_ADMIN_AUTHORITY_ID, errors};
+use crate::errors;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MenuMeta {
@@ -147,7 +147,7 @@ pub fn default_menus() -> Vec<MenuView> {
                     title: "Assign roles",
                     permission: "system:user:assign-roles",
                     method: "PUT",
-                    api_path: "/api/users/{id}/authorities",
+                    api_path: "/api/users/{id}/roles",
                     sort: 60,
                 },
             ],
@@ -509,7 +509,7 @@ pub fn default_menus() -> Vec<MenuView> {
                 },
                 DefaultAction {
                     name: "dictionary-details:tree-by-type",
-                    title: "Tree by type",
+                    title: "Type tree",
                     permission: "system:dictionary-detail:tree-by-type",
                     method: "GET",
                     api_path: "/api/dictionary-details/tree-by-type",
@@ -517,7 +517,7 @@ pub fn default_menus() -> Vec<MenuView> {
                 },
                 DefaultAction {
                     name: "dictionary-details:by-parent",
-                    title: "List by parent",
+                    title: "Children",
                     permission: "system:dictionary-detail:by-parent",
                     method: "GET",
                     api_path: "/api/dictionary-details/by-parent",
@@ -549,7 +549,7 @@ pub fn default_menus() -> Vec<MenuView> {
                 },
                 DefaultAction {
                     name: "dictionary-details:path",
-                    title: "Detail path",
+                    title: "Path",
                     permission: "system:dictionary-detail:path",
                     method: "GET",
                     api_path: "/api/dictionary-details/{id}/path",
@@ -606,7 +606,7 @@ pub fn default_menus() -> Vec<MenuView> {
                 },
                 DefaultAction {
                     name: "files:categories-list",
-                    title: "List categories",
+                    title: "Categories",
                     permission: "system:file:categories-list",
                     method: "GET",
                     api_path: "/api/attachment-categories",
@@ -614,7 +614,7 @@ pub fn default_menus() -> Vec<MenuView> {
                 },
                 DefaultAction {
                     name: "files:categories-create",
-                    title: "Create category",
+                    title: "New category",
                     permission: "system:file:categories-create",
                     method: "POST",
                     api_path: "/api/attachment-categories",
@@ -622,7 +622,7 @@ pub fn default_menus() -> Vec<MenuView> {
                 },
                 DefaultAction {
                     name: "files:categories-delete",
-                    title: "Delete category",
+                    title: "Remove category",
                     permission: "system:file:categories-delete",
                     method: "DELETE",
                     api_path: "/api/attachment-categories/{id}",
@@ -842,28 +842,20 @@ pub fn default_menus() -> Vec<MenuView> {
             "lock-keyhole",
             vec![
                 DefaultAction {
-                    name: "api-permissions:list",
-                    title: "List",
-                    permission: "system:permission:list",
-                    method: "GET",
-                    api_path: "/api/permissions",
-                    sort: 10,
-                },
-                DefaultAction {
                     name: "api-permissions:apis-read",
-                    title: "Read API bindings",
+                    title: "View bindings",
                     permission: "system:permission:apis-read",
                     method: "GET",
                     api_path: "/api/permissions/{id}/apis",
-                    sort: 20,
+                    sort: 10,
                 },
                 DefaultAction {
                     name: "api-permissions:apis-update",
-                    title: "Update API bindings",
+                    title: "Edit bindings",
                     permission: "system:permission:apis-update",
                     method: "PUT",
                     api_path: "/api/permissions/{id}/apis",
-                    sort: 30,
+                    sort: 20,
                 },
             ],
         ),
@@ -990,7 +982,7 @@ pub struct MenuIdRequest {
 pub struct SetMenuRolesRequest {
     #[serde(rename = "menuId")]
     pub menu_id: i64,
-    #[serde(rename = "authorityIds")]
+    #[serde(rename = "roleIds")]
     pub authority_ids: Vec<i64>,
 }
 
@@ -1019,6 +1011,7 @@ impl From<MenuError> for AppError {
     }
 }
 
+// ensure default menu
 pub async fn ensure_default_menu(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     for mut menu in default_menus() {
         let children = std::mem::take(&mut menu.children);
@@ -1111,14 +1104,14 @@ async fn insert_menu_node(
 pub async fn get_menu_tree_for_user(
     pool: &sqlx::PgPool,
     user_id: i64,
-    authority_id: i64,
+    _authority_id: i64,
 ) -> Result<Vec<MenuView>, MenuError> {
     let rows = load_menu_records(pool).await?;
     let has_super_admin_role = crate::roles::user_has_role_code(pool, user_id, "super_admin")
         .await
         .map_err(MenuError::Database)?;
 
-    if is_menu_super_admin_identity(authority_id, has_super_admin_role) {
+    if is_menu_super_admin_identity(has_super_admin_role) {
         let rows = filter_visible_navigation(&rows);
         return Ok(build_tree(&rows, 0));
     }
@@ -1318,17 +1311,7 @@ pub async fn get_menu_roles(
     .bind(menu_id)
     .fetch_all(pool)
     .await?;
-    let default_router_authority_ids: Vec<i64> = sqlx::query_scalar(
-        "select authority_id from sys_authorities where default_router = (select name from sys_menus where id = $1)",
-    )
-    .bind(menu_id)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(MenuRoleSelection {
-        authority_ids,
-        default_router_authority_ids,
-    })
+    Ok(MenuRoleSelection { authority_ids })
 }
 
 fn normalize_role_ids_for_menu_permission_sync(role_ids: Vec<i64>) -> Vec<i64> {
@@ -1407,8 +1390,8 @@ fn filter_visible_navigation(rows: &[MenuRecord]) -> Vec<MenuRecord> {
         .collect()
 }
 
-fn is_menu_super_admin_identity(authority_id: i64, has_super_admin_role: bool) -> bool {
-    authority_id == SUPER_ADMIN_AUTHORITY_ID || has_super_admin_role
+fn is_menu_super_admin_identity(has_super_admin_role: bool) -> bool {
+    has_super_admin_role
 }
 
 fn filter_rows_for_permissions(
@@ -1562,10 +1545,8 @@ fn build_menu_view(row: &MenuRecord) -> Result<MenuView, MenuError> {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MenuRoleSelection {
-    #[serde(rename = "authorityIds")]
+    #[serde(rename = "roleIds")]
     pub authority_ids: Vec<i64>,
-    #[serde(rename = "defaultRouterAuthorityIds")]
-    pub default_router_authority_ids: Vec<i64>,
 }
 
 #[cfg(test)]
@@ -1573,10 +1554,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn menu_super_admin_identity_accepts_legacy_authority_or_role_code() {
-        assert!(is_menu_super_admin_identity(888, false));
-        assert!(is_menu_super_admin_identity(1, true));
-        assert!(!is_menu_super_admin_identity(1, false));
+    fn menu_super_admin_identity_uses_role_code() {
+        assert!(is_menu_super_admin_identity(true));
+        assert!(!is_menu_super_admin_identity(false));
     }
 
     #[test]

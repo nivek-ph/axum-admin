@@ -50,8 +50,6 @@ pub struct RegisterRequest {
     pub header_img: Option<String>,
     #[serde(rename = "authorityId")]
     pub authority_id: Option<i64>,
-    #[serde(rename = "authorityIds")]
-    pub authority_ids: Option<Vec<i64>>,
     #[serde(rename = "roleIds")]
     pub role_ids: Option<Vec<i64>>,
     #[serde(rename = "deptId", alias = "dept_id")]
@@ -109,14 +107,6 @@ pub struct ResetPasswordRequest {
     #[serde(rename = "ID")]
     pub id: i64,
     pub password: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SetUserAuthoritiesRequest {
-    #[serde(rename = "ID")]
-    pub id: i64,
-    #[serde(rename = "authorityIds")]
-    pub authority_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -224,21 +214,82 @@ pub async fn ensure_admin_user(
     password: &str,
     nick_name: &str,
 ) -> Result<(), sqlx::Error> {
-    if find_by_username(pool, username).await?.is_some() {
-        sqlx::query("update sys_users set nick_name = $1 where username = $2")
-            .bind(nick_name)
-            .bind(username)
-            .execute(pool)
-            .await?;
-        return Ok(());
-    }
+    ensure_user_with_role(
+        pool,
+        password_service,
+        username,
+        password,
+        nick_name,
+        1,
+        true,
+    )
+    .await
+}
 
-    let password_hash = password_service
-        .hash_password(password)
-        .map_err(|err| sqlx::Error::Protocol(err.to_string()))?;
+pub async fn ensure_builtin_user(
+    pool: &sqlx::PgPool,
+    password_service: &PasswordService,
+    username: &str,
+    password: &str,
+    nick_name: &str,
+    role_id: i64,
+) -> Result<(), sqlx::Error> {
+    ensure_user_with_role(
+        pool,
+        password_service,
+        username,
+        password,
+        nick_name,
+        role_id,
+        false,
+    )
+    .await
+}
 
-    sqlx::query(
-        r#"
+async fn ensure_user_with_role(
+    pool: &sqlx::PgPool,
+    password_service: &PasswordService,
+    username: &str,
+    password: &str,
+    nick_name: &str,
+    role_id: i64,
+    is_system: bool,
+) -> Result<(), sqlx::Error> {
+    let role = crate::roles::find(pool, role_id)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+
+    let user_id = if let Some(existing) = find_by_username(pool, username).await? {
+        sqlx::query(
+            r#"
+            update sys_users
+            set nick_name = $1,
+                authority_id = $2,
+                authority_name = $3,
+                default_router = $4,
+                enable = true,
+                dept_id = 1,
+                is_system = $5,
+                updated_at = now()
+            where id = $6
+            "#,
+        )
+        .bind(nick_name)
+        .bind(role.id)
+        .bind(&role.name)
+        .bind("dashboard")
+        .bind(is_system)
+        .bind(existing.id)
+        .execute(pool)
+        .await?;
+        existing.id
+    } else {
+        let password_hash = password_service
+            .hash_password(password)
+            .map_err(|err| sqlx::Error::Protocol(err.to_string()))?;
+
+        sqlx::query_scalar(
+            r#"
         insert into sys_users (
             uuid,
             username,
@@ -252,18 +303,39 @@ pub async fn ensure_admin_user(
             phone,
             email,
             origin_setting,
-            dept_id
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8, true, null, null, null, 1)
+            dept_id,
+            is_system
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, true, null, null, null, 1, $9)
+        returning id
+        "#,
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(username)
+        .bind(password_hash)
+        .bind(nick_name)
+        .bind("https://qmplusimg.henrongyi.top/gva_header.jpg")
+        .bind(role.id)
+        .bind(&role.name)
+        .bind("dashboard")
+        .bind(is_system)
+        .fetch_one(pool)
+        .await?
+    };
+
+    sqlx::query("delete from sys_user_roles where user_id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        r#"
+        insert into sys_user_roles (user_id, role_id)
+        values ($1, $2)
+        on conflict do nothing
         "#,
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(username)
-    .bind(password_hash)
-    .bind(nick_name)
-    .bind("https://qmplusimg.henrongyi.top/gva_header.jpg")
-    .bind(888_i64)
-    .bind("Super Admin")
-    .bind("dashboard")
+    .bind(user_id)
+    .bind(role.id)
     .execute(pool)
     .await?;
 
@@ -278,13 +350,8 @@ pub async fn register_user(
     if find_by_username(pool, &payload.user_name).await?.is_some() {
         return Err(LoginError::UserAlreadyExists);
     }
-    let authority =
-        resolve_authority(pool, payload.authority_id, payload.authority_ids.as_ref()).await?;
-    let role_ids = normalize_role_ids(
-        payload.role_ids.as_ref(),
-        payload.authority_ids.as_ref(),
-        payload.authority_id,
-    );
+    let role_ids = normalize_role_ids(payload.role_ids.as_ref(), payload.authority_id);
+    let authority = resolve_role_authority(pool, role_ids[0]).await?;
     let password_hash = password_service.hash_password(&payload.password)?;
 
     let user_id: i64 = sqlx::query_scalar(
@@ -603,81 +670,15 @@ pub async fn reset_password(
     Ok(())
 }
 
-pub async fn set_user_authorities(
-    pool: &sqlx::PgPool,
-    payload: SetUserAuthoritiesRequest,
-) -> Result<(), LoginError> {
-    let authority = resolve_authority(pool, None, Some(&payload.authority_ids)).await?;
-    let role_ids = normalize_role_ids(None, Some(&payload.authority_ids), None);
-    sqlx::query(
-        r#"
-        update sys_users
-        set authority_id = $1,
-            authority_name = $2,
-            default_router = $3,
-            updated_at = now()
-        where id = $4
-        "#,
-    )
-    .bind(authority.authority_id)
-    .bind(authority.authority_name)
-    .bind(authority.default_router)
-    .bind(payload.id)
-    .execute(pool)
-    .await?;
-    replace_user_roles(pool, payload.id, role_ids).await?;
-    Ok(())
-}
-
 pub async fn set_user_roles(
     pool: &sqlx::PgPool,
     user_id: i64,
     payload: SetUserRolesRequest,
 ) -> Result<(), LoginError> {
-    replace_user_roles(pool, user_id, payload.role_ids).await?;
-    if let Some(authority) = legacy_authority_for_user_roles(pool, user_id).await? {
-        sqlx::query(
-            r#"
-            update sys_users
-            set authority_id = $1,
-                authority_name = $2,
-                default_router = $3,
-                updated_at = now()
-            where id = $4
-            "#,
-        )
-        .bind(authority.authority_id)
-        .bind(authority.authority_name)
-        .bind(authority.default_router)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
-    }
-    Ok(())
-}
-
-pub async fn set_user_authority(
-    pool: &sqlx::PgPool,
-    user_id: i64,
-    authority_id: i64,
-) -> Result<(), LoginError> {
-    let authority = resolve_authority(pool, Some(authority_id), None).await?;
-    sqlx::query(
-        r#"
-        update sys_users
-        set authority_id = $1,
-            authority_name = $2,
-            default_router = $3,
-            updated_at = now()
-        where id = $4
-        "#,
-    )
-    .bind(authority.authority_id)
-    .bind(authority.authority_name)
-    .bind(authority.default_router)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    let role_ids = normalize_role_ids(Some(&payload.role_ids), None);
+    let authority = resolve_role_authority(pool, role_ids[0]).await?;
+    replace_user_roles(pool, user_id, role_ids).await?;
+    set_user_primary_authority(pool, user_id, authority).await?;
     Ok(())
 }
 
@@ -903,10 +904,7 @@ async fn replace_user_roles(
     let normalized = if role_ids.is_empty() {
         vec![1]
     } else {
-        role_ids
-            .into_iter()
-            .map(|role_id| if role_id == 888 { 1 } else { role_id })
-            .collect()
+        role_ids.into_iter().collect()
     };
 
     let mut tx = pool.begin().await?;
@@ -933,45 +931,12 @@ async fn replace_user_roles(
     Ok(())
 }
 
-async fn legacy_authority_for_user_roles(
-    pool: &sqlx::PgPool,
-    user_id: i64,
-) -> Result<Option<authority::AuthorityView>, sqlx::Error> {
-    let role = get_roles_by_user_id(pool, user_id)
-        .await?
-        .into_iter()
-        .next();
-    Ok(role.map(|role| {
-        if role.code == "super_admin" {
-            authority::default_authorities()[0].clone()
-        } else {
-            authority::AuthorityView {
-                authority_id: role.id,
-                authority_name: role.name,
-                parent_id: 0,
-                default_router: "dashboard".to_string(),
-                children: Vec::new(),
-                data_authority_id: Vec::new(),
-            }
-        }
-    }))
-}
-
-fn normalize_role_ids(
-    role_ids: Option<&Vec<i64>>,
-    authority_ids: Option<&Vec<i64>>,
-    authority_id: Option<i64>,
-) -> Vec<i64> {
-    let ids = role_ids
+fn normalize_role_ids(role_ids: Option<&Vec<i64>>, authority_id: Option<i64>) -> Vec<i64> {
+    role_ids
         .filter(|ids| !ids.is_empty())
         .cloned()
-        .or_else(|| authority_ids.filter(|ids| !ids.is_empty()).cloned())
         .or_else(|| authority_id.map(|id| vec![id]))
-        .unwrap_or_else(|| vec![1]);
-
-    ids.into_iter()
-        .map(|id| if id == 888 { 1 } else { id })
-        .collect()
+        .unwrap_or_else(|| vec![1])
 }
 
 #[cfg(test)]
@@ -992,38 +957,50 @@ mod tests {
     }
 
     #[test]
-    fn normalize_role_ids_maps_legacy_super_admin_authority() {
-        assert_eq!(normalize_role_ids(None, None, Some(888)), vec![1]);
-        assert_eq!(
-            normalize_role_ids(Some(&vec![888, 2]), None, None),
-            vec![1, 2]
-        );
+    fn normalize_role_ids_uses_current_role_ids() {
+        assert_eq!(normalize_role_ids(None, Some(1)), vec![1]);
+        assert_eq!(normalize_role_ids(Some(&vec![1, 2]), None), vec![1, 2]);
     }
 }
 
-async fn resolve_authority(
+async fn resolve_role_authority(
     pool: &sqlx::PgPool,
-    authority_id: Option<i64>,
-    authority_ids: Option<&Vec<i64>>,
+    role_id: i64,
 ) -> Result<authority::AuthorityView, LoginError> {
-    let requested_id = authority_ids
-        .and_then(|ids| ids.first().copied())
-        .or(authority_id)
-        .unwrap_or(888);
+    let role = crate::roles::find(pool, role_id)
+        .await?
+        .ok_or(LoginError::UserNotFound)?;
 
-    if let Some(record) = authority::get_authority_record(pool, requested_id).await? {
-        return Ok(authority::AuthorityView {
-            authority_id: record.authority_id,
-            authority_name: record.authority_name,
-            parent_id: record.parent_id,
-            default_router: record.default_router,
-            children: Vec::new(),
-            data_authority_id: Vec::new(),
-        });
-    }
+    Ok(authority::AuthorityView {
+        authority_id: role.id,
+        authority_name: role.name,
+        parent_id: 0,
+        default_router: "dashboard".to_string(),
+        children: Vec::new(),
+        data_authority_id: Vec::new(),
+    })
+}
 
-    Ok(authority::default_authorities()
-        .into_iter()
-        .find(|item| item.authority_id == requested_id)
-        .unwrap_or_else(|| authority::default_authorities()[0].clone()))
+async fn set_user_primary_authority(
+    pool: &sqlx::PgPool,
+    user_id: i64,
+    authority: authority::AuthorityView,
+) -> Result<(), LoginError> {
+    sqlx::query(
+        r#"
+        update sys_users
+        set authority_id = $1,
+            authority_name = $2,
+            default_router = $3,
+            updated_at = now()
+        where id = $4
+        "#,
+    )
+    .bind(authority.authority_id)
+    .bind(authority.authority_name)
+    .bind(authority.default_router)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
