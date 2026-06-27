@@ -1119,7 +1119,7 @@ pub async fn get_menu_tree_for_user(
         .map_err(MenuError::Database)?;
 
     if is_menu_super_admin_identity(authority_id, has_super_admin_role) {
-        let rows = filter_visible_navigation_only(&rows);
+        let rows = filter_visible_navigation(&rows);
         return Ok(build_tree(&rows, 0));
     }
 
@@ -1399,66 +1399,8 @@ async fn sync_menu_permission_roles(
     Ok(())
 }
 
-fn filter_authorized_with_ancestors(
-    rows: &[MenuRecord],
-    authorized_menu_ids: &[i64],
-) -> Vec<MenuRecord> {
-    let rows_by_id = rows
-        .iter()
-        .map(|row| (row.id, row))
-        .collect::<HashMap<_, _>>();
-    let mut included_ids = HashSet::new();
-
-    for menu_id in authorized_menu_ids {
-        let mut current_id = *menu_id;
-        while current_id != 0 {
-            let Some(row) = rows_by_id.get(&current_id) else {
-                break;
-            };
-            if !included_ids.insert(current_id) {
-                break;
-            }
-            current_id = row.parent_id;
-        }
-    }
-
-    rows.iter()
-        .filter(|row| included_ids.contains(&row.id))
-        .cloned()
-        .collect()
-}
-
-fn filter_navigation_rows(
-    authorized_rows: &[MenuRecord],
-    all_rows: &[MenuRecord],
-    authorized_menu_ids: &[i64],
-) -> Vec<MenuRecord> {
-    let authorized_ids = authorized_menu_ids.iter().copied().collect::<HashSet<_>>();
-    let mut page_ids_with_actions = HashSet::new();
-    let mut page_ids_with_authorized_actions = HashSet::new();
-
-    for row in all_rows {
-        if row.menu_type != "action" {
-            continue;
-        }
-        page_ids_with_actions.insert(row.parent_id);
-        if authorized_ids.contains(&row.id) {
-            page_ids_with_authorized_actions.insert(row.parent_id);
-        }
-    }
-
-    authorized_rows
-        .iter()
-        .filter(|row| row.menu_type != "action")
-        .filter(|row| {
-            !page_ids_with_actions.contains(&row.id)
-                || page_ids_with_authorized_actions.contains(&row.id)
-        })
-        .cloned()
-        .collect()
-}
-
-fn filter_visible_navigation_only(rows: &[MenuRecord]) -> Vec<MenuRecord> {
+// filter visible navigation
+fn filter_visible_navigation(rows: &[MenuRecord]) -> Vec<MenuRecord> {
     rows.iter()
         .filter(|row| row.menu_type != "action" && !row.hidden)
         .cloned()
@@ -1547,9 +1489,9 @@ fn action_ancestor_ids<'a>(
     ancestor_ids
 }
 
-fn include_with_ancestors<'a>(
+fn include_with_ancestors(
     row_id: i64,
-    rows_by_id: &HashMap<i64, &'a MenuRecord>,
+    rows_by_id: &HashMap<i64, &MenuRecord>,
     included_ids: &mut HashSet<i64>,
 ) {
     let mut current_id = row_id;
