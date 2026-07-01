@@ -1,13 +1,27 @@
 use admin_httpz::{ApiResponse, AppResult};
 use axum::{
-    Json,
+    Json, Router,
+    extract::DefaultBodyLimit,
     extract::{Multipart, Path, Query, State},
+    routing::{delete, get, patch, post},
 };
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::errors::request as errors;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/", get(get_file_list_by_query))
+        .route("/import-url", post(import_url))
+        .route(
+            "/upload",
+            post(upload_file).layer(DefaultBodyLimit::max(20 * 1024 * 1024)),
+        )
+        .route("/{id}", delete(delete_file_by_id))
+        .route("/{id}/name", patch(edit_file_name_by_id))
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct UploadClassQuery {

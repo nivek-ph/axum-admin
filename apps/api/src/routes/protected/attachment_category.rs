@@ -1,11 +1,18 @@
 use admin_httpz::{ApiResponse, AppResult};
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, State},
+    routing::{delete, get},
 };
 use serde_json::Value;
 
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/", get(get_category_list).post(add_category))
+        .route("/{id}", delete(delete_category_by_id))
+}
 
 pub async fn get_category_list(
     State(state): State<AppState>,

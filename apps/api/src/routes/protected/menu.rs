@@ -1,11 +1,29 @@
 use admin_httpz::{ApiResponse, AppResult};
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, Query, State},
+    routing::get,
 };
 use serde_json::Value;
 
 use crate::{extractors::current_user::CurrentUser, state::AppState};
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/current", get(get_menu))
+        .route("/", get(get_menu_list).post(add_base_menu))
+        .route("/tree", get(get_base_menu_tree))
+        .route(
+            "/{id}",
+            get(get_base_menu_by_path_id)
+                .put(update_base_menu_by_id)
+                .delete(delete_base_menu_by_id),
+        )
+        .route(
+            "/{id}/roles",
+            get(get_menu_roles_by_id).put(set_menu_roles_by_id),
+        )
+}
 
 #[utoipa::path(
     get,

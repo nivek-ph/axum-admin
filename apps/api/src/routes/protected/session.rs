@@ -1,8 +1,12 @@
 use admin_httpz::{ApiResponse, AppResult, OptionAppExt};
-use axum::{Json, extract::State, http::HeaderMap};
+use axum::{Json, Router, extract::State, http::HeaderMap, routing::post};
 use serde_json::Value;
 
 use crate::{errors::auth as errors, middleware::auth::extract_bearer_token, state::AppState};
+
+pub fn routes() -> Router<AppState> {
+    Router::new().route("/logout", post(logout))
+}
 
 #[utoipa::path(
     post,

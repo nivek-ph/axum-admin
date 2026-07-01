@@ -1,11 +1,30 @@
 use admin_httpz::{ApiResponse, AppResult};
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, Query, State},
+    routing::{delete, get},
 };
 use serde_json::Value;
 
 use crate::state::AppState;
+
+pub fn login_routes() -> Router<AppState> {
+    Router::new()
+        .route("/", get(get_login_log_list).delete(delete_login_log_by_ids))
+        .route(
+            "/{id}",
+            get(find_login_log_by_id).delete(delete_login_log_by_id),
+        )
+}
+
+pub fn operation_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/",
+            get(get_operation_log_list).delete(delete_operation_log_by_ids),
+        )
+        .route("/{id}", delete(delete_operation_log_by_id))
+}
 
 pub async fn get_login_log_list(
     State(state): State<AppState>,

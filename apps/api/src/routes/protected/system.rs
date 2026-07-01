@@ -1,8 +1,15 @@
 use admin_httpz::ApiResponse;
-use axum::{Json, extract::State};
+use axum::{Json, Router, extract::State, routing::get};
 use serde_json::Value;
 
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/config", get(get_system_config).put(set_system_config))
+        .route("/server-info", get(get_server_info))
+        .route("/reload", axum::routing::post(reload_system))
+}
 
 pub async fn get_system_config(State(state): State<AppState>) -> Json<ApiResponse<Value>> {
     Json(ApiResponse::ok(serde_json::json!({
