@@ -1,12 +1,26 @@
 use admin_httpz::{ApiResponse, AppResult};
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, Query, State},
+    routing::{delete, get},
 };
 use serde_json::Value;
 use system::errors;
 
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/", get(get_sys_params_list).post(create_sys_params))
+        .route("/by-key", get(get_sys_param))
+        .route("/batch", delete(delete_sys_params_by_ids))
+        .route(
+            "/{id}",
+            get(find_sys_params_by_id)
+                .put(update_sys_params_by_id)
+                .delete(delete_sys_params_by_id),
+        )
+}
 
 pub async fn create_sys_params(
     State(state): State<AppState>,

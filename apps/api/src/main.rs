@@ -3,17 +3,16 @@ use std::sync::Arc;
 use api::auth::session::AuthSessionService;
 use auth::password::PasswordService;
 
+use anyhow::Result;
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_otel_extra::Logger;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let logger = Logger::from_env(Some("LOG"))?.with_ansi(true);
+    let _guard = logger.init()?;
 
     let config = api::state::AppConfig::from_env().expect("config should load from environment");
     info!(bind_addr = %config.bind_addr, "starting api bootstrap");
@@ -52,5 +51,7 @@ async fn main() {
         .expect("listener should bind");
     info!(listen_addr = %listener.local_addr().expect("listener should expose local addr"), "api server listening");
 
-    axum::serve(listener, app).await.expect("server should run");
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }

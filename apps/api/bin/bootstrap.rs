@@ -1,15 +1,14 @@
+use anyhow::Result;
 use auth::password::PasswordService;
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_otel_extra::Logger;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let logger = Logger::from_env(Some("LOG"))?.with_ansi(true);
+    let _guard = logger.init()?;
 
     let config = api::state::AppConfig::from_env().expect("config should load from environment");
 
@@ -46,4 +45,5 @@ async fn main() {
         .expect("ops user should be bootstrapped");
 
     info!("default system data bootstrapped");
+    Ok(())
 }

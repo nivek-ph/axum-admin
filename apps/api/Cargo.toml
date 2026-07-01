@@ -23,6 +23,8 @@ system.workspace = true
 
 # External crates.
 axum.workspace = true
+axum-otel.workspace = true
+anyhow.workspace = true
 dotenvy.workspace = true
 hex.workspace = true
 redis.workspace = true
@@ -35,6 +37,6 @@ tokio.workspace = true
 tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-otel-extra.workspace = true
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true

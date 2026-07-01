@@ -1,11 +1,23 @@
 use admin_httpz::{ApiResponse, AppResult};
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, State},
+    routing::get,
 };
 use serde_json::Value;
 
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/", get(get_dept_tree).post(create_dept))
+        .route(
+            "/{id}",
+            get(find_dept_by_id)
+                .put(update_dept_by_id)
+                .delete(delete_dept_by_id),
+        )
+}
 
 pub async fn get_dept_tree(State(state): State<AppState>) -> AppResult<Json<ApiResponse<Value>>> {
     let tree = system::depts::tree(&state.pool).await?;

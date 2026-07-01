@@ -27,6 +27,7 @@ system = { path = "crates/system" }
 anyhow = "1"
 argon2 = { version = "0.6.0-rc.8", features = ["getrandom", "password-hash"] }
 axum = { version = "0.8", features = ["json", "multipart"] }
+axum-otel = "0.32.0"
 dotenvy = "0.15"
 hex = "0.4"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
@@ -50,7 +51,7 @@ tokio = { version = "1", features = [
   "io-util",
 ] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.7.0", features = [
+tower-http = { version = "0.6.6", features = [
   "cors",
   "fs",
   "request-id",
@@ -58,6 +59,7 @@ tower-http = { version = "0.7.0", features = [
 ] }
 tracing = "0.1"
 tracing-error = "0.2"
+tracing-otel-extra = { version = "0.32.0", features = ["env"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 utoipa = "5"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }

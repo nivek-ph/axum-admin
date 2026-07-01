@@ -1,11 +1,30 @@
 use admin_httpz::{ApiResponse, AppResult};
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, Query, State},
+    routing::{delete, get, post},
 };
 use serde_json::Value;
 
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/", get(get_api_list_by_query).post(create_api))
+        .route("/all", get(get_all_apis))
+        .route("/groups", get(get_api_groups))
+        .route("/casbin/refresh", post(fresh_casbin))
+        .route("/authority", get(get_authority_apis))
+        .route("/role-matrix", get(get_api_role_matrix))
+        .route("/roles", get(get_api_roles).put(set_api_roles))
+        .route(
+            "/{id}",
+            get(get_api_by_path_id)
+                .put(update_api_by_id)
+                .delete(delete_api_by_path_id),
+        )
+        .route("/batch", delete(delete_apis_by_ids))
+}
 
 pub async fn get_api_list(
     State(state): State<AppState>,

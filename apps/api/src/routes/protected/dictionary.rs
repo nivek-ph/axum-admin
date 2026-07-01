@@ -1,12 +1,35 @@
 use admin_httpz::{ApiResponse, AppResult, OptionAppExt};
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, Query, State},
+    routing::{get, post},
 };
 use serde_json::Value;
 
 use crate::errors::request as errors;
 use crate::state::AppState;
+
+use super::dictionary_detail;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/",
+            get(get_sys_dictionary_list).post(create_sys_dictionary),
+        )
+        .route("/import", post(import_sys_dictionary))
+        .route(
+            "/{id}",
+            get(find_sys_dictionary_by_id)
+                .put(update_sys_dictionary_by_id)
+                .delete(delete_sys_dictionary_by_id),
+        )
+        .route("/{id}/export", get(export_sys_dictionary_by_id))
+        .route(
+            "/{id}/details/tree",
+            get(dictionary_detail::get_dictionary_tree_list_by_id),
+        )
+}
 
 pub async fn create_sys_dictionary(
     State(state): State<AppState>,
