@@ -22,8 +22,8 @@ pub async fn get_system_config(State(state): State<AppState>) -> Json<ApiRespons
                 "use-strict-auth": false
             },
             "captcha": {
-                "openCaptcha": 0,
-                "openCaptchaTimeOut": 0
+                "openCaptcha": 1,
+                "openCaptchaTimeOut": 300
             },
             "local": {
                 "storePath": "./uploads"

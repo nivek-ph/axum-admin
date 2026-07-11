@@ -97,7 +97,7 @@ import { t } from '@/i18n'
 const loading = ref(false)
 const config = reactive<SystemConfig>({
   system: { env: '', addr: '', 'db-type': '' },
-  captcha: { openCaptcha: 0, openCaptchaTimeOut: 0 },
+  captcha: { openCaptcha: 1, openCaptchaTimeOut: 300 },
   local: { storePath: '' }
 })
 

@@ -37,7 +37,7 @@ pub mod auth {
                     AUTH_RESOLVE_FAILED.into_error().with_source(error)
                 }
                 AuthSessionError::CaptchaRenderFailed => {
-                    AUTH_RESOLVE_FAILED.into_error().with_source(error)
+                    CAPTCHA_OPERATION_FAILED.into_error().with_source(error)
                 }
             }
         }

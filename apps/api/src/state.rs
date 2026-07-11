@@ -31,7 +31,11 @@ pub enum ConfigError {
 
 /// Require an environment variable to be set.
 fn require_env(key: &str) -> Result<String, ConfigError> {
-    env::var(key).map_err(|_| ConfigError::Missing(key.to_string()))
+    let value = env::var(key).map_err(|_| ConfigError::Missing(key.to_string()))?;
+    if value.trim().is_empty() {
+        return Err(ConfigError::Missing(key.to_string()));
+    }
+    Ok(value)
 }
 
 impl AppConfig {

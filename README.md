@@ -47,7 +47,7 @@ Required:
 Optional:
 
 - `ADMIN_USERNAME`, default `admin`
-- `ADMIN_NICKNAME`, default `System Administrator`
+- `ADMIN_NICKNAME`, default `Administrator`
 
 Required only by the bootstrap command:
 

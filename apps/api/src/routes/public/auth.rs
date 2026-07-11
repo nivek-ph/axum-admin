@@ -22,18 +22,28 @@ pub async fn login(
     headers: HeaderMap,
     Json(payload): Json<system::users::LoginRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
+    let username = payload.username.clone();
+
     if payload.captcha.trim().is_empty() || payload.captcha_id.trim().is_empty() {
+        record_failed_login(&state, &headers, username, CAPTCHA_REQUIRED.message).await;
         return Err(CAPTCHA_REQUIRED.into());
     }
-    let captcha_valid = state
+    let captcha_valid = match state
         .auth_session_service
         .verify_captcha(&payload.captcha_id, &payload.captcha)
         .await
-        .map_err(|error| CAPTCHA_OPERATION_FAILED.into_error().with_source(error))?;
+    {
+        Ok(valid) => valid,
+        Err(error) => {
+            record_failed_login(&state, &headers, username, CAPTCHA_OPERATION_FAILED.message).await;
+            return Err(CAPTCHA_OPERATION_FAILED.into_error().with_source(error));
+        }
+    };
     if !captcha_valid {
+        record_failed_login(&state, &headers, username, CAPTCHA_INVALID.message).await;
         return Err(CAPTCHA_INVALID.into());
     }
-    let username = payload.username.clone();
+
     let login_result = match state
         .auth_session_service
         .login(&state.pool, &state.password_service, payload)
@@ -74,18 +84,7 @@ pub async fn login(
             result
         }
         Err((app_error, error_message)) => {
-            let _ = system::logs::create_login_log(
-                &state.pool,
-                system::logs::CreateLoginLog {
-                    username,
-                    ip: header_value(&headers, "x-forwarded-for"),
-                    status: false,
-                    error_message,
-                    agent: header_value(&headers, "user-agent"),
-                    user_id: None,
-                },
-            )
-            .await;
+            record_failed_login(&state, &headers, username, &error_message).await;
             return Err(app_error);
         }
     };
@@ -94,6 +93,26 @@ pub async fn login(
         "user": login_result.user,
         "token": login_result.token,
     }))))
+}
+
+async fn record_failed_login(
+    state: &AppState,
+    headers: &HeaderMap,
+    username: String,
+    error_message: &str,
+) {
+    let _ = system::logs::create_login_log(
+        &state.pool,
+        system::logs::CreateLoginLog {
+            username,
+            ip: header_value(headers, "x-forwarded-for"),
+            status: false,
+            error_message: error_message.to_string(),
+            agent: header_value(headers, "user-agent"),
+            user_id: None,
+        },
+    )
+    .await;
 }
 
 fn header_value(headers: &HeaderMap, key: &str) -> String {

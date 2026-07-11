@@ -83,6 +83,11 @@ describe('LoginView', () => {
       },
     });
 
+    await flushPromises();
+    await wrapper.find('input').setValue('operator');
+    const inputs = wrapper.findAll('input');
+    await inputs[1].setValue('secret');
+    await inputs[2].setValue('abcd');
     await wrapper.find('button.w-full').trigger('click');
     await flushPromises();
 
@@ -92,6 +97,14 @@ describe('LoginView', () => {
     expect(menuStore.firstAuthorizedPath()).toBe('/profile');
     expect(router.currentRoute.value.name).toBe('profile');
     expect(ElMessage.error).not.toHaveBeenCalled();
+    expect(login).toHaveBeenCalledWith(
+      expect.objectContaining({
+        username: 'operator',
+        password: 'secret',
+        captcha: 'abcd',
+        captchaId: 'captcha-123',
+      })
+    );
   });
 
   it('grants full menu access when login user has the super_admin role code', async () => {
@@ -154,6 +167,11 @@ describe('LoginView', () => {
       },
     });
 
+    await flushPromises();
+    const inputs = wrapper.findAll('input');
+    await inputs[0].setValue('admin');
+    await inputs[1].setValue('secret');
+    await inputs[2].setValue('abcd');
     await wrapper.find('button.w-full').trigger('click');
     await flushPromises();
 

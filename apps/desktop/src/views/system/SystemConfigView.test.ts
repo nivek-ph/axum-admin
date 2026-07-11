@@ -9,7 +9,7 @@ vi.mock('@/api/system', () => ({
   fetchServerInfo: vi.fn(),
   fetchSystemConfig: vi.fn().mockResolvedValue({
     system: { env: 'public', addr: '127.0.0.1:3000', 'db-type': 'pgsql' },
-    captcha: { openCaptcha: 0, openCaptchaTimeOut: 0 },
+    captcha: { openCaptcha: 1, openCaptchaTimeOut: 300 },
     local: { storePath: './uploads' }
   })
 }))

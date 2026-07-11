@@ -14,9 +14,7 @@
           <div class="login-card-kicker">{{ $t('Account sign-in') }}</div>
           <LanguageSwitch />
         </div>
-        <h2 class="login-card-title">{{ $t('Sign in to console') }}</h2>
-        <p class="login-card-subtitle">{{ $t('Use the administrator account for this environment.') }}</p>
-
+        <h2 class="login-card-title">{{ $t('Sign in') }}</h2>
         <UiForm class="form" @submit.prevent="handleLogin">
           <UiFormItem>
             <UiInput v-model="form.username" placeholder="Username" />
@@ -26,16 +24,21 @@
           </UiFormItem>
           <UiFormItem>
             <div class="captcha-row">
-              <UiInput v-model="form.captcha" class="captcha-input" placeholder="Captcha" autocomplete="off" />
+              <UiInput
+                v-model="form.captcha"
+                class="captcha-input"
+                placeholder="Captcha"
+                autocomplete="off"
+              />
               <button
                 class="captcha-image-button"
                 type="button"
-                title="Click to refresh"
-                aria-label="Refresh captcha"
+                :title="$t('Refresh captcha')"
+                :aria-label="$t('Refresh captcha')"
                 @click="loadCaptcha"
               >
-                <img v-if="captchaImage" :src="captchaImage" alt="Captcha" class="captcha-image" />
-                <span v-else>{{ $t('Refresh') }}</span>
+                <img v-if="captchaImage" :src="captchaImage" :alt="$t('Captcha')" class="captcha-image" />
+                <span v-else>{{ $t('Refresh captcha') }}</span>
                 <span v-if="captchaImage" class="captcha-refresh-mark" aria-hidden="true">↻</span>
               </button>
             </div>
@@ -69,8 +72,8 @@ const menuStore = useMenuStore()
 const loading = ref(false)
 const captchaImage = ref('')
 const form = reactive({
-  username: 'admin',
-  password: '123456',
+  username: '',
+  password: '',
   captcha: '',
   captchaId: ''
 })
@@ -84,7 +87,9 @@ async function loadCaptcha() {
     if (res.code === 'OK' && res.data) {
       form.captchaId = res.data.captchaId
       captchaImage.value = res.data.picPath
+      return
     }
+    ElMessage.error(res.message || t('Failed to load captcha'))
   } catch (err) {
     ElMessage.error(getApiErrorMessage(err, t('Failed to load captcha')))
   }
