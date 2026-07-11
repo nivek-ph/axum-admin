@@ -28,7 +28,7 @@ pub struct PasswordService;
 
 impl PasswordService {
     pub fn new() -> Self {
-        Self::default()
+        Self
     }
 
     pub fn hash_password(&self, password: &str) -> Result<String, AuthError> {
