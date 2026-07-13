@@ -4,8 +4,8 @@ pub enum MenuError {
     NotFound,
     #[error("{0}")]
     Database(#[from] sqlx::Error),
+    #[error(transparent)]
+    Authorization(#[from] iam::authorization::AuthorizationError),
     #[error("invalid menu payload")]
     InvalidPayload,
-    #[error("default role permissions cannot be changed")]
-    RootAuthorityImmutable,
 }

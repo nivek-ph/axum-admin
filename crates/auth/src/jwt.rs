@@ -8,7 +8,6 @@ use crate::password::AuthError;
 pub struct Claims {
     pub user_id: i64,
     pub username: String,
-    pub authority_id: i64,
     pub exp: usize,
 }
 
@@ -24,12 +23,7 @@ impl JwtService {
         }
     }
 
-    pub fn issue_token(
-        &self,
-        user_id: i64,
-        username: &str,
-        authority_id: i64,
-    ) -> Result<String, AuthError> {
+    pub fn issue_token(&self, user_id: i64, username: &str) -> Result<String, AuthError> {
         let expiration = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_else(|_| Duration::from_secs(0))
@@ -41,7 +35,6 @@ impl JwtService {
             &Claims {
                 user_id,
                 username: username.to_string(),
-                authority_id,
                 exp: expiration as usize,
             },
             &EncodingKey::from_secret(self.secret.as_bytes()),

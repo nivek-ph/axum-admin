@@ -10,7 +10,7 @@ pub struct LoginLogResponse {
     #[serde(rename = "errorMessage")]
     pub error_message: String,
     pub agent: String,
-    #[serde(rename = "CreatedAt")]
+    #[serde(rename = "createdAt")]
     pub created_at: String,
 }
 impl From<audit::login_logs::LoginLogView> for LoginLogResponse {

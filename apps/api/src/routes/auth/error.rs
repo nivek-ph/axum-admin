@@ -23,6 +23,7 @@ pub fn map_error(error: LoginOperationError) -> AppError {
             iam::users::LoginError::Disabled => USER_DISABLED.into(),
             iam::users::LoginError::UserAlreadyExists => USER_ALREADY_EXISTS.into(),
             iam::users::LoginError::InvalidPassword => INVALID_PASSWORD.into(),
+            iam::users::LoginError::InvalidRoles => LOGIN_OPERATION_FAILED.into_error(),
             iam::users::LoginError::Auth(_) | iam::users::LoginError::Database(_) => {
                 LOGIN_OPERATION_FAILED.into_error().with_source(source)
             }

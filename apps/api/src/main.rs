@@ -34,7 +34,12 @@ async fn main() -> Result<()> {
     info!("database migrations complete");
 
     let password_service = PasswordService::new();
-    let auth_session_service = AuthSessionService::new(&config.jwt_secret, redis_connection);
+    let auth_session_service =
+        AuthSessionService::new(&config.jwt_secret, redis_connection.clone());
+    let authorization =
+        iam::authorization::AuthorizationService::load(pool.clone(), redis_connection)
+            .await
+            .expect("authorization catalog and cache should initialize");
     let users = iam::users::service::UserService::new(pool.clone(), password_service);
     let login_logs = audit::login_logs::service::LoginLogService::new(pool.clone());
     let operation_logs = audit::operation_logs::service::OperationLogService::new(pool.clone());
@@ -49,17 +54,15 @@ async fn main() -> Result<()> {
         auth_session_service,
         login,
         users,
-        roles: iam::roles::service::RoleService::new(pool.clone()),
-        permissions: iam::permissions::service::PermissionService::new(pool.clone()),
+        roles: iam::roles::service::RoleService::with_authorization(
+            pool.clone(),
+            authorization.clone(),
+        ),
         departments: iam::departments::service::DepartmentService::new(pool.clone()),
-        apis: iam::apis::service::ApiService::new(pool.clone()),
-        authorization: iam::authorization::service::AuthorizationService::new(pool.clone()),
+        authorization: authorization.clone(),
         dictionaries: metadata::dictionaries::service::DictionaryService::new(pool.clone()),
         parameters: metadata::parameters::service::ParameterService::new(pool.clone()),
-        menus: menu::menus::service::MenuService::new(
-            pool.clone(),
-            iam::authorization::service::AuthorizationService::new(pool.clone()),
-        ),
+        menus: menu::menus::service::MenuService::new(pool.clone(), authorization),
         login_logs,
         operation_logs,
         files: file_storage::files::service::FileService::new(pool.clone(), "./uploads"),

@@ -19,22 +19,24 @@ const mocks = vi.hoisted(() => ({
   deleteUser: vi.fn(),
   resetUserPassword: vi.fn(),
   assignUserRoles: vi.fn(),
-  fetchAuthorities: vi.fn().mockResolvedValue([
+  listRoles: vi.fn().mockResolvedValue([
     {
-      authorityId: 1,
-      authorityName: 'Super Admin',
-      parentId: 0,
-      defaultRouter: 'dashboard',
-      children: [],
-      dataAuthorityId: [],
+      id: 1,
+      code: 'super_admin',
+      name: 'Super Admin',
+      status: 'enabled',
+      sort: 0,
+      data_scope: 'all',
+      is_system: true,
     },
     {
-      authorityId: 1001,
-      authorityName: 'Dev',
-      parentId: 0,
-      defaultRouter: 'dashboard',
-      children: [],
-      dataAuthorityId: [],
+      id: 1001,
+      code: 'dev',
+      name: 'Dev',
+      status: 'enabled',
+      sort: 1,
+      data_scope: 'all',
+      is_system: false,
     },
   ]),
 }));
@@ -47,8 +49,8 @@ vi.mock('@/api/users', () => ({
   assignUserRoles: mocks.assignUserRoles,
 }));
 
-vi.mock('@/api/authorities', () => ({
-  fetchAuthorities: mocks.fetchAuthorities,
+vi.mock('@/api/system/roles', () => ({
+  listRoles: mocks.listRoles,
 }));
 
 function mountView(permissions = ['system:user:create', 'system:user:assign-roles', 'system:user:reset-password', 'system:user:delete']) {
@@ -125,10 +127,6 @@ describe('UserListView', () => {
           deptName: 'Head Office',
           roleIds: [1001],
           roles: [{ id: 1001, code: 'dev', name: 'Dev' }],
-          authority: {
-            authorityId: 1001,
-            authorityName: 'Dev',
-          },
         },
       ],
       total: 1,
@@ -160,10 +158,6 @@ describe('UserListView', () => {
           deptName: 'Head Office',
           roleIds: [1001],
           roles: [{ id: 1001, code: 'dev', name: 'Dev' }],
-          authority: {
-            authorityId: 1001,
-            authorityName: 'Dev',
-          },
         },
       ],
       total: 1,

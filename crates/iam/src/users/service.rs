@@ -6,7 +6,6 @@ use super::{
     LoginIdentity, LoginRequest, RegisterRequest, ResetPasswordRequest, SetSelfInfoRequest,
     SetSelfSettingRequest, SetUserRolesRequest, UpdateUserRequest, UserInfoView, UserRecord,
 };
-use crate::authority;
 use crate::data_scope::DataScopeFilter;
 use crate::roles::RoleSummary;
 
@@ -29,6 +28,18 @@ impl UserService {
         get_user_list(&self.pool, query, Some(actor_user_id)).await
     }
 
+    pub async fn list_with_scope(
+        &self,
+        query: GetUserListRequest,
+        scope: DataScopeFilter,
+    ) -> Result<(Vec<UserInfoView>, i64), LoginError> {
+        get_user_list_with_scope(&self.pool, query, scope).await
+    }
+
+    pub async fn info(&self, user_id: i64) -> Result<UserInfoView, LoginError> {
+        load_user_info(&self.pool, user_id).await
+    }
+
     pub async fn ensure_admin(
         &self,
         username: &str,
@@ -39,6 +50,16 @@ impl UserService {
     }
 
     pub async fn register(&self, payload: RegisterRequest) -> Result<(), LoginError> {
+        register_user(&self.pool, &self.passwords, payload).await
+    }
+
+    pub async fn register_as(
+        &self,
+        actor_user_id: i64,
+        payload: RegisterRequest,
+    ) -> Result<(), LoginError> {
+        let role_ids = normalize_role_ids(payload.role_ids.as_ref())?;
+        ensure_role_assignment_actor(&self.pool, actor_user_id, &role_ids).await?;
         register_user(&self.pool, &self.passwords, payload).await
     }
 
@@ -108,6 +129,7 @@ impl UserService {
         payload: SetUserRolesRequest,
     ) -> Result<(), LoginError> {
         ensure_user_in_scope(&self.pool, actor_user_id, target_user_id).await?;
+        ensure_role_assignment_actor(&self.pool, actor_user_id, &payload.role_ids).await?;
         set_user_roles(&self.pool, target_user_id, payload).await
     }
 }
@@ -149,19 +171,15 @@ async fn ensure_user_with_role(
             r#"
             update sys_users
             set nick_name = $1,
-                authority_id = $2,
-                authority_name = $3,
-                default_router = $4,
+                home_route = $2,
                 enable = true,
                 dept_id = 1,
-                is_system = $5,
+                is_system = $3,
                 updated_at = now()
-            where id = $6
+            where id = $4
             "#,
         )
         .bind(nick_name)
-        .bind(role.id)
-        .bind(&role.name)
         .bind("dashboard")
         .bind(is_system)
         .bind(existing.id)
@@ -181,16 +199,14 @@ async fn ensure_user_with_role(
             password_hash,
             nick_name,
             header_img,
-            authority_id,
-            authority_name,
-            default_router,
+            home_route,
             enable,
             phone,
             email,
             origin_setting,
             dept_id,
             is_system
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8, true, null, null, null, 1, $9)
+        ) values ($1, $2, $3, $4, $5, $6, true, null, null, null, 1, $7)
         returning id
         "#,
         )
@@ -199,8 +215,6 @@ async fn ensure_user_with_role(
         .bind(password_hash)
         .bind(nick_name)
         .bind("https://qmplusimg.henrongyi.top/gva_header.jpg")
-        .bind(role.id)
-        .bind(&role.name)
         .bind("dashboard")
         .bind(is_system)
         .fetch_one(pool)
@@ -235,8 +249,8 @@ pub(crate) async fn register_user(
     if find_by_username(pool, &payload.user_name).await?.is_some() {
         return Err(LoginError::UserAlreadyExists);
     }
-    let role_ids = normalize_role_ids(payload.role_ids.as_ref(), payload.authority_id);
-    let authority = resolve_role_authority(pool, role_ids[0]).await?;
+    let role_ids = normalize_role_ids(payload.role_ids.as_ref())?;
+    ensure_assignable_roles(pool, &role_ids).await?;
     let password_hash = password_service.hash_password(&payload.password)?;
 
     let user_id: i64 = sqlx::query_scalar(
@@ -247,15 +261,13 @@ pub(crate) async fn register_user(
             password_hash,
             nick_name,
             header_img,
-            authority_id,
-            authority_name,
-            default_router,
+            home_route,
             enable,
             phone,
             email,
             origin_setting,
             dept_id
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, null, $12)
+        ) values ($1, $2, $3, $4, $5, 'dashboard', $6, $7, $8, null, $9)
         returning id
         "#,
     )
@@ -268,9 +280,6 @@ pub(crate) async fn register_user(
             .header_img
             .unwrap_or_else(|| "https://qmplusimg.henrongyi.top/gva_header.jpg".to_string()),
     )
-    .bind(authority.authority_id)
-    .bind(&authority.authority_name)
-    .bind(&authority.default_router)
     .bind(payload.enable.unwrap_or(1) == 1)
     .bind(payload.phone)
     .bind(payload.email)
@@ -302,13 +311,11 @@ pub(crate) async fn login(
     }
 
     let roles = get_roles_by_user_id(pool, record.id).await?;
-    let permissions = get_permission_codes_by_user_id(pool, record.id).await?;
 
     Ok(LoginIdentity {
         id: record.id,
         username: record.username.clone(),
-        authority_id: record.authority_id,
-        user: build_user_info(&record, roles, permissions),
+        user: build_user_info(&record, roles),
     })
 }
 
@@ -316,17 +323,17 @@ pub(crate) async fn load_authenticated_user(
     pool: &sqlx::PgPool,
     user_id: i64,
 ) -> Result<AuthenticatedUser, LoginError> {
-    let record = find_by_id(pool, user_id)
+    let exists = sqlx::query_scalar::<_, bool>("SELECT enable FROM sys_users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
         .await?
         .ok_or(LoginError::UserNotFound)?;
-
-    let roles = get_roles_by_user_id(pool, record.id).await?;
-    let permissions = get_permission_codes_by_user_id(pool, record.id).await?;
-
+    if !exists {
+        return Err(LoginError::Disabled);
+    }
     Ok(AuthenticatedUser {
-        id: record.id,
-        authority_id: record.authority_id,
-        user: build_user_info(&record, roles, permissions),
+        id: user_id,
+        data_scope: DataScopeFilter::All,
     })
 }
 
@@ -334,6 +341,18 @@ pub(crate) async fn get_user_list(
     pool: &sqlx::PgPool,
     query: GetUserListRequest,
     actor_user_id: Option<i64>,
+) -> Result<(Vec<UserInfoView>, i64), LoginError> {
+    let scope_filter = match actor_user_id {
+        Some(user_id) => crate::data_scope::resolve_user_data_scope(pool, user_id, "users").await?,
+        None => DataScopeFilter::All,
+    };
+    get_user_list_with_scope(pool, query, scope_filter).await
+}
+
+async fn get_user_list_with_scope(
+    pool: &sqlx::PgPool,
+    query: GetUserListRequest,
+    scope_filter: DataScopeFilter,
 ) -> Result<(Vec<UserInfoView>, i64), LoginError> {
     let page = query.page.max(1);
     let page_size = query.page_size.max(1);
@@ -351,10 +370,6 @@ pub(crate) async fn get_user_list(
         "asc"
     };
     let order_clause = format!("{order_key} {order_dir}");
-    let scope_filter = match actor_user_id {
-        Some(user_id) => crate::data_scope::resolve_user_data_scope(pool, user_id, "users").await?,
-        None => DataScopeFilter::All,
-    };
     if matches!(&scope_filter, DataScopeFilter::DeptIds(dept_ids) if dept_ids.is_empty()) {
         return Ok((Vec::new(), 0));
     }
@@ -391,9 +406,7 @@ pub(crate) async fn get_user_list(
             u.password_hash,
             u.nick_name,
             u.header_img,
-            u.authority_id,
-            u.authority_name,
-            u.default_router,
+            u.home_route,
             u.enable,
             u.phone,
             u.email,
@@ -441,8 +454,7 @@ pub(crate) async fn get_user_list(
     let mut list = Vec::with_capacity(rows.len());
     for record in rows {
         let roles = get_roles_by_user_id(pool, record.id).await?;
-        let permissions = get_permission_codes_by_user_id(pool, record.id).await?;
-        list.push(build_user_info(&record, roles, permissions));
+        list.push(build_user_info(&record, roles));
     }
 
     Ok((list, total))
@@ -559,10 +571,9 @@ pub(crate) async fn set_user_roles(
     user_id: i64,
     payload: SetUserRolesRequest,
 ) -> Result<(), LoginError> {
-    let role_ids = normalize_role_ids(Some(&payload.role_ids), None);
-    let authority = resolve_role_authority(pool, role_ids[0]).await?;
+    let role_ids = normalize_role_ids(Some(&payload.role_ids))?;
+    ensure_assignable_roles(pool, &role_ids).await?;
     replace_user_roles(pool, user_id, role_ids).await?;
-    set_user_primary_authority(pool, user_id, authority).await?;
     Ok(())
 }
 
@@ -658,9 +669,7 @@ async fn find_by_username(
             u.password_hash,
             u.nick_name,
             u.header_img,
-            u.authority_id,
-            u.authority_name,
-            u.default_router,
+            u.home_route,
             u.enable,
             u.phone,
             u.email,
@@ -687,9 +696,7 @@ async fn find_by_id(pool: &sqlx::PgPool, user_id: i64) -> Result<Option<UserReco
             u.password_hash,
             u.nick_name,
             u.header_img,
-            u.authority_id,
-            u.authority_name,
-            u.default_router,
+            u.home_route,
             u.enable,
             u.phone,
             u.email,
@@ -706,28 +713,22 @@ async fn find_by_id(pool: &sqlx::PgPool, user_id: i64) -> Result<Option<UserReco
     .await
 }
 
-fn build_user_info(
-    record: &UserRecord,
-    roles: Vec<RoleSummary>,
-    permissions: Vec<String>,
-) -> UserInfoView {
-    let authority = authority::AuthorityView {
-        authority_id: record.authority_id,
-        authority_name: record.authority_name.clone(),
-        parent_id: 0,
-        default_router: record.default_router.clone(),
-        children: Vec::new(),
-        data_authority_id: Vec::new(),
-    };
+async fn load_user_info(pool: &sqlx::PgPool, user_id: i64) -> Result<UserInfoView, LoginError> {
+    let record = find_by_id(pool, user_id)
+        .await?
+        .ok_or(LoginError::UserNotFound)?;
+    let roles = get_roles_by_user_id(pool, user_id).await?;
+    Ok(build_user_info(&record, roles))
+}
 
+fn build_user_info(record: &UserRecord, roles: Vec<RoleSummary>) -> UserInfoView {
     UserInfoView {
         id: record.id,
         uuid: record.uuid.clone(),
         user_name: record.username.clone(),
         nick_name: record.nick_name.clone(),
         header_img: record.header_img.clone(),
-        authority: authority.clone(),
-        authorities: vec![authority],
+        home_route: record.home_route.clone(),
         enable: if record.enable { 1 } else { 2 },
         phone: record.phone.clone().unwrap_or_default(),
         email: record.email.clone().unwrap_or_default(),
@@ -736,7 +737,6 @@ fn build_user_info(
         dept_name: record.dept_name.clone().unwrap_or_default(),
         role_ids: roles.iter().map(|role| role.id).collect(),
         roles,
-        permissions,
     }
 }
 
@@ -749,30 +749,8 @@ async fn get_roles_by_user_id(
         select r.id, r.code, r.name, r.status, r.sort, r.data_scope, r.is_system
         from sys_user_roles ur
         join sys_roles r on r.id = ur.role_id
-        where ur.user_id = $1
+        where ur.user_id = $1 and r.status = 'enabled'
         order by r.sort, r.id
-        "#,
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-}
-
-async fn get_permission_codes_by_user_id(
-    pool: &sqlx::PgPool,
-    user_id: i64,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"
-        select distinct p.code
-        from sys_user_roles ur
-        join sys_roles r on r.id = ur.role_id
-        join sys_role_permissions rp on rp.role_id = r.id
-        join sys_permissions p on p.id = rp.permission_id
-        where ur.user_id = $1
-          and r.status = 'enabled'
-          and p.status = 'enabled'
-        order by p.code
         "#,
     )
     .bind(user_id)
@@ -785,19 +763,13 @@ async fn replace_user_roles(
     user_id: i64,
     role_ids: Vec<i64>,
 ) -> Result<(), LoginError> {
-    let normalized = if role_ids.is_empty() {
-        vec![1]
-    } else {
-        role_ids.into_iter().collect()
-    };
-
     let mut tx = pool.begin().await?;
     sqlx::query("delete from sys_user_roles where user_id = $1")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
-    for role_id in normalized {
+    for role_id in role_ids {
         sqlx::query(
             r#"
             insert into sys_user_roles (user_id, role_id)
@@ -815,54 +787,62 @@ async fn replace_user_roles(
     Ok(())
 }
 
-fn normalize_role_ids(role_ids: Option<&Vec<i64>>, authority_id: Option<i64>) -> Vec<i64> {
-    role_ids
-        .filter(|ids| !ids.is_empty())
-        .cloned()
-        .or_else(|| authority_id.map(|id| vec![id]))
-        .unwrap_or_else(|| vec![1])
+fn normalize_role_ids(role_ids: Option<&Vec<i64>>) -> Result<Vec<i64>, LoginError> {
+    let ids = role_ids.cloned().unwrap_or_default();
+    let ids = ids
+        .into_iter()
+        .filter(|id| *id > 0)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Err(LoginError::InvalidRoles);
+    }
+    Ok(ids)
 }
 
-async fn resolve_role_authority(
-    pool: &sqlx::PgPool,
-    role_id: i64,
-) -> Result<authority::AuthorityView, LoginError> {
-    let role = crate::roles::find(pool, role_id)
-        .await?
-        .ok_or(LoginError::UserNotFound)?;
-
-    Ok(authority::AuthorityView {
-        authority_id: role.id,
-        authority_name: role.name,
-        parent_id: 0,
-        default_router: "dashboard".to_string(),
-        children: Vec::new(),
-        data_authority_id: Vec::new(),
-    })
-}
-
-async fn set_user_primary_authority(
-    pool: &sqlx::PgPool,
-    user_id: i64,
-    authority: authority::AuthorityView,
-) -> Result<(), LoginError> {
-    sqlx::query(
-        r#"
-        update sys_users
-        set authority_id = $1,
-            authority_name = $2,
-            default_router = $3,
-            updated_at = now()
-        where id = $4
-        "#,
+async fn ensure_assignable_roles(pool: &sqlx::PgPool, role_ids: &[i64]) -> Result<(), LoginError> {
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM sys_roles WHERE id = ANY($1) AND status = 'enabled'",
     )
-    .bind(authority.authority_id)
-    .bind(authority.authority_name)
-    .bind(authority.default_router)
-    .bind(user_id)
-    .execute(pool)
+    .bind(role_ids)
+    .fetch_one(pool)
     .await?;
+    if count != role_ids.len() as i64 {
+        return Err(LoginError::InvalidRoles);
+    }
     Ok(())
+}
+
+async fn ensure_role_assignment_actor(
+    pool: &sqlx::PgPool,
+    actor_user_id: i64,
+    role_ids: &[i64],
+) -> Result<(), LoginError> {
+    let assigns_super = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM sys_roles WHERE id = ANY($1) AND code = 'super_admin')",
+    )
+    .bind(role_ids)
+    .fetch_one(pool)
+    .await?;
+    if !assigns_super {
+        return Ok(());
+    }
+    let actor_is_super = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS(
+            SELECT 1 FROM sys_user_roles ur
+            JOIN sys_roles r ON r.id = ur.role_id
+            WHERE ur.user_id = $1 AND r.code = 'super_admin' AND r.status = 'enabled'
+        )"#,
+    )
+    .bind(actor_user_id)
+    .fetch_one(pool)
+    .await?;
+    if actor_is_super {
+        Ok(())
+    } else {
+        Err(LoginError::InvalidRoles)
+    }
 }
 
 #[cfg(test)]
@@ -883,8 +863,14 @@ mod tests {
     }
 
     #[test]
-    fn normalize_role_ids_uses_current_role_ids() {
-        assert_eq!(normalize_role_ids(None, Some(1)), vec![1]);
-        assert_eq!(normalize_role_ids(Some(&vec![1, 2]), None), vec![1, 2]);
+    fn normalize_role_ids_requires_explicit_roles() {
+        assert!(matches!(
+            normalize_role_ids(None),
+            Err(LoginError::InvalidRoles)
+        ));
+        assert_eq!(
+            normalize_role_ids(Some(&vec![2, 1, 2])).unwrap(),
+            vec![1, 2]
+        );
     }
 }

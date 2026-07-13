@@ -69,7 +69,7 @@
               {{ row.user?.nickName || row.user?.userName || '-' }}
             </template>
           </UiTableColumn>
-          <UiTableColumn prop="CreatedAt" label="Time" min-width="180" />        </UiTable>
+          <UiTableColumn prop="createdAt" label="Time" min-width="180" />        </UiTable>
       </div>
 
       <div class="pagination">
@@ -137,7 +137,7 @@ function handlePageChange(nextPage: number) {
 }
 
 function handleSelectionChange(rows: OperationLogRecord[]) {
-  selectedIds.value = rows.map((row) => row.ID)
+  selectedIds.value = rows.map((row) => row.id)
 }
 
 async function handleBatchDelete() {

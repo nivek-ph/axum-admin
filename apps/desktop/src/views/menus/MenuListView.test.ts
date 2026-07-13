@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { UiComponents } from '@/components/ui';
 import { describe, expect, it, vi } from 'vitest';
+import { setLocale } from '@/i18n';
 
 const mocks = vi.hoisted(() => ({
   fetchMenuList: vi.fn().mockResolvedValue([
@@ -40,10 +41,6 @@ const mocks = vi.hoisted(() => ({
   ]),
 }));
 
-vi.mock('@/api/authorities', () => ({
-  fetchAuthorities: vi.fn().mockResolvedValue([]),
-}));
-
 vi.mock('@/api/menus', () => ({
   fetchMenuList: mocks.fetchMenuList,
   createMenu: vi.fn(),
@@ -58,7 +55,8 @@ vi.mock('@/api/menus', () => ({
 import MenuListView from './MenuListView.vue';
 
 describe('MenuListView', () => {
-  it('renders menu management actions', async () => {
+  it('renders the read-only access catalog', async () => {
+    setLocale('zh-CN');
     const wrapper = mount(MenuListView, {
       global: {
         plugins: [UiComponents],
@@ -66,9 +64,17 @@ describe('MenuListView', () => {
     });
 
     await flushPromises();
-    expect(wrapper.text()).toContain('Menus');
-    expect(wrapper.text()).toContain('New');
+    expect(wrapper.find('.admin-page > .page-hero > .page-hero-main').exists()).toBe(true);
+    expect(wrapper.find('.page-hero-title').text()).toBe('菜单与权限');
+    expect(wrapper.find('.page-hero-subtitle').text()).toBe('菜单定义由数据库迁移统一管理，此处仅供查看。');
+    expect(wrapper.text()).toContain('菜单与权限');
+    expect(wrapper.text()).toContain('菜单定义由数据库迁移统一管理，此处仅供查看。');
+    expect(wrapper.text()).not.toContain('Menus and permissions');
+    expect(wrapper.text()).not.toContain('read-only');
     expect(wrapper.text()).toContain('Users');
     expect(wrapper.text()).not.toContain('Internal action');
+    await wrapper.get('[data-test="tree-toggle-1"]').trigger('click');
+    expect(wrapper.text()).toContain('Internal action');
+    expect(wrapper.text()).not.toContain('New');
   });
 });

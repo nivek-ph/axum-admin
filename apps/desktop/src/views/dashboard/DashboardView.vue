@@ -77,11 +77,11 @@ const router = useRouter()
 const authStore = useAuthStore()
 const menuStore = useMenuStore()
 
-const currentRole = computed(() => authStore.userInfo?.authority?.authorityName || t('Guest'))
+const currentRole = computed(() => authStore.roleLabel || t('Guest'))
 
 const allQuickLinks = [
   { name: 'users', path: '/users', title: 'Users', description: 'Review user status, reset passwords, and remove accounts.' },
-  { name: 'roles', path: '/roles', title: 'Roles', description: 'Manage role trees, default routes, and members.' },
+  { name: 'roles', path: '/roles', title: 'Roles', description: 'Manage roles, permissions, and members.' },
   { name: 'menus', path: '/menus', title: 'Menus', description: 'Manage menu structure and role visibility.' },
   { name: 'apis', path: '/apis', title: 'API directory', description: 'Review registered backend endpoints.' }
 ]

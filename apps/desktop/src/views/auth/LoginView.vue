@@ -130,7 +130,13 @@ async function handleLogin() {
     const currentUser = userInfoRes.code === 'OK' ? userInfoRes.data?.userInfo || loginUser : loginUser
     authStore.setSession(loginToken, currentUser)
     menuStore.setAuthorizedMenus(menuRes.data?.menus || [], authStore.isSuperAdmin)
-    await router.push(menuStore.firstAuthorizedPath())
+    authStore.setPermissions(menuRes.data?.permissions || [])
+    const homeRouteName = authStore.homeRouteName
+    await router.push(
+      router.hasRoute(homeRouteName) && menuStore.canAccessRouteName(homeRouteName)
+        ? { name: homeRouteName }
+        : menuStore.firstAuthorizedPath()
+    )
   } catch (err) {
     ElMessage.error(getApiErrorMessage(err, t('Sign in failed')))
     await loadCaptcha()

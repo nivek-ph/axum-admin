@@ -9,7 +9,6 @@ const DashboardView = () => import('@/views/dashboard/DashboardView.vue')
 const UserListView = () => import('@/views/users/UserListView.vue')
 const RoleListView = () => import('@/views/roles/RoleListView.vue')
 const MenuListView = () => import('@/views/menus/MenuListView.vue')
-const ApiListView = () => import('@/views/apis/ApiListView.vue')
 const ParamListView = () => import('@/views/params/ParamListView.vue')
 const DictionaryListView = () => import('@/views/dictionaries/DictionaryListView.vue')
 const FileLibraryView = () => import('@/views/files/FileLibraryView.vue')
@@ -19,8 +18,6 @@ const ProfileView = () => import('@/views/profile/ProfileView.vue')
 const SystemConfigView = () => import('@/views/system/SystemConfigView.vue')
 const SystemStateView = () => import('@/views/system/SystemStateView.vue')
 const DeptTreeView = () => import('@/views/system/depts/DeptTreeView.vue')
-const PermissionListView = () => import('@/views/system/permissions/PermissionListView.vue')
-const ApiPermissionListView = () => import('@/views/system/permissions/ApiPermissionListView.vue')
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: LoginView },
@@ -33,7 +30,6 @@ const routes: RouteRecordRaw[] = [
       { path: 'users', name: 'users', component: UserListView },
       { path: 'roles', name: 'roles', component: RoleListView },
       { path: 'menus', name: 'menus', component: MenuListView },
-      { path: 'apis', name: 'apis', component: ApiListView },
       { path: 'params', name: 'params', component: ParamListView },
       { path: 'dictionaries', name: 'dictionaries', component: DictionaryListView },
       { path: 'files', name: 'files', component: FileLibraryView },
@@ -42,9 +38,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'profile', name: 'profile', component: ProfileView },
       { path: 'system-config', name: 'system-config', component: SystemConfigView },
       { path: 'system-state', name: 'system-state', component: SystemStateView },
-      { path: 'departments', name: 'departments', component: DeptTreeView },
-      { path: 'permissions', name: 'permissions', component: PermissionListView },
-      { path: 'api-permissions', name: 'api-permissions', component: ApiPermissionListView }
+      { path: 'departments', name: 'departments', component: DeptTreeView }
     ]
   }
 ]
@@ -62,7 +56,10 @@ export function createAppRouter() {
       return { name: 'login' }
     }
     if (to.name === 'login' && authStore.isAuthenticated) {
-      return { name: 'dashboard' }
+      const homeRouteName = authStore.homeRouteName
+      return router.hasRoute(homeRouteName) && menuStore.canAccessRouteName(homeRouteName)
+        ? { name: homeRouteName }
+        : { name: menuStore.firstAuthorizedRouteName() }
     }
     if (!menuStore.canAccessRouteName(to.name)) {
       return { name: menuStore.firstAuthorizedRouteName() }

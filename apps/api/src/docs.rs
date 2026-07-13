@@ -55,15 +55,10 @@ pub struct CaptchaResponse {
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct AuthorityDoc {
-    #[serde(rename = "authorityId")]
-    pub authority_id: i64,
-    #[serde(rename = "authorityName")]
-    pub authority_name: String,
-    #[serde(rename = "parentId")]
-    pub parent_id: i64,
-    #[serde(rename = "defaultRouter")]
-    pub default_router: String,
+pub struct RoleDoc {
+    pub id: i64,
+    pub code: String,
+    pub name: String,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -77,8 +72,11 @@ pub struct UserDoc {
     pub nick_name: String,
     #[serde(rename = "headerImg")]
     pub header_img: String,
-    pub authority: AuthorityDoc,
-    pub authorities: Vec<AuthorityDoc>,
+    #[serde(rename = "homeRoute")]
+    pub home_route: String,
+    pub roles: Vec<RoleDoc>,
+    #[serde(rename = "roleIds")]
+    pub role_ids: Vec<i64>,
     pub enable: i32,
     pub phone: String,
     pub email: String,
@@ -170,7 +168,7 @@ pub struct MenuResponse {
             CaptchaData,
             CaptchaResponse,
             crate::routes::auth::LoginRequest,
-            AuthorityDoc,
+            RoleDoc,
             UserDoc,
             LoginData,
             LoginResponse,

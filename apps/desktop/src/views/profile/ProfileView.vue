@@ -18,7 +18,7 @@
           <div class="page-metric">
             <div class="page-metric-label">{{ $t('Current role') }}</div>
             <div class="page-metric-value">
-              {{ authStore.userInfo?.authority?.authorityName || $t('Guest') }}
+              {{ authStore.roleLabel || $t('Guest') }}
             </div>
           </div>
         </div>
@@ -44,10 +44,10 @@
         </div>
         <div class="profile-content">
           <div class="profile-name">{{ authStore.userInfo?.nickName || $t('Not signed in') }}</div>
-          <div class="profile-role">{{ authStore.userInfo?.authority?.authorityName || $t('Guest') }}</div>
+          <div class="profile-role">{{ authStore.roleLabel || $t('Guest') }}</div>
           <div class="profile-meta">
-            {{ $t('User ID') }}：{{ authStore.userInfo?.id || '-' }} / {{ $t('Default route') }}：{{
-              authStore.userInfo?.authority?.defaultRouter || 'dashboard'
+            {{ $t('User ID') }}：{{ authStore.userInfo?.id || '-' }} / {{ $t('Home route') }}：{{
+              authStore.userInfo?.homeRoute || 'dashboard'
             }}
           </div>
         </div>

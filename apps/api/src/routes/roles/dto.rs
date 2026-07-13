@@ -46,9 +46,9 @@ impl From<RolePayload> for iam::roles::RolePayload {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct RolePermissionPayload {
-    #[serde(rename = "permissionIds", alias = "permission_ids")]
-    pub permission_ids: Vec<i64>,
+pub struct RoleMenuPayload {
+    #[serde(rename = "menuIds", alias = "menu_ids")]
+    pub menu_ids: Vec<i64>,
 }
 #[derive(Debug, Deserialize)]
 pub struct RoleDeptPayload {

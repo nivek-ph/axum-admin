@@ -54,6 +54,7 @@ pub async fn create_dept(
     State(state): State<AppState>,
     Json(payload): Json<DeptPayload>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
+    invalidate_authorization(&state).await?;
     state
         .departments
         .create(payload.into())
@@ -67,6 +68,7 @@ pub async fn update_dept_by_id(
     Path(id): Path<i64>,
     Json(payload): Json<DeptPayload>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
+    invalidate_authorization(&state).await?;
     state
         .departments
         .update(id, payload.into())
@@ -79,6 +81,15 @@ pub async fn delete_dept_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
+    invalidate_authorization(&state).await?;
     state.departments.delete(id).await.map_err(map_error)?;
     Ok(Json(ApiResponse::ok_message("deleted")))
+}
+
+async fn invalidate_authorization(state: &AppState) -> AppResult<()> {
+    state.authorization.invalidate().await.map_err(|source| {
+        crate::errors::INTERNAL_SERVER_ERROR
+            .into_error()
+            .with_source(source)
+    })
 }

@@ -6,9 +6,7 @@ use axum::{
 };
 use serde_json::Value;
 
-use super::dto::{
-    RoleDeptPayload, RolePayload, RolePermissionPayload, RoleResponse, RoleUsersPayload,
-};
+use super::dto::{RoleDeptPayload, RoleMenuPayload, RolePayload, RoleResponse, RoleUsersPayload};
 use super::error::map_error;
 use crate::state::AppState;
 
@@ -16,10 +14,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(get_roles).post(create_role))
         .route("/{id}", put(update_role).delete(delete_role))
-        .route(
-            "/{id}/permissions",
-            get(get_role_permissions).put(set_role_permissions),
-        )
+        .route("/{id}/menus", get(get_role_menus).put(set_role_menus))
         .route("/{id}/depts", get(get_role_depts).put(set_role_depts))
         .route("/{id}/users", get(get_role_users).put(set_role_users))
 }
@@ -77,25 +72,25 @@ pub async fn delete_role(
     Ok(Json(ApiResponse::ok_message("deleted")))
 }
 
-pub async fn get_role_permissions(
+pub async fn get_role_menus(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
-    let permission_ids = state.roles.permission_ids(id).await.map_err(map_error)?;
+    let menu_ids = state.roles.menu_ids(id).await.map_err(map_error)?;
 
     Ok(Json(ApiResponse::ok(serde_json::json!({
-        "permissionIds": permission_ids,
+        "menuIds": menu_ids,
     }))))
 }
 
-pub async fn set_role_permissions(
+pub async fn set_role_menus(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(payload): Json<RolePermissionPayload>,
+    Json(payload): Json<RoleMenuPayload>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
     state
         .roles
-        .set_permission_ids(id, payload.permission_ids)
+        .set_menu_ids(id, payload.menu_ids)
         .await
         .map_err(map_error)?;
 

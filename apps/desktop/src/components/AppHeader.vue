@@ -18,7 +18,7 @@
         <div>
           <div class="user-name">{{ authStore.userInfo?.nickName || $t('Not signed in') }}</div>
           <div class="user-subtitle">
-            {{ authStore.userInfo?.authority?.authorityName || $t('Guest') }}
+            {{ authStore.roleLabel || $t('Guest') }}
           </div>
         </div>
       </div>

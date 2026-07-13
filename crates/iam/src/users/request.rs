@@ -10,7 +10,6 @@ pub struct RegisterRequest {
     pub password: String,
     pub nick_name: String,
     pub header_img: Option<String>,
-    pub authority_id: Option<i64>,
     pub role_ids: Option<Vec<i64>>,
     pub dept_id: Option<i64>,
     pub enable: Option<i32>,

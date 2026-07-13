@@ -8,7 +8,7 @@
       </div>
       <div class="workspace-actions">
         <UiButton @click="loadWorkbench" :loading="loading">{{ $t('Refresh') }}</UiButton>
-        <UiButton v-if="canCreateRole" type="primary" @click="openCreateDialog">{{ $t('New') }}</UiButton>
+        <UiButton v-if="canCreateRole" data-test="open-create-role" type="primary" @click="openCreateDialog">{{ $t('New') }}</UiButton>
       </div>
     </section>
 
@@ -17,7 +17,7 @@
         <div class="role-sidebar-header">
           <div>
             <h3 class="role-sidebar-title">{{ $t('Role') }}</h3>
-            <p class="role-sidebar-subtitle">{{ $t('Total {count} roles', { count: authorityOptions.length }) }}</p>
+            <p class="role-sidebar-subtitle">{{ $t('Total {count} roles', { count: roleOptions.length }) }}</p>
           </div>
           <UiButton v-if="canCreateRole" type="primary" @click="openCreateDialog">+</UiButton>
         </div>
@@ -26,19 +26,19 @@
 
         <div class="role-list" data-test="role-list">
           <button
-            v-for="authority in filteredAuthorityOptions"
-            :key="authority.authorityId"
-            :class="['role-list-item', selectedAuthorityId === authority.authorityId && 'is-active']"
+            v-for="role in filteredRoleOptions"
+            :key="role.id"
+            :class="['role-list-item', selectedRoleId === role.id && 'is-active']"
             type="button"
-            @click="selectAuthority(authority)"
+            @click="selectRole(role)"
           >
             <span class="role-list-main">
-              <span class="role-list-name">{{ authority.authorityName }}</span>
-              <span class="role-list-meta">ID {{ authority.authorityId }} · {{ authority.defaultRouter || 'dashboard' }}</span>
+              <span class="role-list-name">{{ role.name }}</span>
+              <span class="role-list-meta">ID {{ role.id }} · {{ role.code }}</span>
             </span>
           </button>
 
-          <div v-if="filteredAuthorityOptions.length === 0" class="empty-state">{{ $t('No matching roles') }}</div>
+          <div v-if="filteredRoleOptions.length === 0" class="empty-state">{{ $t('No matching roles') }}</div>
         </div>
       </aside>
 
@@ -47,35 +47,35 @@
           <div>
             <p class="panel-kicker">{{ $t(activeTab === 'users' ? 'Current role' : 'Function permissions') }}</p>
             <h3 class="permission-title">
-              {{ selectedAuthority?.authorityName || $t('Select a role') }}
+              {{ selectedRole?.name || $t('Select a role') }}
             </h3>
             <p class="permission-subtitle">
               {{
                 activeTab === 'users'
-                  ? selectedAuthority
-                    ? $t('Default entry: {route}', { route: selectedAuthority.defaultRouter || 'dashboard' })
+                  ? selectedRole
+                    ? selectedRole.code
                     : $t('Select a role from the left to manage members')
-                  : selectedAuthority
+                  : selectedRole
                     ? $t('Select page access and operation buttons. Hover to inspect the mapped API.')
                     : $t('Select a role from the left to manage function permissions')
               }}
             </p>
           </div>
 
-          <div v-if="selectedAuthority && activeTab === 'users'" class="role-actions">
-            <UiButton v-if="canUpdateRole" @click="openEditDialog(selectedAuthority)">{{ $t('Edit') }}</UiButton>
+          <div v-if="selectedRole && activeTab === 'users'" class="role-actions">
+            <UiButton v-if="canUpdateRole" @click="openEditDialog(selectedRole)">{{ $t('Edit') }}</UiButton>
             <UiButton
               v-if="canDeleteRole"
               type="danger"
-              :disabled="isSystemRole(selectedAuthority)"
-              @click="handleDelete(selectedAuthority)"
+              :disabled="isSystemRole(selectedRole)"
+              @click="handleDelete(selectedRole)"
             >
               {{ $t('Delete') }}
             </UiButton>
           </div>
         </div>
 
-        <div v-if="authorityOptions.length > 0" class="permission-tabs">
+        <div v-if="roleOptions.length > 0" class="permission-tabs">
           <button
             data-test="basic-info-tab"
             :class="['permission-tab', activeTab === 'basic' && 'is-active']"
@@ -91,14 +91,6 @@
             @click="switchTab('menus')"
           >
             {{ $t('Menu Authorization') }}
-          </button>
-          <button
-            data-test="permission-authorization-tab"
-            :class="['permission-tab', activeTab === 'permissions' && 'is-active']"
-            type="button"
-            @click="switchTab('permissions')"
-          >
-            {{ $t('Permission Authorization') }}
           </button>
           <button
             data-test="data-scope-tab"
@@ -119,30 +111,30 @@
           </button>
         </div>
 
-        <div v-if="authorityOptions.length === 0" class="empty-state large">{{ $t('No role data') }}</div>
+        <div v-if="roleOptions.length === 0" class="empty-state large">{{ $t('No role data') }}</div>
 
-        <div v-else-if="activeTab === 'basic' && selectedAuthority" class="permission-content">
+        <div v-else-if="activeTab === 'basic' && selectedRole" class="permission-content">
           <div class="role-detail-grid">
             <div class="role-detail-item">
               <span>{{ $t('Role code') }}</span>
-              <strong>{{ selectedAuthority.code || `role_${selectedAuthority.authorityId}` }}</strong>
+              <strong>{{ selectedRole.code }}</strong>
             </div>
             <div class="role-detail-item">
               <span>{{ $t('Status') }}</span>
-              <strong>{{ selectedAuthority.status || 'enabled' }}</strong>
+              <strong>{{ selectedRole.status }}</strong>
             </div>
             <div class="role-detail-item">
               <span>{{ $t('Data Scope') }}</span>
-              <strong>{{ dataScopeLabel(selectedAuthority.dataScope || 'all') }}</strong>
+              <strong>{{ dataScopeLabel(selectedRole.data_scope) }}</strong>
             </div>
             <div class="role-detail-item">
               <span>{{ $t('Sort') }}</span>
-              <strong>{{ selectedAuthority.sort ?? selectedAuthority.authorityId }}</strong>
+              <strong>{{ selectedRole.sort }}</strong>
             </div>
           </div>
         </div>
 
-        <div v-else-if="activeTab === 'menus' && selectedAuthority" class="permission-content">
+        <div v-else-if="activeTab === 'menus' && selectedRole" class="permission-content">
           <div class="content-toolbar">
             <div>
               <h4 class="content-title">{{ $t('Menu Authorization') }}</h4>
@@ -183,7 +175,7 @@
                         data-test="page-access-chip"
                       >
                         <input
-                          :data-test="`menu-permission-${menu.id}-${selectedAuthority.authorityId}`"
+                          :data-test="`menu-permission-${menu.id}-${selectedRole.id}`"
                           type="checkbox"
                           :disabled="isPermissionEditingDisabled"
                           :checked="pageAccessChecked(menu)"
@@ -200,7 +192,7 @@
                         :class="actionAccessChecked(action) && 'is-checked'"
                       >
                         <input
-                          :data-test="`action-permission-${action.permission || action.id}-${selectedAuthority.authorityId}`"
+                          :data-test="`action-permission-${action.permission || action.id}-${selectedRole.id}`"
                           type="checkbox"
                           :disabled="isPermissionEditingDisabled"
                           :checked="actionAccessChecked(action)"
@@ -221,46 +213,7 @@
           </div>
         </div>
 
-        <div v-else-if="activeTab === 'permissions' && selectedAuthority" class="permission-content">
-          <div class="content-toolbar">
-            <div>
-              <h4 class="content-title">{{ $t('Permission Authorization') }}</h4>
-              <p class="content-subtitle">{{ $t('Grant backend permission resources directly to this role.') }}</p>
-            </div>
-            <UiButton
-              data-test="save-role-permissions"
-              type="primary"
-              :loading="rolePermissionSubmitting"
-              @click="saveRolePermissions"
-            >
-              {{ $t('Save permissions') }}
-            </UiButton>
-          </div>
-
-          <div class="permission-resource-list">
-            <label
-              v-for="permission in permissionResources"
-              :key="permission.id"
-              class="permission-resource-row"
-            >
-              <input
-                :data-test="`permission-resource-${permission.id}`"
-                type="checkbox"
-                :checked="selectedPermissionIdSet.has(permission.id)"
-                @change="togglePermissionResource(permission.id)"
-              />
-              <span class="permission-resource-main">
-                <strong>{{ permission.name }}</strong>
-                <span>{{ permission.code }}</span>
-              </span>
-              <span class="permission-resource-meta">{{ permission.module_key }} / {{ permission.resource }} / {{ permission.action }}</span>
-            </label>
-
-            <div v-if="permissionResources.length === 0" class="empty-state">{{ $t('No permission resources') }}</div>
-          </div>
-        </div>
-
-        <div v-else-if="activeTab === 'scope' && selectedAuthority" class="permission-content">
+        <div v-else-if="activeTab === 'scope' && selectedRole" class="permission-content">
           <div class="content-toolbar">
             <div>
               <h4 class="content-title">{{ $t('Data Scope') }}</h4>
@@ -325,7 +278,7 @@
           </div>
         </div>
 
-        <div v-else-if="activeTab === 'users' && selectedAuthority" class="permission-content">
+        <div v-else-if="activeTab === 'users' && selectedRole" class="permission-content">
           <div class="content-toolbar">
             <div>
               <h4 class="content-title">{{ $t('Role users') }}</h4>
@@ -386,41 +339,27 @@
       :title="dialogMode === 'create' ? 'New role' : 'Edit role'"
       width="520px"
     >
-      <UiForm labelWidth="100px" @submit.prevent="submitAuthority">
-        <UiFormItem label="Role ID">
+      <UiForm labelWidth="100px" @submit.prevent="submitRole">
+        <UiFormItem v-if="dialogMode === 'edit'" label="Role ID">
           <UiInputNumber
-            v-model="form.authorityId"
-            :disabled="dialogMode === 'edit'"
+            v-model="form.id"
+            disabled
             :min="1"
             :precision="0"
             class="w-full"
           />
         </UiFormItem>
         <UiFormItem label="Role name">
-          <UiInput v-model="form.authorityName" placeholder="Example: operator admin" />
+          <UiInput v-model="form.name" data-test="role-name-input" placeholder="Example: operator admin" />
         </UiFormItem>
         <UiFormItem label="Role code">
-          <UiInput v-model="form.code" placeholder="operator_admin" />
-        </UiFormItem>
-        <UiFormItem label="Parent role">
-          <UiSelect v-model="form.parentId" class="w-full">
-            <UiOption :value="0" label="Top-level role" />
-            <UiOption
-              v-for="item in authorityOptions"
-              :key="item.authorityId"
-              :label="`${item.authorityName} (${item.authorityId})`"
-              :value="item.authorityId"
-            />
-          </UiSelect>
-        </UiFormItem>
-        <UiFormItem label="Default route">
-          <UiInput v-model="form.defaultRouter" placeholder="dashboard" />
+          <UiInput v-model="form.code" data-test="role-code-input" placeholder="operator_admin" />
         </UiFormItem>
       </UiForm>
 
       <template #footer>
         <UiButton @click="dialogVisible = false">{{ $t('Cancel') }}</UiButton>
-        <UiButton type="primary" :loading="submitting" @click="submitAuthority">{{ $t('Save') }}</UiButton>
+        <UiButton data-test="role-dialog-save" type="primary" :loading="submitting" @click="submitRole">{{ $t('Save') }}</UiButton>
       </template>
     </UiDialog>
   </div>
@@ -431,39 +370,34 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from '@/ui/feedback'
 
 import {
-  createAuthority,
-  deleteAuthority,
-  fetchAuthorities,
-  fetchAuthorityUsers,
-  setRoleUsers,
-  updateAuthority,
-  type AuthorityRecord
-} from '@/api/authorities'
-import {
   fetchMenuList,
   type MenuRecord
 } from '@/api/menus'
 import { useAuthStore } from '@/stores/auth'
 import { fetchUsers, type UserRecord } from '@/api/users'
 import {
+  createRole,
+  deleteRole,
   getRoleDeptIds,
   getRolePermissionIds,
+  getRoleUserIds,
+  listRoles,
   setRoleDeptIds,
   setRolePermissionIds,
+  setRoleUserIds,
+  type RoleResource,
   updateRole
 } from '@/api/system/roles'
-import { listPermissions, type PermissionResource } from '@/api/system/permissions'
 import { listDepts, type DeptRecord } from '@/api/system/depts'
 import { t } from '@/i18n'
-import { SUPER_ADMIN_AUTHORITY_ID } from '@/constants/auth'
 
 type DialogMode = 'create' | 'edit'
-type PermissionTab = 'basic' | 'menus' | 'permissions' | 'scope' | 'users'
+type PermissionTab = 'basic' | 'menus' | 'scope' | 'users'
 type FlatMenu = MenuRecord & { level: number }
 type FlatDept = DeptRecord & { level: number }
 type RoleDataScope = 'all' | 'dept' | 'dept_and_children' | 'self' | 'custom_depts'
 
-const authorities = ref<AuthorityRecord[]>([])
+const roles = ref<RoleResource[]>([])
 const menus = ref<MenuRecord[]>([])
 const selectedMenuIds = ref<number[]>([])
 const loading = ref(false)
@@ -474,35 +408,33 @@ const submitting = ref(false)
 const menuSubmitting = ref(false)
 const functionSubmitting = computed(() => menuSubmitting.value)
 const userSubmitting = ref(false)
-const selectedAuthorityId = ref<number | null>(null)
+const selectedRoleId = ref<number | null>(null)
 const activeTab = ref<PermissionTab>('menus')
 const roleSearch = ref('')
 const memberSearch = ref('')
 const userOptions = ref<UserRecord[]>([])
 const selectedUserIds = ref<number[]>([])
-const permissionResources = ref<PermissionResource[]>([])
 const selectedPermissionIds = ref<number[]>([])
 const deptTree = ref<DeptRecord[]>([])
 const selectedDeptIds = ref<number[]>([])
 const selectedDataScope = ref<RoleDataScope>('all')
 const permissionsDirty = ref(false)
-const rolePermissionSubmitting = ref(false)
 const dataScopeSubmitting = ref(false)
 const form = reactive({
-  authorityId: 0,
-  authorityName: '',
+  id: 0,
+  name: '',
   code: '',
-  parentId: 0,
-  defaultRouter: 'dashboard'
+  status: 'enabled',
+  sort: 0,
+  dataScope: 'all'
 })
 
 const authStore = useAuthStore()
-const authorityOptions = computed(() => flattenAuthorities(authorities.value))
-const selectedAuthority = computed(
-  () => authorityOptions.value.find((item) => item.authorityId === selectedAuthorityId.value) || null
+const roleOptions = computed(() => roles.value)
+const selectedRole = computed(
+  () => roleOptions.value.find((item) => item.id === selectedRoleId.value) || null
 )
 const selectedUserIdSet = computed(() => new Set(selectedUserIds.value))
-const selectedPermissionIdSet = computed(() => new Set(selectedPermissionIds.value))
 const selectedDeptIdSet = computed(() => new Set(selectedDeptIds.value))
 const selectedMenuIdSet = computed(() => new Set(selectedMenuIds.value))
 const flatMenus = computed(() => flattenMenus(menus.value))
@@ -514,7 +446,7 @@ const canAssignRoleUsers = computed(() => authStore.can('system:role:assign-user
 const canViewRoleUsers = computed(() => authStore.can('system:role:list-users') && authStore.can('system:user:list'))
 const canManageFunctionPermissions = computed(() => authStore.can('system:role:update-permission'))
 const isSuperAdminRole = computed(
-  () => selectedAuthority.value ? isSystemRole(selectedAuthority.value) : false
+  () => selectedRole.value ? isSystemRole(selectedRole.value) : false
 )
 const isPermissionEditingDisabled = computed(
   () => !canManageFunctionPermissions.value || isSuperAdminRole.value
@@ -526,11 +458,11 @@ const dataScopeOptions: Array<{ value: RoleDataScope; label: string; description
   { value: 'self', label: 'Self only', description: 'Can access records owned by the current user.' },
   { value: 'custom_depts', label: 'Custom departments', description: 'Can access records in selected departments.' }
 ]
-const filteredAuthorityOptions = computed(() => {
+const filteredRoleOptions = computed(() => {
   const keyword = roleSearch.value.trim().toLowerCase()
-  if (!keyword) return authorityOptions.value
-  return authorityOptions.value.filter((authority) =>
-    [authority.authorityName, authority.authorityId, authority.defaultRouter]
+  if (!keyword) return roleOptions.value
+  return roleOptions.value.filter((role) =>
+    [role.name, role.id, role.code]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(keyword))
   )
@@ -545,16 +477,8 @@ const filteredUserOptions = computed(() => {
   )
 })
 
-function flattenAuthorities(list: AuthorityRecord[]): AuthorityRecord[] {
-  return list.flatMap((item) => [item, ...flattenAuthorities(item.children || [])])
-}
-
-function isSystemRole(authority: AuthorityRecord) {
-  return Boolean(
-    authority.isSystem ||
-      authority.code === 'super_admin' ||
-      authority.authorityId === SUPER_ADMIN_AUTHORITY_ID
-  )
+function isSystemRole(role: RoleResource) {
+  return role.is_system || role.code === 'super_admin'
 }
 
 function flattenMenus(list: MenuRecord[], level = 0): FlatMenu[] {
@@ -571,43 +495,11 @@ function flattenAllMenus(list: MenuRecord[]): MenuRecord[] {
 }
 
 function menuPermissionIdsFor(menuIds: number[]) {
-  const selectedMenuIds = new Set(menuIds)
-  return flattenAllMenus(menus.value)
-    .filter((menu) => selectedMenuIds.has(menu.id))
-    .map((menu) => menu.permissionId)
-    .filter((id): id is number => typeof id === 'number')
+  return [...menuIds]
 }
 
 function menuIdsForPermissionIds(permissionIds: number[]) {
-  const permissionIdSet = new Set(permissionIds)
-  const nextMenuIds = new Set<number>()
-
-  function visit(items: MenuRecord[], ancestors: number[]): boolean {
-    let hasSelectedMenu = false
-
-    for (const item of items) {
-      const currentAncestors = [...ancestors, item.id]
-      const permissionSelected =
-        typeof item.permissionId === 'number' && permissionIdSet.has(item.permissionId)
-      const childSelected = visit(item.children || [], currentAncestors)
-
-      if (permissionSelected || childSelected) {
-        currentAncestors.forEach((id) => nextMenuIds.add(id))
-        hasSelectedMenu = true
-      }
-    }
-
-    return hasSelectedMenu
-  }
-
-  visit(menus.value, [])
-  return [...nextMenuIds].sort((left, right) => left - right)
-}
-
-function allMenuPermissionIds() {
-  return flattenAllMenus(menus.value)
-    .map((menu) => menu.permissionId)
-    .filter((id): id is number => typeof id === 'number')
+  return [...permissionIds].sort((left, right) => left - right)
 }
 
 function flattenDepts(list: DeptRecord[], level = 0): FlatDept[] {
@@ -618,29 +510,30 @@ function flattenDepts(list: DeptRecord[], level = 0): FlatDept[] {
 }
 
 function resetForm() {
-  form.authorityId = 0
-  form.authorityName = ''
+  form.id = 0
+  form.name = ''
   form.code = ''
-  form.parentId = 0
-  form.defaultRouter = 'dashboard'
+  form.status = 'enabled'
+  form.sort = 0
+  form.dataScope = 'all'
 }
 
 async function loadWorkbench() {
   loading.value = true
   try {
-    const [authorityList, menuTree] = await Promise.all([
-      fetchAuthorities(),
+    const [roleList, menuTree] = await Promise.all([
+      listRoles(),
       fetchMenuList()
     ])
-    authorities.value = authorityList
+    roles.value = roleList
     menus.value = menuTree
     permissionsDirty.value = false
 
-    const stillExists = authorityOptions.value.some((item) => item.authorityId === selectedAuthorityId.value)
+    const stillExists = roleOptions.value.some((item) => item.id === selectedRoleId.value)
     if (!stillExists) {
-      selectedAuthorityId.value = authorityOptions.value[0]?.authorityId || null
-    } else if (!selectedAuthorityId.value) {
-      selectedAuthorityId.value = authorityOptions.value[0]?.authorityId || null
+      selectedRoleId.value = roleOptions.value[0]?.id || null
+    } else if (!selectedRoleId.value) {
+      selectedRoleId.value = roleOptions.value[0]?.id || null
     }
 
     await loadActiveRoleTab()
@@ -652,13 +545,13 @@ async function loadWorkbench() {
 }
 
 async function loadRoleAccess() {
-  if (!selectedAuthorityId.value) return
+  if (!selectedRoleId.value) return
 
   accessLoading.value = true
   try {
     const [users, userIds] = await Promise.all([
       fetchUsers(1, 200),
-      fetchAuthorityUsers(selectedAuthorityId.value)
+      getRoleUserIds(selectedRoleId.value)
     ])
     userOptions.value = users.list
     selectedUserIds.value = userIds
@@ -669,30 +562,12 @@ async function loadRoleAccess() {
   }
 }
 
-async function loadRolePermissions() {
-  if (!selectedAuthorityId.value) return
-
-  accessLoading.value = true
-  try {
-    const [permissions, permissionIds] = await Promise.all([
-      listPermissions(),
-      getRolePermissionIds(selectedAuthorityId.value)
-    ])
-    permissionResources.value = permissions
-    selectedPermissionIds.value = permissionIds
-  } catch {
-    ElMessage.error(t('Failed to load role permissions'))
-  } finally {
-    accessLoading.value = false
-  }
-}
-
 async function loadRoleMenuPermissions() {
-  if (!selectedAuthorityId.value) return
+  if (!selectedRoleId.value) return
 
   accessLoading.value = true
   try {
-    const permissionIds = await getRolePermissionIds(selectedAuthorityId.value)
+    const permissionIds = await getRolePermissionIds(selectedRoleId.value)
     selectedPermissionIds.value = permissionIds
     selectedMenuIds.value = menuIdsForPermissionIds(permissionIds)
     permissionsDirty.value = false
@@ -704,17 +579,17 @@ async function loadRoleMenuPermissions() {
 }
 
 async function loadRoleDataScope() {
-  if (!selectedAuthorityId.value) return
+  if (!selectedRoleId.value) return
 
   accessLoading.value = true
   try {
     const [depts, deptIds] = await Promise.all([
       listDepts(),
-      getRoleDeptIds(selectedAuthorityId.value)
+      getRoleDeptIds(selectedRoleId.value)
     ])
     deptTree.value = depts
     selectedDeptIds.value = deptIds
-    selectedDataScope.value = normalizeDataScope(selectedAuthority.value?.dataScope)
+    selectedDataScope.value = normalizeDataScope(selectedRole.value?.data_scope)
   } catch {
     ElMessage.error(t('Failed to load data scope'))
   } finally {
@@ -723,22 +598,20 @@ async function loadRoleDataScope() {
 }
 
 async function loadActiveRoleTab() {
-  if (!selectedAuthorityId.value) return
+  if (!selectedRoleId.value) return
 
   if (activeTab.value === 'users' && canViewRoleUsers.value) {
     await loadRoleAccess()
   } else if (activeTab.value === 'menus') {
     await loadRoleMenuPermissions()
-  } else if (activeTab.value === 'permissions') {
-    await loadRolePermissions()
   } else if (activeTab.value === 'scope') {
     await loadRoleDataScope()
   }
 }
 
-function selectAuthority(authority: AuthorityRecord) {
-  if (selectedAuthorityId.value === authority.authorityId) return
-  selectedAuthorityId.value = authority.authorityId
+function selectRole(role: RoleResource) {
+  if (selectedRoleId.value === role.id) return
+  selectedRoleId.value = role.id
   memberSearch.value = ''
   loadActiveRoleTab()
 }
@@ -754,18 +627,19 @@ function openCreateDialog() {
   dialogVisible.value = true
 }
 
-function openEditDialog(authority: AuthorityRecord) {
+function openEditDialog(role: RoleResource) {
   dialogMode.value = 'edit'
-  form.authorityId = authority.authorityId
-  form.authorityName = authority.authorityName
-  form.code = authority.code || `role_${authority.authorityId}`
-  form.parentId = authority.parentId
-  form.defaultRouter = authority.defaultRouter || 'dashboard'
+  form.id = role.id
+  form.name = role.name
+  form.code = role.code
+  form.status = role.status
+  form.sort = role.sort
+  form.dataScope = role.data_scope
   dialogVisible.value = true
 }
 
-async function submitAuthority() {
-  if (!form.authorityId || !form.authorityName.trim()) {
+async function submitRole() {
+  if (!form.name.trim() || !form.code.trim()) {
     ElMessage.warning(t('Please complete role information'))
     return
   }
@@ -774,24 +648,28 @@ async function submitAuthority() {
   try {
     const response =
       dialogMode.value === 'create'
-        ? await createAuthority({
-            authorityId: form.authorityId,
-            authorityName: form.authorityName.trim(),
-            code: form.code.trim() || `role_${form.authorityId}`,
-            parentId: form.parentId
+        ? await createRole({
+            code: form.code.trim(),
+            name: form.name.trim(),
+            status: 'enabled',
+            sort: 0,
+            data_scope: 'all'
           })
-        : await updateAuthority({
-            authorityId: form.authorityId,
-            authorityName: form.authorityName.trim(),
-            code: form.code.trim() || `role_${form.authorityId}`,
-            parentId: form.parentId,
-            defaultRouter: form.defaultRouter.trim() || 'dashboard'
+        : await updateRole(form.id, {
+            code: form.code.trim(),
+            name: form.name.trim(),
+            status: form.status,
+            sort: form.sort,
+            data_scope: form.dataScope
           })
 
     if (response.code === 'OK') {
+      const savedRoleId = dialogMode.value === 'create'
+        ? Number(response.data?.role?.id)
+        : form.id
       ElMessage.success(t(dialogMode.value === 'create' ? 'Role created' : 'Role updated'))
       dialogVisible.value = false
-      selectedAuthorityId.value = form.authorityId
+      selectedRoleId.value = Number.isFinite(savedRoleId) ? savedRoleId : null
       await loadWorkbench()
       return
     }
@@ -818,19 +696,41 @@ function actionAccessChecked(action: MenuRecord) {
   return selectedMenuIdSet.value.has(action.id)
 }
 
-function setMenuAccess(menuId: number, enabled: boolean) {
+function setMenuAccess(menuId: number, enabled: boolean, includeDescendants = true) {
   const current = new Set(selectedMenuIds.value)
+  const all = flattenAllMenus(menus.value)
+  const byId = new Map(all.map((menu) => [menu.id, menu]))
   if (enabled) {
-    current.add(menuId)
+    let node = byId.get(menuId)
+    while (node) {
+      current.add(node.id)
+      node = node.parentId ? byId.get(node.parentId) : undefined
+    }
+    const addChildren = (id: number) => {
+      all.filter((item) => item.parentId === id).forEach((item) => {
+        current.add(item.id)
+        addChildren(item.id)
+      })
+    }
+    if (includeDescendants) {
+      addChildren(menuId)
+    }
   } else {
     current.delete(menuId)
+    const removeChildren = (id: number) => {
+      all.filter((item) => item.parentId === id).forEach((item) => {
+        current.delete(item.id)
+        removeChildren(item.id)
+      })
+    }
+    removeChildren(menuId)
   }
   selectedMenuIds.value = [...current].sort((left, right) => left - right)
   permissionsDirty.value = true
 }
 
 function onPageAccessChange(menu: FlatMenu, event: Event) {
-  if (!selectedAuthorityId.value || isPermissionEditingDisabled.value) return
+  if (!selectedRoleId.value || isPermissionEditingDisabled.value) return
 
   const enabled = (event.target as HTMLInputElement).checked
   setMenuAccess(menu.id, enabled)
@@ -840,13 +740,10 @@ function onPageAccessChange(menu: FlatMenu, event: Event) {
 }
 
 function onActionAccessChange(menu: FlatMenu, action: MenuRecord, event: Event) {
-  if (!selectedAuthorityId.value || isPermissionEditingDisabled.value) return
+  if (!selectedRoleId.value || isPermissionEditingDisabled.value) return
 
   const enabled = (event.target as HTMLInputElement).checked
-  setMenuAccess(action.id, enabled)
-  if (enabled) {
-    setMenuAccess(menu.id, true)
-  }
+  setMenuAccess(action.id, enabled, false)
 }
 
 async function saveFunctionPermissions() {
@@ -854,7 +751,7 @@ async function saveFunctionPermissions() {
 }
 
 async function saveMenuPermissions(): Promise<boolean> {
-  if (!selectedAuthorityId.value || isPermissionEditingDisabled.value) return false
+  if (!selectedRoleId.value || isPermissionEditingDisabled.value) return false
 
   if (!permissionsDirty.value) {
     ElMessage.success(t('Role permissions updated'))
@@ -863,15 +760,9 @@ async function saveMenuPermissions(): Promise<boolean> {
 
   menuSubmitting.value = true
   try {
-    const currentPermissionIds = selectedPermissionIds.value
-    const menuPermissionIdSet = new Set(allMenuPermissionIds())
-    const selectedMenuPermissionIds = menuPermissionIdsFor(selectedMenuIds.value)
-    const nextPermissionIds = [
-      ...currentPermissionIds.filter((permissionId) => !menuPermissionIdSet.has(permissionId)),
-      ...selectedMenuPermissionIds
-    ].sort((left, right) => left - right)
+    const nextPermissionIds = menuPermissionIdsFor(selectedMenuIds.value).sort((left, right) => left - right)
 
-    await setRolePermissionIds(selectedAuthorityId.value, nextPermissionIds)
+    await setRolePermissionIds(selectedRoleId.value, nextPermissionIds)
     selectedPermissionIds.value = nextPermissionIds
     selectedMenuIds.value = menuIdsForPermissionIds(nextPermissionIds)
     permissionsDirty.value = false
@@ -925,12 +816,6 @@ function dataScopeLabel(value: string) {
   return t(dataScopeOptions.find((option) => option.value === value)?.label || 'All data')
 }
 
-function togglePermissionResource(permissionId: number) {
-  selectedPermissionIds.value = selectedPermissionIds.value.includes(permissionId)
-    ? selectedPermissionIds.value.filter((id) => id !== permissionId)
-    : [...selectedPermissionIds.value, permissionId].sort((a, b) => a - b)
-}
-
 function toggleDeptScope(deptId: number) {
   if (selectedDataScope.value !== 'custom_depts') return
 
@@ -939,35 +824,20 @@ function toggleDeptScope(deptId: number) {
     : [...selectedDeptIds.value, deptId].sort((a, b) => a - b)
 }
 
-async function saveRolePermissions() {
-  if (!selectedAuthorityId.value) return
-
-  rolePermissionSubmitting.value = true
-  try {
-    await setRolePermissionIds(selectedAuthorityId.value, [...selectedPermissionIds.value].sort((a, b) => a - b))
-    ElMessage.success(t('Role permissions updated'))
-    await loadRolePermissions()
-  } catch {
-    ElMessage.error(t('Failed to save permissions'))
-  } finally {
-    rolePermissionSubmitting.value = false
-  }
-}
-
 async function saveDataScope() {
-  if (!selectedAuthority.value) return
+  if (!selectedRole.value) return
 
   dataScopeSubmitting.value = true
   try {
-    await updateRole(selectedAuthority.value.authorityId, {
-      code: selectedAuthority.value.code || `role_${selectedAuthority.value.authorityId}`,
-      name: selectedAuthority.value.authorityName,
-      status: selectedAuthority.value.status || 'enabled',
-      sort: selectedAuthority.value.sort ?? selectedAuthority.value.authorityId,
+    await updateRole(selectedRole.value.id, {
+      code: selectedRole.value.code,
+      name: selectedRole.value.name,
+      status: selectedRole.value.status,
+      sort: selectedRole.value.sort,
       data_scope: selectedDataScope.value
     })
     await setRoleDeptIds(
-      selectedAuthority.value.authorityId,
+      selectedRole.value.id,
       selectedDataScope.value === 'custom_depts' ? [...selectedDeptIds.value].sort((a, b) => a - b) : []
     )
     ElMessage.success(t('Data scope updated'))
@@ -980,11 +850,11 @@ async function saveDataScope() {
 }
 
 async function submitRoleUsers() {
-  if (!selectedAuthorityId.value) return
+  if (!selectedRoleId.value) return
 
   userSubmitting.value = true
   try {
-    const response = await setRoleUsers(selectedAuthorityId.value, selectedUserIds.value)
+    const response = await setRoleUserIds(selectedRoleId.value, selectedUserIds.value)
     if (response.code === 'OK') {
       ElMessage.success(t('Role members updated'))
       await loadRoleAccess()
@@ -999,9 +869,9 @@ async function submitRoleUsers() {
   }
 }
 
-async function handleDelete(authority: AuthorityRecord) {
+async function handleDelete(role: RoleResource) {
   try {
-    await ElMessageBox.confirm(t('Delete role "{name}"?', { name: authority.authorityName }), t('Notice'), {
+    await ElMessageBox.confirm(t('Delete role "{name}"?', { name: role.name }), t('Notice'), {
       type: 'warning'
     })
   } catch {
@@ -1009,11 +879,11 @@ async function handleDelete(authority: AuthorityRecord) {
   }
 
   try {
-    const response = await deleteAuthority(authority.authorityId)
+    const response = await deleteRole(role.id)
     if (response.code === 'OK') {
       ElMessage.success(t('Role deleted'))
-      if (selectedAuthorityId.value === authority.authorityId) {
-        selectedAuthorityId.value = null
+      if (selectedRoleId.value === role.id) {
+        selectedRoleId.value = null
       }
       await loadWorkbench()
       return

@@ -54,7 +54,7 @@
               :style="{
                 width: normalizeSize(column.width),
                 minWidth: normalizeSize(column.minWidth),
-                paddingLeft: index === 0 && level ? `${level * 18 + 16}px` : undefined
+                paddingLeft: isTreeTable && index === treeColumnIndex && level ? `${level * 18 + 16}px` : undefined
               }"
             >
               <input
@@ -64,6 +64,34 @@
                 @click.stop
                 @change="setSelected(row, ($event.target as HTMLInputElement).checked)"
               />
+              <div v-else-if="isTreeTable && index === treeColumnIndex" class="tree-cell flex items-center gap-2">
+                <button
+                  v-if="hasChildren(row)"
+                  :data-test="`tree-toggle-${rowKey(row, level)}`"
+                  type="button"
+                  class="grid h-7 w-7 shrink-0 place-items-center rounded text-zinc-500 hover:bg-stone-100 hover:text-zinc-900"
+                  :aria-label="t(isExpanded(row, level) ? 'Collapse' : 'Expand')"
+                  :aria-expanded="isExpanded(row, level)"
+                  @click.stop="toggleExpanded(row, level)"
+                >
+                  <svg
+                    class="h-5 w-5 transition-transform"
+                    :class="isExpanded(row, level) ? 'rotate-90' : ''"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                </button>
+                <span v-else class="tree-cell-spacer inline-block h-7 w-7 shrink-0" />
+                <component v-if="column.slots.default" :is="column.slots.default" :row="row" />
+                <span v-else>{{ valueAt(row, column.prop) }}</span>
+              </div>
               <component v-else-if="column.slots.default" :is="column.slots.default" :row="row" />
               <span v-else>{{ valueAt(row, column.prop) }}</span>
             </td>
@@ -85,9 +113,11 @@ const props = withDefaults(
   defineProps<{
     data?: Record<string, unknown>[]
     loading?: boolean
+    defaultExpandAll?: boolean
   }>(),
   {
-    data: () => []
+    data: () => [],
+    defaultExpandAll: false
   }
 )
 
@@ -98,6 +128,7 @@ const emit = defineEmits<{
 
 const columns = ref<UiTableColumnDef[]>([])
 const selectedRows = ref<Record<string, unknown>[]>([])
+const expandedKeys = ref(new Set<string>())
 
 provide<UiTableContext>(uiTableKey, {
   register(column) {
@@ -108,6 +139,8 @@ provide<UiTableContext>(uiTableKey, {
   }
 })
 
+const treeColumnIndex = computed(() => columns.value.findIndex((column) => column.type !== 'selection'))
+const isTreeTable = computed(() => containsTreeRows(props.data))
 const rows = computed(() => flattenRows(props.data))
 
 watch(
@@ -118,10 +151,38 @@ watch(
   }
 )
 
+watch(
+  [() => props.data, () => props.defaultExpandAll],
+  () => {
+    expandedKeys.value = props.defaultExpandAll
+      ? new Set(collectExpandableKeys(props.data))
+      : new Set()
+  },
+  { immediate: true }
+)
+
 function flattenRows(input: Record<string, unknown>[], level = 0): Array<{ row: Record<string, unknown>; level: number }> {
   return input.flatMap((row) => {
     const children = Array.isArray(row.children) ? (row.children as Record<string, unknown>[]) : []
-    return [{ row, level }, ...flattenRows(children, level + 1)]
+    return isExpanded(row, level)
+      ? [{ row, level }, ...flattenRows(children, level + 1)]
+      : [{ row, level }]
+  })
+}
+
+function collectExpandableKeys(input: Record<string, unknown>[], level = 0): string[] {
+  return input.flatMap((row) => {
+    const children = Array.isArray(row.children) ? (row.children as Record<string, unknown>[]) : []
+    return children.length > 0
+      ? [rowKey(row, level), ...collectExpandableKeys(children, level + 1)]
+      : []
+  })
+}
+
+function containsTreeRows(input: Record<string, unknown>[]): boolean {
+  return input.some((row) => {
+    const children = Array.isArray(row.children) ? (row.children as Record<string, unknown>[]) : []
+    return children.length > 0 || containsTreeRows(children)
   })
 }
 
@@ -135,7 +196,23 @@ function valueAt(row: Record<string, unknown>, prop?: string) {
 }
 
 function rowKey(row: Record<string, unknown>, level: number) {
-  return String(row.id ?? row.id ?? row.authorityId ?? row.path ?? row.name ?? `${level}-${props.data.indexOf(row)}`)
+  return String(row.id ?? row.path ?? row.name ?? `${level}-${props.data.indexOf(row)}`)
+}
+
+function hasChildren(row: Record<string, unknown>) {
+  return Array.isArray(row.children) && row.children.length > 0
+}
+
+function isExpanded(row: Record<string, unknown>, level: number) {
+  return expandedKeys.value.has(rowKey(row, level))
+}
+
+function toggleExpanded(row: Record<string, unknown>, level: number) {
+  const key = rowKey(row, level)
+  const next = new Set(expandedKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedKeys.value = next
 }
 
 function isSelected(row: Record<string, unknown>) {

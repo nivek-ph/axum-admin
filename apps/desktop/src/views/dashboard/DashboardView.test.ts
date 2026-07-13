@@ -15,13 +15,9 @@ describe('DashboardView', () => {
     const menuStore = useMenuStore()
     authStore.setSession('token-123', {
       id: 1,
-      userName: 'operator',
-      nickName: 'Operator',
-      authority: {
-        authorityId: 999,
-        authorityName: 'Operator',
-        defaultRouter: 'dashboard'
-      }
+      userName: 'admin',
+      nickName: 'admin',
+      roles: [{ id: 1, code: 'super_admin', name: 'Super Admin' }]
     })
     menuStore.setAuthorizedMenus([{ name: 'dashboard', path: 'dashboard', meta: { title: 'Dashboard' } }])
     const router = createRouter({
@@ -37,5 +33,6 @@ describe('DashboardView', () => {
 
     expect(wrapper.findAll('.shortcut-card')).toHaveLength(0)
     expect(wrapper.findAll('.page-hero-actions button')).toHaveLength(0)
+    expect(wrapper.text()).toContain('Super Admin')
   })
 })

@@ -32,11 +32,14 @@ pub fn routes() -> Router<AppState> {
         (status = 401, description = "Unauthorized")
     )
 )]
-pub async fn get_user_info(CurrentUser(user): CurrentUser) -> Json<ApiResponse<Value>> {
-    let user = UserResponse::from(user.user);
-    Json(ApiResponse::ok(serde_json::json!({
+pub async fn get_user_info(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+) -> AppResult<Json<ApiResponse<Value>>> {
+    let user = UserResponse::from(state.users.info(user.id).await.map_err(map_error)?);
+    Ok(Json(ApiResponse::ok(serde_json::json!({
         "userInfo": user,
-    })))
+    }))))
 }
 
 pub async fn get_user_list(
@@ -48,7 +51,7 @@ pub async fn get_user_list(
     let page_size = payload.page_size.max(1);
     let (list, total) = state
         .users
-        .list(payload.into(), user.id)
+        .list_with_scope(payload.into(), user.data_scope.clone())
         .await
         .map_err(map_error)?;
     let list = list.into_iter().map(UserResponse::from).collect::<Vec<_>>();
@@ -70,7 +73,7 @@ pub async fn get_user_list_by_query(
     let page_size = payload.page_size.max(1);
     let (list, total) = state
         .users
-        .list(payload.into(), user.id)
+        .list_with_scope(payload.into(), user.data_scope.clone())
         .await
         .map_err(map_error)?;
     let list = list.into_iter().map(UserResponse::from).collect::<Vec<_>>();
@@ -85,11 +88,13 @@ pub async fn get_user_list_by_query(
 
 pub async fn admin_register(
     State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
     Json(payload): Json<RegisterRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
+    invalidate_authorization(&state).await?;
     state
         .users
-        .register(payload.into())
+        .register_as(user.id, payload.into())
         .await
         .map_err(map_error)?;
 
@@ -116,6 +121,7 @@ pub async fn set_user_info(
     Json(payload): Json<UpdateUserRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
     let target_user_id = payload.id;
+    invalidate_authorization(&state).await?;
     state
         .users
         .update_as(user.id, target_user_id, payload.into())
@@ -131,6 +137,7 @@ pub async fn set_user_info_by_id(
     Path(id): Path<i64>,
     Json(payload): Json<UpdateUserRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
+    invalidate_authorization(&state).await?;
     state
         .users
         .update_as(user.id, id, payload.into())
@@ -173,6 +180,7 @@ pub async fn delete_user(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<DeleteUserRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
+    invalidate_authorization(&state).await?;
     state
         .users
         .delete_as(user.id, payload.id)
@@ -187,6 +195,7 @@ pub async fn delete_user_by_id(
     CurrentUser(user): CurrentUser,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
+    invalidate_authorization(&state).await?;
     state
         .users
         .delete_as(user.id, id)
@@ -232,6 +241,7 @@ pub async fn set_user_roles_by_id(
     Path(id): Path<i64>,
     Json(payload): Json<SetUserRolesRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
+    invalidate_authorization(&state).await?;
     state
         .users
         .set_roles_as(user.id, id, payload.into())
@@ -239,4 +249,12 @@ pub async fn set_user_roles_by_id(
         .map_err(map_error)?;
 
     Ok(Json(ApiResponse::ok_message("roles updated")))
+}
+
+async fn invalidate_authorization(state: &AppState) -> AppResult<()> {
+    state.authorization.invalidate().await.map_err(|source| {
+        crate::errors::INTERNAL_SERVER_ERROR
+            .into_error()
+            .with_source(source)
+    })
 }

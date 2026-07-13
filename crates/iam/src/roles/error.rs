@@ -6,4 +6,10 @@ pub enum RoleError {
     NotFound,
     #[error("system role cannot be deleted")]
     Immutable,
+    #[error("role is assigned to users")]
+    InUse,
+    #[error(transparent)]
+    Authorization(#[from] crate::authorization::AuthorizationError),
+    #[error(transparent)]
+    InvalidMenuAssignment(#[from] crate::authorization::catalog::CatalogError),
 }

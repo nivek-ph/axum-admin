@@ -7,6 +7,7 @@ pub const INTERNAL_SERVER_ERROR: ErrorSpec =
 
 pub mod auth {
     use super::*;
+    use axum::http::StatusCode;
 
     pub const LOGIN_REQUIRED: ErrorSpec =
         ErrorSpec::unauthorized("LOGIN_REQUIRED", "login required");
@@ -22,6 +23,15 @@ pub mod auth {
     );
     pub const PERMISSION_DENIED: ErrorSpec =
         ErrorSpec::forbidden("PERMISSION_DENIED", "permission denied");
+    pub const AUTHORIZATION_CONFIG_INVALID: ErrorSpec = ErrorSpec::internal(
+        "AUTHORIZATION_CONFIG_INVALID",
+        "authorization configuration is invalid",
+    );
+    pub const AUTHORIZATION_UNAVAILABLE: ErrorSpec = ErrorSpec::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "AUTHORIZATION_UNAVAILABLE",
+        "authorization service is unavailable",
+    );
     pub const LOGIN_OPERATION_FAILED: ErrorSpec =
         ErrorSpec::internal("LOGIN_OPERATION_FAILED", "login failed");
     pub const CAPTCHA_REQUIRED: ErrorSpec =
@@ -36,7 +46,7 @@ pub mod auth {
             AuthSessionError::Auth(source) => TOKEN_INVALID.into_error().with_source(source),
             AuthSessionError::Revoked => TOKEN_REVOKED.into_error(),
             AuthSessionError::RevocationStoreUnavailable | AuthSessionError::Redis(_) => {
-                AUTH_RESOLVE_FAILED.into_error().with_source(error)
+                AUTHORIZATION_UNAVAILABLE.into_error().with_source(error)
             }
             AuthSessionError::CaptchaRenderFailed => {
                 CAPTCHA_OPERATION_FAILED.into_error().with_source(error)
@@ -49,8 +59,6 @@ pub mod request {
     use super::*;
 
     pub const ID_REQUIRED: ErrorSpec = ErrorSpec::bad_request("ID_REQUIRED", "id is required");
-    pub const AUTHORITY_ID_REQUIRED: ErrorSpec =
-        ErrorSpec::bad_request("AUTHORITY_ID_REQUIRED", "authorityId is required");
     pub const MULTIPART_FIELD_FAILED: ErrorSpec =
         ErrorSpec::bad_request("MULTIPART_FIELD_FAILED", "failed to read upload content");
 

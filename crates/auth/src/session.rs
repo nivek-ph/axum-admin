@@ -53,15 +53,8 @@ impl AuthSessionService {
         }
     }
 
-    pub fn issue_token(
-        &self,
-        user_id: i64,
-        username: &str,
-        authority_id: i64,
-    ) -> Result<String, AuthSessionError> {
-        Ok(self
-            .jwt_service
-            .issue_token(user_id, username, authority_id)?)
+    pub fn issue_token(&self, user_id: i64, username: &str) -> Result<String, AuthSessionError> {
+        Ok(self.jwt_service.issue_token(user_id, username)?)
     }
 
     pub async fn create_captcha(&self) -> Result<CaptchaChallenge, AuthSessionError> {

@@ -267,6 +267,8 @@ describe('ui primitives', () => {
     expect(wrapper.text()).toContain('Username');
     expect(wrapper.text()).toContain('admin');
     expect(wrapper.text()).toContain('Enabled');
+    expect(wrapper.find('.tree-cell').exists()).toBe(false);
+    expect(wrapper.emitted('selection-change')).toBeUndefined();
   });
 
   it('keeps existing UiTable rows visible while refreshing', async () => {
@@ -289,5 +291,41 @@ describe('ui primitives', () => {
 
     expect(wrapper.text()).toContain('admin');
     expect(wrapper.text()).not.toContain('Loading');
+  });
+
+  it('collapses tree rows by default and expands them on demand', async () => {
+    const wrapper = mount(UiTable, {
+      props: {
+        data: [
+          {
+            id: 1,
+            name: 'Parent',
+            children: [{ id: 2, name: 'Child' }],
+          },
+        ],
+      },
+      slots: {
+        default: '<UiTableColumn prop="name" label="Name" />',
+      },
+      global: {
+        components: {
+          UiTableColumn,
+        },
+      },
+    });
+
+    await nextTick();
+
+    expect(wrapper.text()).toContain('Parent');
+    expect(wrapper.text()).not.toContain('Child');
+    expect(wrapper.find('.tree-cell').exists()).toBe(true);
+    expect(wrapper.get('[data-test="tree-toggle-1"]').find('svg.h-5.w-5').exists()).toBe(true);
+    await wrapper.get('[data-test="tree-toggle-1"]').trigger('click');
+    expect(wrapper.text()).toContain('Child');
+    await wrapper.get('[data-test="tree-toggle-1"]').trigger('click');
+    expect(wrapper.text()).not.toContain('Child');
+
+    await wrapper.setProps({ defaultExpandAll: true });
+    expect(wrapper.text()).toContain('Child');
   });
 });

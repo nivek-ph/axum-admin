@@ -7,4 +7,4 @@ pub use error::RoleError;
 pub use model::*;
 pub use request::*;
 pub use service::RoleService;
-pub(crate) use service::{find, user_has_role_code};
+pub(crate) use service::find;

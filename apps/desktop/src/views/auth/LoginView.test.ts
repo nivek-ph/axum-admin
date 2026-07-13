@@ -37,7 +37,7 @@ describe('LoginView', () => {
     });
   });
 
-  it('handles successful login responses with missing optional menu details', async () => {
+  it('persists permissions while handling missing optional menu details', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const router = createRouter({
@@ -56,11 +56,7 @@ describe('LoginView', () => {
           id: 1,
           userName: 'operator',
           nickName: 'Operator',
-          authority: {
-            authorityId: 999,
-            authorityName: 'Operator',
-            defaultRouter: 'dashboard',
-          },
+          roles: [{ id: 999, code: 'operator', name: 'Operator' }],
         },
       },
     });
@@ -72,7 +68,9 @@ describe('LoginView', () => {
     vi.mocked(getMenu).mockResolvedValue({
       code: 'OK',
       message: 'ok',
-      data: {},
+      data: {
+        permissions: ['system:user:create'],
+      },
     } as Awaited<ReturnType<typeof getMenu>>);
     await router.push('/login');
     await router.isReady();
@@ -94,6 +92,7 @@ describe('LoginView', () => {
     const authStore = useAuthStore();
     const menuStore = useMenuStore();
     expect(authStore.isAuthenticated).toBe(true);
+    expect(authStore.can('system:user:create')).toBe(true);
     expect(menuStore.firstAuthorizedPath()).toBe('/profile');
     expect(router.currentRoute.value.name).toBe('profile');
     expect(ElMessage.error).not.toHaveBeenCalled();
@@ -115,6 +114,7 @@ describe('LoginView', () => {
       routes: [
         { path: '/login', name: 'login', component: LoginView },
         { path: '/dashboard', name: 'dashboard', component: { template: '<div />' } },
+        { path: '/users', name: 'users', component: { template: '<div />' } },
       ],
     });
     vi.mocked(login).mockResolvedValue({
@@ -126,11 +126,8 @@ describe('LoginView', () => {
           id: 1,
           userName: 'admin',
           nickName: 'Admin',
-          authority: {
-            authorityId: 1,
-            authorityName: 'Legacy compatible',
-            defaultRouter: 'dashboard',
-          },
+          homeRoute: 'users',
+          roles: [{ id: 1, code: 'super_admin', name: 'Super Admin' }],
         },
       },
     });
@@ -142,11 +139,7 @@ describe('LoginView', () => {
           id: 1,
           userName: 'admin',
           nickName: 'Admin',
-          authority: {
-            authorityId: 1,
-            authorityName: 'Legacy compatible',
-            defaultRouter: 'dashboard',
-          },
+          homeRoute: 'users',
           roles: [{ id: 1, code: 'super_admin', name: 'Super Admin' }],
         },
       },
@@ -177,5 +170,6 @@ describe('LoginView', () => {
 
     const menuStore = useMenuStore();
     expect(menuStore.canAccessRouteName('roles')).toBe(true);
+    expect(router.currentRoute.value.name).toBe('users');
   });
 });

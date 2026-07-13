@@ -1,6 +1,6 @@
 use sqlx::FromRow;
 
-use crate::{authority, roles::RoleSummary};
+use crate::roles::RoleSummary;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct UserRecord {
@@ -10,9 +10,7 @@ pub struct UserRecord {
     pub password_hash: String,
     pub nick_name: String,
     pub header_img: String,
-    pub authority_id: i64,
-    pub authority_name: String,
-    pub default_router: String,
+    pub home_route: String,
     pub enable: bool,
     pub phone: Option<String>,
     pub email: Option<String>,
@@ -28,8 +26,7 @@ pub struct UserInfoView {
     pub user_name: String,
     pub nick_name: String,
     pub header_img: String,
-    pub authority: authority::AuthorityView,
-    pub authorities: Vec<authority::AuthorityView>,
+    pub home_route: String,
     pub enable: i32,
     pub phone: String,
     pub email: String,
@@ -38,20 +35,17 @@ pub struct UserInfoView {
     pub dept_name: String,
     pub roles: Vec<RoleSummary>,
     pub role_ids: Vec<i64>,
-    pub permissions: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
     pub id: i64,
-    pub authority_id: i64,
-    pub user: UserInfoView,
+    pub data_scope: crate::data_scope::DataScopeFilter,
 }
 
 #[derive(Debug, Clone)]
 pub struct LoginIdentity {
     pub id: i64,
     pub username: String,
-    pub authority_id: i64,
     pub user: UserInfoView,
 }

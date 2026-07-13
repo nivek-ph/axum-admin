@@ -17,10 +17,6 @@ export interface UserRecord {
   }>
   roleIds?: number[]
   permissions?: string[]
-  authority?: {
-    authorityId: number
-    authorityName: string
-  }
 }
 
 export interface UserListResult {

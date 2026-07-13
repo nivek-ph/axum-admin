@@ -74,7 +74,7 @@ describe('menu store helpers', () => {
     expect(items).toEqual([
       {
         key: 'menus',
-        label: 'Menus',
+        label: 'Access catalog',
         path: '/menus'
       }
     ])

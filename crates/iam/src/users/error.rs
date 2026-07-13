@@ -12,6 +12,8 @@ pub enum LoginError {
     UserAlreadyExists,
     #[error("invalid password")]
     InvalidPassword,
+    #[error("at least one enabled role is required")]
+    InvalidRoles,
     #[error("{0}")]
     Auth(#[from] AuthError),
     #[error("{0}")]

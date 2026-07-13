@@ -20,18 +20,22 @@ export interface RolePayload {
 }
 
 export interface RolePermissionPayload {
-  permissionIds: number[]
+  menuIds: number[]
 }
 
 export interface RoleDeptPayload {
   deptIds: number[]
 }
 
+export interface RoleUsersPayload {
+  userIds: number[]
+}
+
 export function normalizeRoleList(payload: ApiResponse<{ list?: RoleResource[] }>) {
   return Array.isArray(payload?.data?.list) ? payload.data.list : []
 }
 
-export function normalizeRoleIds(payload: ApiResponse<{ permissionIds?: number[]; deptIds?: number[] }>, key: 'permissionIds' | 'deptIds') {
+export function normalizeRoleIds(payload: ApiResponse<{ menuIds?: number[]; deptIds?: number[] }>, key: 'menuIds' | 'deptIds') {
   const values = payload?.data?.[key]
   return Array.isArray(values) ? values : []
 }
@@ -41,11 +45,15 @@ function sortedIds(ids: number[]) {
 }
 
 export function buildRolePermissionPayload(permissionIds: number[]): RolePermissionPayload {
-  return { permissionIds: sortedIds(permissionIds) }
+  return { menuIds: sortedIds(permissionIds) }
 }
 
 export function buildRoleDeptPayload(deptIds: number[]): RoleDeptPayload {
   return { deptIds: sortedIds(deptIds) }
+}
+
+export function buildRoleUsersPayload(userIds: number[]): RoleUsersPayload {
+  return { userIds: [...new Set(sortedIds(userIds))] }
 }
 
 export async function listRoles() {
@@ -66,12 +74,12 @@ export function deleteRole(id: number) {
 }
 
 export async function getRolePermissionIds(id: number) {
-  const response = await http.get(`/roles/${id}/permissions`, withAuthHeaders())
-  return normalizeRoleIds(response, 'permissionIds')
+  const response = await http.get(`/roles/${id}/menus`, withAuthHeaders())
+  return normalizeRoleIds(response, 'menuIds')
 }
 
 export function setRolePermissionIds(id: number, permissionIds: number[]) {
-  return http.put(`/roles/${id}/permissions`, buildRolePermissionPayload(permissionIds), withAuthHeaders())
+  return http.put(`/roles/${id}/menus`, buildRolePermissionPayload(permissionIds), withAuthHeaders())
 }
 
 export async function getRoleDeptIds(id: number) {
@@ -81,4 +89,13 @@ export async function getRoleDeptIds(id: number) {
 
 export function setRoleDeptIds(id: number, deptIds: number[]) {
   return http.put(`/roles/${id}/depts`, buildRoleDeptPayload(deptIds), withAuthHeaders())
+}
+
+export async function getRoleUserIds(id: number) {
+  const response = await http.get(`/roles/${id}/users`, withAuthHeaders())
+  return Array.isArray(response?.data) ? response.data : []
+}
+
+export function setRoleUserIds(id: number, userIds: number[]) {
+  return http.put(`/roles/${id}/users`, buildRoleUsersPayload(userIds), withAuthHeaders())
 }

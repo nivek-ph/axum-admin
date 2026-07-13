@@ -30,6 +30,7 @@ export async function bootstrapAuthSession() {
     }
 
     authStore.setSession(authStore.token, userInfo);
+    authStore.setPermissions(menuResponse.data?.permissions || []);
     menuStore.setAuthorizedMenus(menuResponse.data?.menus || [], authStore.isSuperAdmin);
   } catch {
     authStore.clearToken();

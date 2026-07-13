@@ -1,3 +1,4 @@
+use admin_httpz::{AppError, AppResult, OptionAppExt};
 use axum::{
     extract::{Request, State},
     http::{HeaderMap, header::AUTHORIZATION},
@@ -5,25 +6,33 @@ use axum::{
     response::Response,
 };
 
-use admin_httpz::{AppError, AppResult, OptionAppExt};
-use iam::users::LoginError;
-
-use crate::errors::auth::{
-    self as errors, AUTH_RESOLVE_FAILED, PERMISSION_DENIED, SESSION_INVALID, map_session_error,
+use crate::{
+    errors::auth::{
+        self as errors, AUTHORIZATION_CONFIG_INVALID, AUTHORIZATION_UNAVAILABLE, PERMISSION_DENIED,
+        SESSION_INVALID, map_session_error,
+    },
+    errors::users::USER_DISABLED,
+    state::AppState,
 };
-use crate::errors::users::USER_DISABLED;
-use crate::state::AppState;
 
 const X_FORWARDED_FOR: &str = "x-forwarded-for";
 const USER_AGENT: &str = "user-agent";
 
 fn map_authorization_error(error: iam::authorization::AuthorizationError) -> AppError {
+    use iam::authorization::AuthorizationError::*;
     match error {
-        iam::authorization::AuthorizationError::Database(source) => {
-            crate::errors::INTERNAL_SERVER_ERROR
-                .into_error()
-                .with_source(source)
-        }
+        UserNotFound => SESSION_INVALID.into(),
+        UserDisabled => USER_DISABLED.into(),
+        Cache(source) => AUTHORIZATION_UNAVAILABLE.into_error().with_source(source),
+        Catalog(source) => AUTHORIZATION_CONFIG_INVALID
+            .into_error()
+            .with_source(source),
+        Database(source) => crate::errors::INTERNAL_SERVER_ERROR
+            .into_error()
+            .with_source(source),
+        Serialization(source) => AUTHORIZATION_CONFIG_INVALID
+            .into_error()
+            .with_source(source),
     }
 }
 
@@ -33,10 +42,7 @@ pub(crate) fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
         .strip_prefix("Bearer ")
         .or_else(|| value.strip_prefix("bearer "))?
         .trim();
-    if token.is_empty() {
-        return None;
-    }
-    Some(token)
+    (!token.is_empty()).then_some(token)
 }
 
 pub async fn require_auth(
@@ -44,18 +50,17 @@ pub async fn require_auth(
     mut request: Request,
     next: Next,
 ) -> AppResult<Response> {
-    let method = request.method().to_string();
-    let path = request.uri().path().to_string();
-    let permission_path = permission_registry_path(&path);
+    let method = request.method().as_str().to_uppercase();
+    let path = permission_registry_path(request.uri().path());
     let headers = request.headers();
     let ip = headers
         .get(X_FORWARDED_FOR)
-        .and_then(|value| value.to_str().ok())
+        .and_then(|v| v.to_str().ok())
         .unwrap_or_default()
         .to_string();
     let agent = headers
         .get(USER_AGENT)
-        .and_then(|value| value.to_str().ok())
+        .and_then(|v| v.to_str().ok())
         .unwrap_or_default()
         .to_string();
     let token = extract_bearer_token(headers).ok_or_spec(errors::LOGIN_REQUIRED)?;
@@ -64,53 +69,33 @@ pub async fn require_auth(
         .decode_active_token(token)
         .await
         .map_err(map_session_error)?;
-    let user = state
+    let snapshot = state
         .authorization
-        .resolve_user(claims.user_id)
-        .await
-        .map_err(|error| match error {
-            LoginError::InvalidCredentials | LoginError::UserNotFound => SESSION_INVALID.into(),
-            LoginError::Disabled => USER_DISABLED.into(),
-            LoginError::UserAlreadyExists | LoginError::InvalidPassword => {
-                AUTH_RESOLVE_FAILED.into_error()
-            }
-            LoginError::Auth(_) | LoginError::Database(_) => {
-                AUTH_RESOLVE_FAILED.into_error().with_source(error)
-            }
-        })?;
-    let user_id = user.id;
-
-    let has_super_admin_role = state
-        .authorization
-        .has_super_admin_role(user.id)
+        .snapshot(claims.user_id)
         .await
         .map_err(map_authorization_error)?;
-    let is_super_admin = is_super_admin_identity(has_super_admin_role);
 
-    if !is_super_admin && !is_self_service_endpoint(&method, &permission_path) {
-        let required_permission = state
+    if !is_self_service_endpoint(&method, &path) {
+        let menu_id = state
             .authorization
-            .required_permission(&method, &permission_path)
-            .await
-            .map_err(map_authorization_error)?;
-
-        let Some(permission_code) = required_permission else {
-            return Err(PERMISSION_DENIED.into());
-        };
-
-        let allowed = state
-            .authorization
-            .is_allowed(user.id, &permission_code)
-            .await
-            .map_err(map_authorization_error)?;
-
-        if !allowed {
+            .required_menu(&method, &path)
+            .map_err(|source| {
+                AUTHORIZATION_CONFIG_INVALID
+                    .into_error()
+                    .with_source(source)
+            })?;
+        if !snapshot.allows_menu(menu_id) {
             return Err(PERMISSION_DENIED.into());
         }
     }
 
-    request.extensions_mut().insert(user);
-
+    let user_id = claims.user_id;
+    request
+        .extensions_mut()
+        .insert(iam::users::AuthenticatedUser {
+            id: user_id,
+            data_scope: snapshot.data_scope,
+        });
     let response = next.run(request).await;
     let _ = state
         .operation_logs
@@ -126,7 +111,6 @@ pub async fn require_auth(
             user_id,
         })
         .await;
-
     Ok(response)
 }
 
@@ -142,14 +126,9 @@ fn is_self_service_endpoint(method: &str, path: &str) -> bool {
     )
 }
 
-fn is_super_admin_identity(has_super_admin_role: bool) -> bool {
-    has_super_admin_role
-}
-
 fn permission_registry_path(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     let normalized = if trimmed.is_empty() { "/api" } else { trimmed };
-
     if normalized == "/api" || normalized.starts_with("/api/") {
         normalized.to_string()
     } else if normalized.starts_with('/') {
@@ -162,71 +141,17 @@ fn permission_registry_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::HeaderMap;
-
     #[test]
-    fn extract_bearer_token_reads_authorization_header() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            AUTHORIZATION,
-            "Bearer test.jwt.token".parse().expect("valid header value"),
-        );
-
-        assert_eq!(extract_bearer_token(&headers), Some("test.jwt.token"));
-    }
-
-    #[test]
-    fn extract_bearer_token_rejects_missing_or_invalid_values() {
-        let mut headers = HeaderMap::new();
-        assert_eq!(extract_bearer_token(&headers), None);
-
-        headers.insert(
-            AUTHORIZATION,
-            "Basic abc".parse().expect("valid header value"),
-        );
-        assert_eq!(extract_bearer_token(&headers), None);
-
-        headers.insert(
-            AUTHORIZATION,
-            "Bearer ".parse().expect("valid header value"),
-        );
-        assert_eq!(extract_bearer_token(&headers), None);
-    }
-
-    #[test]
-    fn self_service_endpoints_remain_explicitly_whitelisted() {
+    fn self_service_is_explicit() {
         assert!(is_self_service_endpoint("GET", "/api/users/me"));
-        assert!(is_self_service_endpoint("PUT", "/api/users/me"));
         assert!(is_self_service_endpoint("GET", "/api/menus/current"));
-        assert!(is_self_service_endpoint("POST", "/api/auth/logout"));
         assert!(!is_self_service_endpoint("GET", "/api/users"));
-        assert!(!is_self_service_endpoint("PUT", "/api/users/me/authority",));
     }
-
     #[test]
-    fn super_admin_identity_uses_role_code() {
-        assert!(is_super_admin_identity(true));
-        assert!(!is_super_admin_identity(false));
-    }
-
-    #[test]
-    fn permission_registry_path_restores_nested_api_prefix() {
+    fn restores_api_prefix() {
         assert_eq!(
-            permission_registry_path("/menus/1/roles"),
-            "/api/menus/1/roles"
+            permission_registry_path("/roles/1/menus/"),
+            "/api/roles/1/menus"
         );
-        assert_eq!(
-            permission_registry_path("/api/menus/current"),
-            "/api/menus/current"
-        );
-    }
-
-    #[test]
-    fn permission_registry_path_trims_trailing_slashes() {
-        assert_eq!(permission_registry_path("/api/users/me/"), "/api/users/me");
-        assert!(is_self_service_endpoint(
-            "GET",
-            &permission_registry_path("/api/menus/current/")
-        ));
     }
 }

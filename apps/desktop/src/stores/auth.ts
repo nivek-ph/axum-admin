@@ -8,6 +8,7 @@ export interface AuthUserInfo {
   userName: string;
   nickName: string;
   headerImg?: string;
+  homeRoute?: string;
   deptId?: number | null;
   deptName?: string;
   roles?: Array<{
@@ -16,15 +17,8 @@ export interface AuthUserInfo {
     name: string;
   }>;
   roleIds?: number[];
-  authority?: {
-    authorityId: number;
-    authorityName: string;
-    defaultRouter: string;
-  };
   permissions?: string[];
 }
-
-import { SUPER_ADMIN_AUTHORITY_ID } from '@/constants/auth';
 
 export const useAuthStore = defineStore('auth', () => {
   const persisted = readAuthSession();
@@ -34,10 +28,11 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => token.value.length > 0);
   const permissionSet = computed(() => new Set(userInfo.value?.permissions || []));
   const roles = computed(() => userInfo.value?.roles || []);
+  const roleLabel = computed(() => roles.value.map((role) => role.name).filter(Boolean).join(' / '));
   const permissions = computed(() => userInfo.value?.permissions || []);
+  const homeRouteName = computed(() => userInfo.value?.homeRoute?.replace(/^\/+/, '') || 'dashboard');
   const isSuperAdmin = computed(
     () =>
-      userInfo.value?.authority?.authorityId === SUPER_ADMIN_AUTHORITY_ID ||
       roles.value.some((role) => role.code === 'super_admin')
   );
 
@@ -59,6 +54,12 @@ export const useAuthStore = defineStore('auth', () => {
     persistSession();
   }
 
+  function setPermissions(nextPermissions: string[]) {
+    if (!userInfo.value) return;
+    userInfo.value = { ...userInfo.value, permissions: nextPermissions };
+    persistSession();
+  }
+
   function clearToken() {
     token.value = '';
     userInfo.value = null;
@@ -75,12 +76,15 @@ export const useAuthStore = defineStore('auth', () => {
     userInfo,
     isAuthenticated,
     roles,
+    roleLabel,
     permissions,
+    homeRouteName,
     permissionSet,
     isSuperAdmin,
     can,
     setToken,
     setSession,
+    setPermissions,
     clearToken,
   };
 });

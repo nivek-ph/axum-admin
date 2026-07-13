@@ -21,7 +21,7 @@ pub struct OperationLogResponse {
     pub error_message: String,
     pub body: String,
     pub resp: String,
-    #[serde(rename = "CreatedAt")]
+    #[serde(rename = "createdAt")]
     pub created_at: String,
     pub user: OperationUserResponse,
 }

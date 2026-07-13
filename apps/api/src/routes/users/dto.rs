@@ -1,49 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
-pub struct AuthorityDataResponse {
-    #[serde(rename = "authorityId")]
-    pub authority_id: i64,
-    #[serde(rename = "authorityName")]
-    pub authority_name: String,
-}
-impl From<iam::authority::AuthorityDataView> for AuthorityDataResponse {
-    fn from(v: iam::authority::AuthorityDataView) -> Self {
-        Self {
-            authority_id: v.authority_id,
-            authority_name: v.authority_name,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct AuthorityResponse {
-    #[serde(rename = "authorityId")]
-    pub authority_id: i64,
-    #[serde(rename = "authorityName")]
-    pub authority_name: String,
-    #[serde(rename = "parentId")]
-    pub parent_id: i64,
-    #[serde(rename = "defaultRouter")]
-    pub default_router: String,
-    pub children: Vec<AuthorityResponse>,
-    #[serde(rename = "dataAuthorityId")]
-    pub data_authority_id: Vec<AuthorityDataResponse>,
-}
-impl From<iam::authority::AuthorityView> for AuthorityResponse {
-    fn from(v: iam::authority::AuthorityView) -> Self {
-        Self {
-            authority_id: v.authority_id,
-            authority_name: v.authority_name,
-            parent_id: v.parent_id,
-            default_router: v.default_router,
-            children: v.children.into_iter().map(Into::into).collect(),
-            data_authority_id: v.data_authority_id.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
 pub struct UserRoleResponse {
     pub id: i64,
     pub code: String,
@@ -78,8 +35,8 @@ pub struct UserResponse {
     pub nick_name: String,
     #[serde(rename = "headerImg")]
     pub header_img: String,
-    pub authority: AuthorityResponse,
-    pub authorities: Vec<AuthorityResponse>,
+    #[serde(rename = "homeRoute")]
+    pub home_route: String,
     pub enable: i32,
     pub phone: String,
     pub email: String,
@@ -92,7 +49,6 @@ pub struct UserResponse {
     pub roles: Vec<UserRoleResponse>,
     #[serde(rename = "roleIds")]
     pub role_ids: Vec<i64>,
-    pub permissions: Vec<String>,
 }
 impl From<iam::users::UserInfoView> for UserResponse {
     fn from(v: iam::users::UserInfoView) -> Self {
@@ -102,8 +58,7 @@ impl From<iam::users::UserInfoView> for UserResponse {
             user_name: v.user_name,
             nick_name: v.nick_name,
             header_img: v.header_img,
-            authority: v.authority.into(),
-            authorities: v.authorities.into_iter().map(Into::into).collect(),
+            home_route: v.home_route,
             enable: v.enable,
             phone: v.phone,
             email: v.email,
@@ -112,7 +67,6 @@ impl From<iam::users::UserInfoView> for UserResponse {
             dept_name: v.dept_name,
             roles: v.roles.into_iter().map(Into::into).collect(),
             role_ids: v.role_ids,
-            permissions: v.permissions,
         }
     }
 }
@@ -127,8 +81,6 @@ pub struct RegisterRequest {
     pub nick_name: String,
     #[serde(rename = "headerImg")]
     pub header_img: Option<String>,
-    #[serde(rename = "authorityId")]
-    pub authority_id: Option<i64>,
     #[serde(rename = "roleIds")]
     pub role_ids: Option<Vec<i64>>,
     #[serde(rename = "deptId", alias = "dept_id")]
@@ -145,7 +97,6 @@ impl From<RegisterRequest> for iam::users::RegisterRequest {
             password: value.password,
             nick_name: value.nick_name,
             header_img: value.header_img,
-            authority_id: value.authority_id,
             role_ids: value.role_ids,
             dept_id: value.dept_id,
             enable: value.enable,

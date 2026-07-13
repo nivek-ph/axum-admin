@@ -1,8 +1,8 @@
 use axum::Router;
 
 use super::{
-    apis, attachment_categories, departments, dictionaries, dictionary_details, files, login_logs,
-    menus, operation_logs, parameters, permissions, roles, session, system, users,
+    attachment_categories, departments, dictionaries, dictionary_details, files, login_logs, menus,
+    operation_logs, parameters, roles, session, system, users,
 };
 
 pub fn router() -> Router<crate::state::AppState> {
@@ -16,9 +16,7 @@ pub fn router() -> Router<crate::state::AppState> {
         .nest("/menus", menus::routes())
         .nest("/operation-logs", operation_logs::routes())
         .nest("/params", parameters::routes())
-        .nest("/routes", apis::routes())
         .nest("/roles", roles::routes())
-        .nest("/permissions", permissions::routes())
         .nest("/system", system::routes())
         .nest("/users", users::routes())
         .nest("/auth", session::routes())
@@ -43,18 +41,18 @@ mod tests {
         let role_routes = Router::new()
             .route("/", get(|| ok_marker("roles:list")))
             .route("/{id}", put(|| ok_marker("roles:update")))
-            .route("/{id}/permissions", get(|| ok_marker("roles:permissions")))
+            .route("/{id}/menus", get(|| ok_marker("roles:menus")))
             .route("/{id}/users", get(|| ok_marker("roles:users")));
 
         Router::new().nest("/roles", role_routes)
     }
 
     #[tokio::test]
-    async fn role_permission_assignment_route_stays_reachable() {
+    async fn role_menu_assignment_route_stays_reachable() {
         let response = role_shape_router()
             .oneshot(
                 Request::builder()
-                    .uri("/roles/7/permissions")
+                    .uri("/roles/7/menus")
                     .body(Body::empty())
                     .expect("request should build"),
             )
@@ -67,7 +65,7 @@ mod tests {
         let body = String::from_utf8(bytes.to_vec()).expect("body should be utf8");
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, "roles:permissions");
+        assert_eq!(body, "roles:menus");
     }
 
     #[tokio::test]

@@ -1,446 +1,178 @@
+use super::{RoleError, RolePayload, RoleSummary};
+use crate::authorization::AuthorizationService;
 use sqlx::PgPool;
 use std::collections::BTreeSet;
-
-use super::{RoleError, RolePayload, RoleSummary};
 
 #[derive(Clone)]
 pub struct RoleService {
     pool: PgPool,
+    authorization: AuthorizationService,
 }
 
 impl RoleService {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            authorization: AuthorizationService::new(pool.clone()),
+            pool,
+        }
+    }
+    pub fn with_authorization(pool: PgPool, authorization: AuthorizationService) -> Self {
+        Self {
+            pool,
+            authorization,
+        }
     }
     pub async fn list(&self) -> Result<Vec<RoleSummary>, RoleError> {
         Ok(list(&self.pool).await?)
     }
-    pub async fn ensure_builtins(&self) -> Result<(), RoleError> {
-        ensure_builtin_roles(&self.pool).await?;
-        Ok(ensure_builtin_role_permissions(&self.pool).await?)
+    pub async fn create(&self, p: RolePayload) -> Result<RoleSummary, RoleError> {
+        let role = create(&self.pool, p).await?;
+        self.changed().await?;
+        Ok(role)
     }
-    pub async fn create(&self, payload: RolePayload) -> Result<RoleSummary, RoleError> {
-        create(&self.pool, payload).await
-    }
-    pub async fn update(&self, id: i64, payload: RolePayload) -> Result<RoleSummary, RoleError> {
-        update(&self.pool, id, payload).await
+    pub async fn update(&self, id: i64, p: RolePayload) -> Result<RoleSummary, RoleError> {
+        let role = update(&self.pool, id, p).await?;
+        self.changed().await?;
+        Ok(role)
     }
     pub async fn delete(&self, id: i64) -> Result<(), RoleError> {
-        delete(&self.pool, id).await
+        delete(&self.pool, id).await?;
+        self.changed().await
     }
-    pub async fn permission_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
-        permission_ids(&self.pool, id).await
+    pub async fn menu_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
+        ids(&self.pool, id, "sys_role_menus", "menu_id").await
     }
-    pub async fn set_permission_ids(&self, id: i64, ids: Vec<i64>) -> Result<(), RoleError> {
-        set_permission_ids(&self.pool, id, ids).await
+    pub async fn set_menu_ids(&self, id: i64, values: Vec<i64>) -> Result<(), RoleError> {
+        ensure_mutable(&self.pool, id).await?;
+        let values = normalize(values);
+        self.authorization
+            .validate_menu_assignment(&values.iter().copied().collect())?;
+        replace(&self.pool, id, "sys_role_menus", "menu_id", values).await?;
+        self.changed().await
     }
     pub async fn dept_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
-        dept_ids(&self.pool, id).await
+        ids(&self.pool, id, "sys_role_depts", "dept_id").await
     }
-    pub async fn set_dept_ids(&self, id: i64, ids: Vec<i64>) -> Result<(), RoleError> {
-        set_dept_ids(&self.pool, id, ids).await
+    pub async fn set_dept_ids(&self, id: i64, v: Vec<i64>) -> Result<(), RoleError> {
+        ensure_mutable(&self.pool, id).await?;
+        replace(&self.pool, id, "sys_role_depts", "dept_id", normalize(v)).await?;
+        self.changed().await
     }
     pub async fn user_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
-        user_ids(&self.pool, id).await
+        ids(&self.pool, id, "sys_user_roles", "user_id").await
     }
-    pub async fn set_user_ids(&self, id: i64, ids: Vec<i64>) -> Result<(), RoleError> {
-        set_user_ids(&self.pool, id, ids).await
+    pub async fn set_user_ids(&self, id: i64, v: Vec<i64>) -> Result<(), RoleError> {
+        ensure_mutable(&self.pool, id).await?;
+        replace(&self.pool, id, "sys_user_roles", "user_id", normalize(v)).await?;
+        self.changed().await
+    }
+    async fn changed(&self) -> Result<(), RoleError> {
+        self.authorization.invalidate().await?;
+        Ok(())
     }
 }
 
 pub(crate) async fn list(pool: &PgPool) -> Result<Vec<RoleSummary>, sqlx::Error> {
-    sqlx::query_as::<_, RoleSummary>(
-        r#"
-        select id, code, name, status, sort, data_scope, is_system
-        from sys_roles
-        order by sort, id
-        "#,
+    sqlx::query_as(
+        "SELECT id,code,name,status,sort,data_scope,is_system FROM sys_roles ORDER BY sort,id",
     )
     .fetch_all(pool)
     .await
 }
 
-pub(crate) async fn ensure_builtin_roles(pool: &PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        insert into sys_roles (id, code, name, status, sort, data_scope, is_system)
-        values
-            (1, 'super_admin', 'Super Admin', 'enabled', 0, 'all', true),
-            (2, 'dev', 'Dev', 'enabled', 10, 'self', false),
-            (3, 'ops', 'Ops', 'enabled', 20, 'all', false)
-        on conflict (id) do update
-        set code = excluded.code,
-            name = excluded.name,
-            status = excluded.status,
-            sort = excluded.sort,
-            data_scope = excluded.data_scope,
-            is_system = excluded.is_system,
-            updated_at = now()
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        "select setval(pg_get_serial_sequence('sys_roles', 'id'), (select max(id) from sys_roles))",
-    )
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-pub(crate) async fn ensure_builtin_role_permissions(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let dev_permissions = [
-        "system:dashboard:page",
-        "system:users:page",
-        "system:profile:page",
-        "system:user:list",
-        "system:user:update",
-    ];
-    let ops_permissions = [
-        "system:dashboard:page",
-        "system:params:page",
-        "system:dictionaries:page",
-        "system:files:page",
-        "system:login-logs:page",
-        "system:operation-logs:page",
-        "system:profile:page",
-        "system:system-config:page",
-        "system:system-state:page",
-        "system:param:list",
-        "system:param:create",
-        "system:param:get",
-        "system:param:update",
-        "system:param:delete",
-        "system:param:get-by-key",
-        "system:param:batch-delete",
-        "system:dictionary:list",
-        "system:dictionary:create",
-        "system:dictionary:get",
-        "system:dictionary:update",
-        "system:dictionary:delete",
-        "system:dictionary:import",
-        "system:dictionary:export",
-        "system:dictionary:details-tree",
-        "system:dictionary-detail:create",
-        "system:dictionary-detail:tree-by-type",
-        "system:dictionary-detail:by-parent",
-        "system:dictionary-detail:get",
-        "system:dictionary-detail:update",
-        "system:dictionary-detail:delete",
-        "system:dictionary-detail:path",
-        "system:file:list",
-        "system:file:import-url",
-        "system:file:upload",
-        "system:file:delete",
-        "system:file:rename",
-        "system:login-log:list",
-        "system:login-log:batch-delete",
-        "system:login-log:get",
-        "system:login-log:delete",
-        "system:operation-log:list",
-        "system:operation-log:batch-delete",
-        "system:operation-log:delete",
-        "system:config:get",
-        "system:config:update",
-        "system:state:get",
-        "system:state:reload",
-    ];
-
-    sqlx::query(
-        r#"
-        insert into sys_role_permissions (role_id, permission_id)
-        select 1, id
-        from sys_permissions
-        on conflict do nothing
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    ensure_role_permissions(pool, 2, &dev_permissions).await?;
-    ensure_role_permissions(pool, 3, &ops_permissions).await?;
-
-    Ok(())
-}
-
-async fn ensure_role_permissions(
-    pool: &PgPool,
-    role_id: i64,
-    permission_codes: &[&str],
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        insert into sys_role_permissions (role_id, permission_id)
-        select $1, id
-        from sys_permissions
-        where code = any($2)
-        on conflict do nothing
-        "#,
-    )
-    .bind(role_id)
-    .bind(permission_codes)
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
 pub(crate) async fn find(pool: &PgPool, id: i64) -> Result<Option<RoleSummary>, sqlx::Error> {
-    sqlx::query_as::<_, RoleSummary>(
-        r#"
-        select id, code, name, status, sort, data_scope, is_system
-        from sys_roles
-        where id = $1
-        "#,
+    sqlx::query_as(
+        "SELECT id,code,name,status,sort,data_scope,is_system FROM sys_roles WHERE id=$1",
     )
     .bind(id)
     .fetch_optional(pool)
     .await
 }
-
-pub(crate) async fn create(pool: &PgPool, payload: RolePayload) -> Result<RoleSummary, RoleError> {
-    let role = sqlx::query_as::<_, RoleSummary>(
-        r#"
-        insert into sys_roles (code, name, status, sort, data_scope)
-        values ($1, $2, $3, $4, $5)
-        returning id, code, name, status, sort, data_scope, is_system
-        "#,
-    )
-    .bind(payload.code)
-    .bind(payload.name)
-    .bind(payload.status.unwrap_or_else(|| "enabled".to_string()))
-    .bind(payload.sort.unwrap_or(0))
-    .bind(payload.data_scope.unwrap_or_else(|| "all".to_string()))
-    .fetch_one(pool)
-    .await?;
-
-    Ok(role)
+async fn create(pool: &PgPool, p: RolePayload) -> Result<RoleSummary, RoleError> {
+    Ok(sqlx::query_as("INSERT INTO sys_roles(code,name,status,sort,data_scope) VALUES($1,$2,$3,$4,$5) RETURNING id,code,name,status,sort,data_scope,is_system").bind(p.code).bind(p.name).bind(p.status.unwrap_or_else(||"enabled".into())).bind(p.sort.unwrap_or(0)).bind(p.data_scope.unwrap_or_else(||"self".into())).fetch_one(pool).await?)
 }
 
-pub(crate) async fn update(
-    pool: &PgPool,
-    id: i64,
-    payload: RolePayload,
-) -> Result<RoleSummary, RoleError> {
-    let role = sqlx::query_as::<_, RoleSummary>(
-        r#"
-        update sys_roles
-        set code = $1,
-            name = $2,
-            status = coalesce($3, status),
-            sort = coalesce($4, sort),
-            data_scope = coalesce($5, data_scope),
-            updated_at = now()
-        where id = $6
-        returning id, code, name, status, sort, data_scope, is_system
-        "#,
-    )
-    .bind(payload.code)
-    .bind(payload.name)
-    .bind(payload.status)
-    .bind(payload.sort)
-    .bind(payload.data_scope)
-    .bind(id)
-    .fetch_optional(pool)
-    .await?;
-
-    role.ok_or(RoleError::NotFound)
-}
-
-pub(crate) async fn delete(pool: &PgPool, id: i64) -> Result<(), RoleError> {
-    let role = find(pool, id).await?.ok_or(RoleError::NotFound)?;
-    if role.is_system {
+async fn update(pool: &PgPool, id: i64, p: RolePayload) -> Result<RoleSummary, RoleError> {
+    let current = find(pool, id).await?.ok_or(RoleError::NotFound)?;
+    if current.is_system {
         return Err(RoleError::Immutable);
     }
+    sqlx::query_as("UPDATE sys_roles SET name=$1,status=COALESCE($2,status),sort=COALESCE($3,sort),data_scope=COALESCE($4,data_scope),updated_at=now() WHERE id=$5 RETURNING id,code,name,status,sort,data_scope,is_system").bind(p.name).bind(p.status).bind(p.sort).bind(p.data_scope).bind(id).fetch_one(pool).await.map_err(Into::into)
+}
 
-    sqlx::query("delete from sys_roles where id = $1")
+async fn delete(pool: &PgPool, id: i64) -> Result<(), RoleError> {
+    ensure_mutable(pool, id).await?;
+    let used: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sys_user_roles WHERE role_id=$1)")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
+    if used {
+        return Err(RoleError::InUse);
+    }
+    sqlx::query("DELETE FROM sys_roles WHERE id=$1")
         .bind(id)
         .execute(pool)
         .await?;
     Ok(())
 }
-
-pub(crate) async fn permission_ids(pool: &PgPool, role_id: i64) -> Result<Vec<i64>, RoleError> {
-    ensure_exists(pool, role_id).await?;
-    let ids = sqlx::query_scalar(
-        r#"
-        select permission_id
-        from sys_role_permissions
-        where role_id = $1
-        order by permission_id
-        "#,
-    )
-    .bind(role_id)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(ids)
+async fn ensure_mutable(pool: &PgPool, id: i64) -> Result<(), RoleError> {
+    let r = find(pool, id).await?.ok_or(RoleError::NotFound)?;
+    if r.is_system {
+        Err(RoleError::Immutable)
+    } else {
+        Ok(())
+    }
 }
 
-pub(crate) async fn set_permission_ids(
+async fn ids(
     pool: &PgPool,
     role_id: i64,
-    permission_ids: Vec<i64>,
-) -> Result<(), RoleError> {
-    ensure_exists(pool, role_id).await?;
-
-    let mut tx = pool.begin().await?;
-    sqlx::query("delete from sys_role_permissions where role_id = $1")
-        .bind(role_id)
-        .execute(&mut *tx)
-        .await?;
-
-    for permission_id in permission_ids {
-        sqlx::query(
-            r#"
-            insert into sys_role_permissions (role_id, permission_id)
-            values ($1, $2)
-            on conflict do nothing
-            "#,
-        )
-        .bind(role_id)
-        .bind(permission_id)
-        .execute(&mut *tx)
-        .await?;
+    table: &str,
+    column: &str,
+) -> Result<Vec<i64>, RoleError> {
+    if find(pool, role_id).await?.is_none() {
+        return Err(RoleError::NotFound);
     }
+    let sql = format!("SELECT {column} FROM {table} WHERE role_id=$1 ORDER BY {column}");
+    Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .bind(role_id)
+        .fetch_all(pool)
+        .await?)
+}
 
+async fn replace(
+    pool: &PgPool,
+    role_id: i64,
+    table: &str,
+    column: &str,
+    values: Vec<i64>,
+) -> Result<(), RoleError> {
+    let mut tx = pool.begin().await?;
+    let del = format!("DELETE FROM {table} WHERE role_id=$1");
+    sqlx::query(sqlx::AssertSqlSafe(del))
+        .bind(role_id)
+        .execute(&mut *tx)
+        .await?;
+    for value in values {
+        let sql = if column == "user_id" {
+            format!("INSERT INTO {table}(user_id,role_id) VALUES($2,$1) ON CONFLICT DO NOTHING")
+        } else {
+            format!("INSERT INTO {table}(role_id,{column}) VALUES($1,$2) ON CONFLICT DO NOTHING")
+        };
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(role_id)
+            .bind(value)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
     Ok(())
 }
 
-pub(crate) async fn dept_ids(pool: &PgPool, role_id: i64) -> Result<Vec<i64>, RoleError> {
-    ensure_exists(pool, role_id).await?;
-    let ids = sqlx::query_scalar(
-        r#"
-        select dept_id
-        from sys_role_depts
-        where role_id = $1
-        order by dept_id
-        "#,
-    )
-    .bind(role_id)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(ids)
-}
-
-pub(crate) async fn set_dept_ids(
-    pool: &PgPool,
-    role_id: i64,
-    dept_ids: Vec<i64>,
-) -> Result<(), RoleError> {
-    ensure_exists(pool, role_id).await?;
-
-    let mut tx = pool.begin().await?;
-    sqlx::query("delete from sys_role_depts where role_id = $1")
-        .bind(role_id)
-        .execute(&mut *tx)
-        .await?;
-
-    for dept_id in dept_ids {
-        sqlx::query(
-            r#"
-            insert into sys_role_depts (role_id, dept_id)
-            values ($1, $2)
-            on conflict do nothing
-            "#,
-        )
-        .bind(role_id)
-        .bind(dept_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await?;
-    Ok(())
-}
-
-pub(crate) async fn user_ids(pool: &PgPool, role_id: i64) -> Result<Vec<i64>, RoleError> {
-    ensure_exists(pool, role_id).await?;
-    let ids = sqlx::query_scalar(
-        r#"
-        select user_id
-        from sys_user_roles
-        where role_id = $1
-        order by user_id
-        "#,
-    )
-    .bind(role_id)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(ids)
-}
-
-pub(crate) async fn set_user_ids(
-    pool: &PgPool,
-    role_id: i64,
-    user_ids: Vec<i64>,
-) -> Result<(), RoleError> {
-    ensure_exists(pool, role_id).await?;
-    let normalized = normalize_user_ids(user_ids);
-
-    let mut tx = pool.begin().await?;
-    sqlx::query("delete from sys_user_roles where role_id = $1")
-        .bind(role_id)
-        .execute(&mut *tx)
-        .await?;
-
-    for user_id in normalized {
-        sqlx::query(
-            r#"
-            insert into sys_user_roles (user_id, role_id)
-            values ($1, $2)
-            on conflict do nothing
-            "#,
-        )
-        .bind(user_id)
-        .bind(role_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await?;
-    Ok(())
-}
-
-pub(crate) async fn user_has_role_code(
-    pool: &PgPool,
-    user_id: i64,
-    role_code: &str,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"
-        select exists(
-            select 1
-            from sys_user_roles ur
-            join sys_roles r on r.id = ur.role_id
-            where ur.user_id = $1
-              and r.code = $2
-              and r.status = 'enabled'
-        )
-        "#,
-    )
-    .bind(user_id)
-    .bind(role_code)
-    .fetch_one(pool)
-    .await
-}
-
-async fn ensure_exists(pool: &PgPool, role_id: i64) -> Result<(), RoleError> {
-    find(pool, role_id)
-        .await?
-        .map(|_| ())
-        .ok_or(RoleError::NotFound)
-}
-
-fn normalize_user_ids(user_ids: Vec<i64>) -> Vec<i64> {
-    user_ids
-        .into_iter()
-        .filter(|id| *id > 0)
+fn normalize(v: Vec<i64>) -> Vec<i64> {
+    v.into_iter()
+        .filter(|v| *v > 0)
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
@@ -449,21 +181,9 @@ fn normalize_user_ids(user_ids: Vec<i64>) -> Vec<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::roles::RoleAssignment;
 
     #[test]
-    fn role_assignment_holds_multiple_roles() {
-        let assignment = RoleAssignment {
-            user_id: 7,
-            role_ids: vec![1, 2],
-        };
-
-        assert_eq!(assignment.user_id, 7);
-        assert_eq!(assignment.role_ids, vec![1, 2]);
-    }
-
-    #[test]
-    fn normalize_user_ids_deduplicates_and_sorts_members() {
-        assert_eq!(normalize_user_ids(vec![9, 3, 9, 1]), vec![1, 3, 9]);
+    fn normalizes_ids() {
+        assert_eq!(normalize(vec![3, 1, 3, 0]), vec![1, 3]);
     }
 }

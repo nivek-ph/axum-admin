@@ -4,10 +4,8 @@ use audit::login_logs::service::LoginLogService;
 use audit::operation_logs::service::OperationLogService;
 use file_storage::categories::service::CategoryService;
 use file_storage::files::service::FileService;
-use iam::apis::service::ApiService;
 use iam::authorization::service::AuthorizationService;
 use iam::departments::service::DepartmentService;
-use iam::permissions::service::PermissionService;
 use iam::roles::service::RoleService;
 use iam::users::service::UserService;
 use menu::menus::service::MenuService;
@@ -87,9 +85,7 @@ pub struct AppState {
     pub login: LoginOperation,
     pub users: UserService,
     pub roles: RoleService,
-    pub permissions: PermissionService,
     pub departments: DepartmentService,
-    pub apis: ApiService,
     pub authorization: AuthorizationService,
     pub dictionaries: DictionaryService,
     pub parameters: ParameterService,

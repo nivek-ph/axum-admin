@@ -8,8 +8,8 @@ pub struct RolePayload {
 }
 
 #[derive(Debug, Clone)]
-pub struct RolePermissionPayload {
-    pub permission_ids: Vec<i64>,
+pub struct RoleMenuPayload {
+    pub menu_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone)]

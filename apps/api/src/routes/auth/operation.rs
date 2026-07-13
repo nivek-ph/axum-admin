@@ -95,7 +95,7 @@ impl LoginOperation {
 
         let token = self
             .sessions
-            .issue_token(identity.id, &identity.username, identity.authority_id)
+            .issue_token(identity.id, &identity.username)
             .map_err(LoginOperationError::Session)?;
 
         Ok(LoginOutput {

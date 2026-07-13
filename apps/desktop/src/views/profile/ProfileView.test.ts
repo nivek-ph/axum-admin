@@ -17,11 +17,8 @@ describe('ProfileView', () => {
       id: 2,
       userName: 'nick',
       nickName: 'nick',
-      authority: {
-        authorityId: 999,
-        authorityName: '开发',
-        defaultRouter: 'dashboard'
-      }
+      homeRoute: 'dashboard',
+      roles: [{ id: 999, code: 'developer', name: 'Developer' }]
     })
     menuStore.setAuthorizedMenus([{ name: 'profile', path: 'profile', meta: { title: 'Profile' } }])
     const router = createRouter({
@@ -37,5 +34,6 @@ describe('ProfileView', () => {
 
     expect(wrapper.text()).not.toContain('Back to dashboard')
     expect(wrapper.text()).not.toContain('View users')
+    expect(wrapper.text()).toContain('Developer')
   })
 })

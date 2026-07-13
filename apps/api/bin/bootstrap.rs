@@ -19,18 +19,6 @@ async fn main() -> Result<()> {
         .expect("database pool should connect");
     info!("database connected");
 
-    let role_service = iam::roles::service::RoleService::new(pool.clone());
-    role_service
-        .ensure_builtins()
-        .await
-        .expect("builtin roles and permissions should be bootstrapped");
-    menu::menus::service::MenuService::new(
-        pool.clone(),
-        iam::authorization::service::AuthorizationService::new(pool.clone()),
-    )
-    .ensure_default()
-    .await
-    .expect("default menu should be bootstrapped");
     iam::users::service::UserService::new(pool, PasswordService::new())
         .ensure_admin(
             &config.admin_username,
@@ -39,6 +27,6 @@ async fn main() -> Result<()> {
         )
         .await
         .expect("admin user should be bootstrapped");
-    info!("default system data bootstrapped");
+    info!("super administrator bootstrapped");
     Ok(())
 }

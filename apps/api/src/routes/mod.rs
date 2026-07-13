@@ -1,4 +1,3 @@
-pub mod apis;
 pub mod attachment_categories;
 pub mod auth;
 pub mod captcha;
@@ -12,7 +11,6 @@ pub mod login_logs;
 pub mod menus;
 pub mod operation_logs;
 pub mod parameters;
-pub mod permissions;
 pub mod protected;
 pub mod public;
 pub mod roles;

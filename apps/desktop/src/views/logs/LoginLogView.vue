@@ -51,7 +51,7 @@
       <div class="surface-card">
         <UiTable :data="logs" :loading="loading" style="width: 100%" @selection-change="handleSelectionChange">
           <UiTableColumn type="selection" width="44" />
-          <UiTableColumn prop="ID" label="ID" width="80" />
+          <UiTableColumn prop="id" label="ID" width="80" />
           <UiTableColumn prop="username" label="Username" min-width="140" />
           <UiTableColumn prop="ip" label="IP" min-width="140" />
           <UiTableColumn label="Status" width="100">
@@ -62,10 +62,10 @@
             </template>
           </UiTableColumn>
           <UiTableColumn prop="errorMessage" label="Error message" min-width="180" />
-          <UiTableColumn prop="CreatedAt" label="Time" min-width="180" />
+          <UiTableColumn prop="createdAt" label="Time" min-width="180" />
           <UiTableColumn label="Actions" width="120">
             <template #default="{ row }">
-              <UiButton link type="danger" @click="handleDelete(row.ID)">{{ $t('Delete') }}</UiButton>
+              <UiButton link type="danger" @click="handleDelete(row.id)">{{ $t('Delete') }}</UiButton>
             </template>
           </UiTableColumn>
         </UiTable>
@@ -136,7 +136,7 @@ function handlePageChange(nextPage: number) {
 }
 
 function handleSelectionChange(rows: LoginLogRecord[]) {
-  selectedIds.value = rows.map((row) => row.ID)
+  selectedIds.value = rows.map((row) => row.id)
 }
 
 async function handleDelete(id: number) {

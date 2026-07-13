@@ -4,17 +4,13 @@ use menu::MenuError;
 const NOT_FOUND: ErrorSpec = ErrorSpec::not_found("MENU_NOT_FOUND", "menu not found");
 const INVALID_PAYLOAD: ErrorSpec =
     ErrorSpec::validation("MENU_INVALID_PAYLOAD", "invalid menu payload");
-const ROOT_AUTHORITY_IMMUTABLE: ErrorSpec = ErrorSpec::failed_precondition(
-    "ROOT_AUTHORITY_IMMUTABLE",
-    "default role permissions cannot be changed",
-);
 const DB_FAILED: ErrorSpec = ErrorSpec::internal("MENU_DB_FAILED", "menu operation failed");
 
 pub fn map_error(error: MenuError) -> AppError {
     match error {
         MenuError::NotFound => NOT_FOUND.into(),
         MenuError::Database(source) => DB_FAILED.into_error().with_source(source),
+        MenuError::Authorization(source) => DB_FAILED.into_error().with_source(source),
         MenuError::InvalidPayload => INVALID_PAYLOAD.into(),
-        MenuError::RootAuthorityImmutable => ROOT_AUTHORITY_IMMUTABLE.into(),
     }
 }

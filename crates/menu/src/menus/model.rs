@@ -13,7 +13,6 @@ pub struct MenuMeta {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MenuParameter {
-    #[serde(rename = "id")]
     pub id: i64,
     #[serde(rename = "sysBaseMenuId")]
     pub sys_base_menu_id: i64,
@@ -24,10 +23,17 @@ pub struct MenuParameter {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MenuButton {
-    #[serde(rename = "id")]
     pub id: i64,
     pub name: String,
     pub desc: String,
+}
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct ApiBinding {
+    #[serde(skip)]
+    pub menu_id: i64,
+    pub method: String,
+    #[serde(rename = "pathPattern")]
+    pub path_pattern: String,
 }
 #[derive(Debug, Clone)]
 pub struct MenuView {
@@ -42,10 +48,9 @@ pub struct MenuView {
     pub parameters: Vec<MenuParameter>,
     pub menu_btn: Vec<MenuButton>,
     pub menu_type: String,
+    pub status: String,
     pub permission: Option<String>,
-    pub permission_id: Option<i64>,
-    pub method: Option<String>,
-    pub api_path: Option<String>,
+    pub api_bindings: Vec<ApiBinding>,
     pub children: Vec<MenuView>,
 }
 #[derive(Debug, Clone, FromRow)]
@@ -64,15 +69,11 @@ pub struct MenuRecord {
     pub icon: String,
     pub close_tab: bool,
     pub transition_type: String,
-    pub parameters: Option<serde_json::Value>,
-    pub menu_btn: Option<serde_json::Value>,
+    pub parameters: serde_json::Value,
+    pub menu_btn: serde_json::Value,
     pub menu_type: String,
+    pub status: String,
     pub permission: Option<String>,
-    pub permission_id: Option<i64>,
-    pub method: Option<String>,
-    pub api_path: Option<String>,
-}
-#[derive(Debug, Clone)]
-pub struct MenuRoleSelection {
-    pub authority_ids: Vec<i64>,
+    #[sqlx(skip)]
+    pub api_bindings: Vec<ApiBinding>,
 }

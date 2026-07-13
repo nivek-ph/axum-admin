@@ -64,7 +64,24 @@ describe('auth store', () => {
     expect(store.can('system:user:delete')).toBe(false)
   })
 
-  it('allows super admin by role code for compatibility with the new RBAC model', () => {
+  it('builds the visible role label from all assigned roles', () => {
+    setActivePinia(createPinia())
+    const store = useAuthStore()
+
+    store.setSession('token-123', {
+      id: 1,
+      userName: 'admin',
+      nickName: 'Admin',
+      roles: [
+        { id: 1, code: 'super_admin', name: 'Super Admin' },
+        { id: 2, code: 'operator', name: 'Operator' }
+      ]
+    })
+
+    expect(store.roleLabel).toBe('Super Admin / Operator')
+  })
+
+  it('allows super admin by role code', () => {
     setActivePinia(createPinia())
     const store = useAuthStore()
 

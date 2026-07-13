@@ -27,11 +27,7 @@ describe('bootstrapAuthSession', () => {
           id: 1,
           userName: 'operator',
           nickName: 'Operator',
-          authority: {
-            authorityId: 999,
-            authorityName: 'Operator',
-            defaultRouter: 'dashboard'
-          }
+          roles: [{ id: 999, code: 'operator', name: 'Operator' }]
         }
       }
     })
@@ -68,11 +64,7 @@ describe('bootstrapAuthSession', () => {
           id: 1,
           userName: 'admin',
           nickName: 'Admin',
-          authority: {
-            authorityId: 1,
-            authorityName: 'Legacy compatible',
-            defaultRouter: 'dashboard'
-          },
+          homeRoute: 'dashboard',
           roles: [{ id: 1, code: 'super_admin', name: 'Super Admin' }]
         }
       }

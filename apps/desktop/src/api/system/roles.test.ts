@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRoleDeptPayload,
   buildRolePermissionPayload,
+  buildRoleUsersPayload,
   normalizeRoleIds,
   normalizeRoleList
 } from './roles'
@@ -29,13 +30,14 @@ describe('system role api adapter', () => {
     expect(result[0].code).toBe('super_admin')
   })
 
-  it('normalizes role permission and department id payloads', () => {
-    expect(normalizeRoleIds({ data: { permissionIds: [1, 2] } }, 'permissionIds')).toEqual([1, 2])
+  it('normalizes role menu and department id payloads', () => {
+    expect(normalizeRoleIds({ data: { menuIds: [1, 2] } }, 'menuIds')).toEqual([1, 2])
     expect(normalizeRoleIds({ data: { deptIds: [3] } }, 'deptIds')).toEqual([3])
   })
 
   it('builds camelCase assignment payloads', () => {
-    expect(buildRolePermissionPayload([2, 1])).toEqual({ permissionIds: [1, 2] })
+    expect(buildRolePermissionPayload([2, 1])).toEqual({ menuIds: [1, 2] })
     expect(buildRoleDeptPayload([9, 3])).toEqual({ deptIds: [3, 9] })
+    expect(buildRoleUsersPayload([4, 2, 4])).toEqual({ userIds: [2, 4] })
   })
 })

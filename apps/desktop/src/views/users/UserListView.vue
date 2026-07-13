@@ -117,9 +117,9 @@
           <UiSelect v-model="createForm.roleIds" multiple data-test="user-role-select" placeholder="Select role">
             <UiOption
               v-for="role in roleOptions"
-              :key="role.authorityId"
-              :label="role.authorityName"
-              :value="role.authorityId"
+              :key="role.id"
+              :label="role.name"
+              :value="role.id"
             />
           </UiSelect>
         </UiFormItem>
@@ -153,9 +153,9 @@
           <UiSelect v-model="roleForm.roleIds" multiple data-test="edit-user-role-select" placeholder="Select role">
             <UiOption
               v-for="role in roleOptions"
-              :key="role.authorityId"
-              :label="role.authorityName"
-              :value="role.authorityId"
+              :key="role.id"
+              :label="role.name"
+              :value="role.id"
             />
           </UiSelect>
         </UiFormItem>
@@ -208,7 +208,7 @@ const roleForm = reactive({
 const { total } = usePageChrome(users, 'users')
 const enabledCount = computed(() => users.value.filter((item) => item.enable === 1).length)
 const roleCount = computed(
-  () => new Set(users.value.map((item) => item.authority?.authorityName).filter(Boolean)).size
+  () => new Set(users.value.flatMap((item) => item.roles || []).map((role) => role.id)).size
 )
 const roleOptions = computed(() => rolesQuery.data.value || [])
 const canCreateUser = computed(() => authStore.can('system:user:create'))
@@ -221,7 +221,7 @@ const hasUserRowActions = computed(
 
 watch(roleOptions, (roles) => {
   if (createDialogVisible.value && createForm.roleIds.length === 0) {
-    createForm.roleIds = roles[0] ? [roles[0].authorityId] : []
+    createForm.roleIds = roles[0] ? [roles[0].id] : []
   }
 })
 
@@ -240,7 +240,7 @@ function resetCreateForm() {
   createForm.phone = ''
   createForm.email = ''
   createForm.enable = 1
-  createForm.roleIds = roleOptions.value[0] ? [roleOptions.value[0].authorityId] : []
+  createForm.roleIds = roleOptions.value[0] ? [roleOptions.value[0].id] : []
 }
 
 function openCreateDialog() {
@@ -254,9 +254,7 @@ function openRoleDialog(user: UserRecord) {
   selectedUser.value = user
   roleForm.roleIds = user.roleIds?.length
     ? [...user.roleIds]
-    : user.authority?.authorityId
-      ? [user.authority.authorityId]
-      : []
+    : (user.roles || []).map((role) => role.id)
   roleDialogVisible.value = true
 }
 
@@ -268,7 +266,7 @@ async function handleCreateUser() {
   }
 
   try {
-    const res = await createUserMutation.mutateAsync({ ...createForm, authorityId: createForm.roleIds[0] })
+    const res = await createUserMutation.mutateAsync({ ...createForm })
     if (res.code === 'OK') {
       ElMessage.success(t('Created'))
       createDialogVisible.value = false
@@ -341,11 +339,7 @@ async function handleResetPassword(id: number) {
 }
 
 function userRoles(user: UserRecord) {
-  if (user.roles?.length) return user.roles
-  if (user.authority) {
-    return [{ id: user.authority.authorityId, code: String(user.authority.authorityId), name: user.authority.authorityName }]
-  }
-  return []
+  return user.roles || []
 }
 </script>
 

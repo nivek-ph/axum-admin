@@ -38,9 +38,8 @@ export interface MenuRecord {
   menuBtn: MenuButton[];
   menuType?: 'directory' | 'page' | 'action' | string;
   permission?: string | null;
-  permissionId?: number | null;
-  method?: string | null;
-  apiPath?: string | null;
+  status?: string;
+  apiBindings?: Array<{ method: string; pathPattern: string }>;
   children: MenuRecord[];
 }
 
@@ -65,27 +64,6 @@ export function normalizeMenuRoleSelection(payload: ApiResponse<MenuRoleSelectio
 }
 
 export async function fetchMenuList() {
-  const response = await http.get('/menus', withAuthHeaders());
+  const response = await http.get('/menus/tree', withAuthHeaders());
   return normalizeMenuListResponse(response);
-}
-
-export async function createMenu(payload: MenuRecord) {
-  return http.post('/menus', payload, withAuthHeaders());
-}
-
-export async function updateMenu(payload: MenuRecord) {
-  return http.put(`/menus/${payload.id}`, payload, withAuthHeaders());
-}
-
-export async function deleteMenu(id: number) {
-  return http.delete(`/menus/${id}`, withAuthHeaders());
-}
-
-export async function fetchMenuRoles(menuId: number) {
-  const response = await http.get(`/menus/${menuId}/roles`, withAuthHeaders());
-  return normalizeMenuRoleSelection(response);
-}
-
-export async function setMenuRoles(menuId: number, roleIds: number[]) {
-  return http.put(`/menus/${menuId}/roles`, { menuId, roleIds }, withAuthHeaders());
 }

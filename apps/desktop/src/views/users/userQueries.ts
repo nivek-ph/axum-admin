@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 
-import { fetchAuthorities } from '@/api/authorities'
+import { listRoles } from '@/api/system/roles'
 import { assignUserRoles, createUser, deleteUser, fetchUsers, resetUserPassword, type CreateUserForm } from '@/api/users'
 
 export const userQueryKeys = {
@@ -19,7 +19,7 @@ export function useUsersQuery(page = 1, pageSize = 10) {
 export function useUserRolesQuery() {
   return useQuery({
     queryKey: userQueryKeys.roles,
-    queryFn: fetchAuthorities
+    queryFn: listRoles
   })
 }
 
