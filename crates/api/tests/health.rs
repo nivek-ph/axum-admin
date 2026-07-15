@@ -47,6 +47,17 @@ async fn health_route_returns_ok_response_body() {
         .expect("router should produce a response");
 
     assert_eq!(response.status(), 200);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).expect("response should be JSON"),
+        json!({
+            "code": "OK",
+            "message": "ok",
+            "data": { "alive": true }
+        })
+    );
 }
 
 #[tokio::test]

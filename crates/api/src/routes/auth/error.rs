@@ -1,7 +1,8 @@
-use crate::AppError;
-
 use super::login::LoginError;
-use crate::mappings::{CAPTCHA_INVALID, CAPTCHA_REQUIRED};
+use crate::{
+    AppError,
+    mappings::{CAPTCHA_INVALID, CAPTCHA_REQUIRED},
+};
 
 impl From<LoginError> for AppError {
     fn from(error: LoginError) -> Self {

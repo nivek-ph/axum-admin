@@ -1,9 +1,8 @@
 use sqlx::PgPool;
 
-use super::model::SysDictionaryDetailRow;
 use super::{
     DictionaryError, DictionaryListQuery, DictionaryWithDetails, ImportDictionaryPayload,
-    SysDictionary, SysDictionaryDetail,
+    SysDictionary, SysDictionaryDetail, model::SysDictionaryDetailRow,
 };
 
 #[derive(Clone)]
@@ -15,18 +14,22 @@ impl DictionaryService {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
     pub async fn list(
         &self,
         query: DictionaryListQuery,
     ) -> Result<Vec<SysDictionary>, DictionaryError> {
         Ok(list(&self.pool, query).await?)
     }
+
     pub async fn create(&self, payload: SysDictionary) -> Result<(), DictionaryError> {
         Ok(create(&self.pool, payload).await?)
     }
+
     pub async fn update(&self, payload: SysDictionary) -> Result<(), DictionaryError> {
         Ok(update(&self.pool, payload).await?)
     }
+
     pub async fn find(
         &self,
         id: Option<i64>,
@@ -34,15 +37,19 @@ impl DictionaryService {
     ) -> Result<Option<DictionaryWithDetails>, DictionaryError> {
         Ok(find_by_query(&self.pool, id, kind).await?)
     }
+
     pub async fn delete(&self, id: i64) -> Result<(), DictionaryError> {
         Ok(delete(&self.pool, id).await?)
     }
+
     pub async fn export(&self, id: i64) -> Result<Option<serde_json::Value>, DictionaryError> {
         Ok(export_dictionary(&self.pool, id).await?)
     }
+
     pub async fn import(&self, payload: ImportDictionaryPayload) -> Result<(), DictionaryError> {
         Ok(import_dictionary(&self.pool, payload).await?)
     }
+
     pub async fn create_detail(
         &self,
         dictionary_id: i64,
@@ -52,6 +59,7 @@ impl DictionaryService {
         ensure_dictionary_exists(&self.pool, dictionary_id).await?;
         create_detail(&self.pool, payload).await
     }
+
     pub async fn update_detail(
         &self,
         dictionary_id: i64,
@@ -62,6 +70,7 @@ impl DictionaryService {
         payload.sys_dictionary_id = dictionary_id;
         update_detail(&self.pool, payload).await
     }
+
     pub async fn find_detail(
         &self,
         dictionary_id: i64,
@@ -74,6 +83,7 @@ impl DictionaryService {
                 detail_id,
             })
     }
+
     pub async fn delete_detail(
         &self,
         dictionary_id: i64,
@@ -82,18 +92,21 @@ impl DictionaryService {
         self.find_detail(dictionary_id, detail_id).await?;
         Ok(delete_detail(&self.pool, dictionary_id, detail_id).await?)
     }
+
     pub async fn tree_by_dictionary(
         &self,
         id: i64,
     ) -> Result<Vec<SysDictionaryDetail>, DictionaryError> {
         Ok(tree_by_dictionary(&self.pool, id).await?)
     }
+
     pub async fn tree_by_type(
         &self,
         kind: &str,
     ) -> Result<Vec<SysDictionaryDetail>, DictionaryError> {
         Ok(tree_by_type(&self.pool, kind).await?)
     }
+
     pub async fn details_by_parent(
         &self,
         dictionary_id: i64,
@@ -101,6 +114,7 @@ impl DictionaryService {
     ) -> Result<Vec<SysDictionaryDetail>, DictionaryError> {
         Ok(details_by_parent(&self.pool, dictionary_id, parent_id).await?)
     }
+
     pub async fn detail_path(
         &self,
         dictionary_id: i64,

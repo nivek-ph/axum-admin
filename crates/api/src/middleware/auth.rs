@@ -1,4 +1,3 @@
-use crate::AppResult;
 use axum::{
     extract::{Request, State},
     http::{HeaderMap, header::AUTHORIZATION},
@@ -7,10 +6,10 @@ use axum::{
 };
 
 use crate::{
+    AppResult,
     mappings::{LOGIN_REQUIRED, PERMISSION_DENIED},
     state::AppState,
 };
-
 const X_FORWARDED_FOR: &str = "x-forwarded-for";
 const USER_AGENT: &str = "user-agent";
 

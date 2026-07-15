@@ -1,12 +1,14 @@
-use crate::{ApiResponse, AppResult};
 use axum::{Json, extract::State, http::HeaderMap};
 use serde_json::Value;
 
-use crate::{mappings::LOGIN_REQUIRED, middleware::auth::extract_bearer_token, state::AppState};
+use crate::{
+    ApiResponse, AppResult, mappings::LOGIN_REQUIRED, middleware::auth::extract_bearer_token,
+    state::AppState,
+};
 
 #[utoipa::path(
     post,
-    path = "/api/auth/logout",
+    path = "/auth/logout",
     tag = "auth",
     security(("bearer_auth" = [])),
     responses(

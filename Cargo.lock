@@ -247,6 +247,7 @@ dependencies = [
  "serde",
  "sqlx",
  "thiserror",
+ "utoipa",
 ]
 
 [[package]]
@@ -1013,6 +1014,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio",
+ "utoipa",
  "uuid",
 ]
 
@@ -1562,6 +1564,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror",
+ "utoipa",
  "uuid",
 ]
 
@@ -1968,6 +1971,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror",
+ "utoipa",
 ]
 
 [[package]]

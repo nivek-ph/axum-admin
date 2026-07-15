@@ -33,9 +33,9 @@ describe('user api adapter', () => {
         deptId: 1,
       })
     ).toEqual({
-      userName: 'alice',
+      username: 'alice',
       nickName: 'Alice',
-      passWord: '123456',
+      password: '123456',
       phone: undefined,
       email: 'alice@example.com',
       enable: 1,

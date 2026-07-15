@@ -1,6 +1,6 @@
-use super::model::OperationLogRow;
 use super::{
     CreateOperationLog, OperationLogError, OperationLogSearch, OperationLogView, OperationUserView,
+    model::OperationLogRow,
 };
 
 #[derive(Clone)]

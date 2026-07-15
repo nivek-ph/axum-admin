@@ -1,13 +1,11 @@
-use crate::{ApiResponse, AppResult};
 use audit::login_logs::CreateLoginLog;
 use auth::{captcha::CaptchaError, token::TokenIssueError};
 use axum::{Json, extract::State, http::HeaderMap};
 use iam::users;
-use serde::Deserialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{routes::users::dto::UserResponse, state::AppState};
+use crate::{ApiResponse, AppResult, routes::users::dto::UserResponse, state::AppState};
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct LoginRequest {
@@ -36,10 +34,10 @@ impl LoginInput {
     }
 }
 
-#[derive(Debug)]
-struct LoginResult {
-    user: users::UserInfoView,
-    token: String,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LoginResponse {
+    pub token: String,
+    pub user: UserResponse,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -58,11 +56,11 @@ pub(super) enum LoginError {
 
 #[utoipa::path(
     post,
-    path = "/api/auth/login",
+    path = "/auth/login",
     tag = "auth",
     request_body = LoginRequest,
     responses(
-        (status = 200, description = "Login success", body = crate::docs::LoginResponse),
+        (status = 200, description = "Login success", body = ApiResponse<LoginResponse>),
         (status = 401, description = "Invalid credentials")
     )
 )]
@@ -70,7 +68,7 @@ pub async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(payload): Json<LoginRequest>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<LoginResponse>>> {
     let result = execute_login(
         &state,
         LoginInput {
@@ -83,14 +81,10 @@ pub async fn login(
         },
     )
     .await?;
-
-    Ok(Json(ApiResponse::ok(serde_json::json!({
-        "user": UserResponse::from(result.user),
-        "token": result.token,
-    }))))
+    Ok(Json(ApiResponse::ok(result)))
 }
 
-async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginResult, LoginError> {
+async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginResponse, LoginError> {
     if let Err(error) = input.validate() {
         record_login(&state.login_logs, &input, false, &error.to_string(), None).await;
         return Err(error);
@@ -156,8 +150,6 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginResul
         }
     };
 
-    // Audit persistence is intentionally best effort: an unavailable audit store must not
-    // turn a completed login into a failed response.
     record_login(
         &state.login_logs,
         &input,
@@ -167,8 +159,8 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginResul
     )
     .await;
 
-    Ok(LoginResult {
-        user: identity.user,
+    Ok(LoginResponse {
+        user: UserResponse::from(identity.user),
         token,
     })
 }

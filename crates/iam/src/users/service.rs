@@ -7,8 +7,7 @@ use super::{
     ResetPasswordRequest, SetSelfInfoRequest, SetSelfSettingRequest, SetUserRolesRequest,
     UpdateUserRequest, UserError, UserInfoView, UserRecord,
 };
-use crate::access::DataScopeFilter;
-use crate::roles::RoleSummary;
+use crate::{access::DataScopeFilter, roles::RoleSummary};
 
 /// Default avatar when none is provided. Empty so the UI falls back to initials
 const HEADER_IMG: &str = "";

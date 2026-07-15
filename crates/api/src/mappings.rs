@@ -1,5 +1,6 @@
-use crate::{AppError, error::ErrorSpec};
 use axum::http::StatusCode;
+
+use crate::{AppError, error::ErrorSpec};
 
 const INTERNAL_SERVER_ERROR: ErrorSpec =
     ErrorSpec::internal("INTERNAL_SERVER_ERROR", "internal server error");

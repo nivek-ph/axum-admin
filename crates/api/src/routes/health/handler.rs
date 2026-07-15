@@ -1,15 +1,22 @@
-use crate::ApiResponse;
 use axum::Json;
-use serde_json::{Value, json};
+use serde::Serialize;
+use utoipa::ToSchema;
+
+use crate::ApiResponse;
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct HealthData {
+    pub alive: bool,
+}
 
 #[utoipa::path(
     get,
-    path = "/api/health",
+    path = "/health",
     tag = "system",
     responses(
-        (status = 200, description = "Health check response", body = crate::docs::HealthResponse)
+        (status = 200, description = "Health check response", body = ApiResponse<HealthData>)
     )
 )]
-pub async fn health() -> Json<ApiResponse<Value>> {
-    Json(ApiResponse::ok(json!({ "alive": true })))
+pub async fn health() -> Json<ApiResponse<HealthData>> {
+    Json(ApiResponse::ok(HealthData { alive: true }))
 }

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub struct LoginLogResponse {
@@ -24,25 +24,6 @@ impl From<audit::login_logs::LoginLogView> for LoginLogResponse {
             error_message: v.error_message,
             agent: v.agent,
             created_at: v.created_at,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LoginLogSearch {
-    pub page: i64,
-    #[serde(rename = "pageSize")]
-    pub page_size: i64,
-    pub username: Option<String>,
-    pub status: Option<bool>,
-}
-impl From<LoginLogSearch> for audit::login_logs::LoginLogSearch {
-    fn from(v: LoginLogSearch) -> Self {
-        Self {
-            page: v.page,
-            page_size: v.page_size,
-            username: v.username,
-            status: v.status,
         }
     }
 }
