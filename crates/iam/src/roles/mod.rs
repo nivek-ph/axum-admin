@@ -1,7 +1,7 @@
 mod error;
 mod model;
 mod request;
-pub mod service;
+mod service;
 
 pub use error::RoleError;
 pub use model::*;

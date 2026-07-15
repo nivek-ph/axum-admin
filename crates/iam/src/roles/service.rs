@@ -1,26 +1,23 @@
 use super::{RoleError, RolePayload, RoleSummary};
-use crate::authorization::AuthorizationService;
+use crate::access::AccessService;
 use sqlx::PgPool;
 use std::collections::BTreeSet;
 
 #[derive(Clone)]
 pub struct RoleService {
     pool: PgPool,
-    authorization: AuthorizationService,
+    access: AccessService,
 }
 
 impl RoleService {
     pub fn new(pool: PgPool) -> Self {
         Self {
-            authorization: AuthorizationService::new(pool.clone()),
+            access: AccessService::new(pool.clone()),
             pool,
         }
     }
-    pub fn with_authorization(pool: PgPool, authorization: AuthorizationService) -> Self {
-        Self {
-            pool,
-            authorization,
-        }
+    pub fn with_access(pool: PgPool, access: AccessService) -> Self {
+        Self { pool, access }
     }
     pub async fn list(&self) -> Result<Vec<RoleSummary>, RoleError> {
         Ok(list(&self.pool).await?)
@@ -45,7 +42,7 @@ impl RoleService {
     pub async fn set_menu_ids(&self, id: i64, values: Vec<i64>) -> Result<(), RoleError> {
         ensure_mutable(&self.pool, id).await?;
         let values = normalize(values);
-        self.authorization
+        self.access
             .validate_menu_assignment(&values.iter().copied().collect())?;
         replace(&self.pool, id, "sys_role_menus", "menu_id", values).await?;
         self.changed().await
@@ -67,7 +64,7 @@ impl RoleService {
         self.changed().await
     }
     async fn changed(&self) -> Result<(), RoleError> {
-        self.authorization.invalidate().await?;
+        self.access.invalidate().await?;
         Ok(())
     }
 }

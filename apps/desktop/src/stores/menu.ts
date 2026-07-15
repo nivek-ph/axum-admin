@@ -1,10 +1,10 @@
-import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { defineStore } from 'pinia';
+import { computed, ref } from 'vue';
 
 export interface CoreMenuItem {
-  key: string
-  label: string
-  path: string
+  key: string;
+  label: string;
+  path: string;
 }
 
 const coreMenuItems: CoreMenuItem[] = [
@@ -19,95 +19,93 @@ const coreMenuItems: CoreMenuItem[] = [
   { key: 'login-logs', label: 'Login logs', path: '/login-logs' },
   { key: 'operation-logs', label: 'Operation logs', path: '/operation-logs' },
   { key: 'profile', label: 'Profile', path: '/profile' },
-  { key: 'system-config', label: 'System config', path: '/system-config' },
-  { key: 'system-state', label: 'System status', path: '/system-state' }
-]
+];
 
 export interface RemoteMenuItem {
-  name: string
-  path?: string
+  name: string;
+  path?: string;
   meta?: {
-    title?: string
-  }
-  children?: RemoteMenuItem[]
+    title?: string;
+  };
+  children?: RemoteMenuItem[];
 }
 
-const coreMenuKeys = new Set(coreMenuItems.map((item) => item.key))
-const coreMenuByKey = new Map(coreMenuItems.map((item) => [item.key, item]))
-const unrestrictedRouteNames = new Set(['login', 'profile'])
+const coreMenuKeys = new Set(coreMenuItems.map((item) => item.key));
+const coreMenuByKey = new Map(coreMenuItems.map((item) => [item.key, item]));
+const unrestrictedRouteNames = new Set(['login', 'profile']);
 
 function normalizePath(path: string) {
-  return `/${path.replace(/^\/+/, '')}`
+  return `/${path.replace(/^\/+/, '')}`;
 }
 
 function flattenRemoteMenus(remoteMenus: RemoteMenuItem[]): RemoteMenuItem[] {
-  return remoteMenus.flatMap((item) => [item, ...flattenRemoteMenus(item.children || [])])
+  return remoteMenus.flatMap((item) => [item, ...flattenRemoteMenus(item.children || [])]);
 }
 
 export function buildCoreMenuItems(remoteMenus?: RemoteMenuItem[]) {
   if (!remoteMenus) {
-    return coreMenuItems
+    return coreMenuItems;
   }
 
   const remoteMap = new Map(
     flattenRemoteMenus(remoteMenus)
       .filter((item) => item.name && coreMenuKeys.has(item.name))
       .map((item) => {
-        const coreItem = coreMenuByKey.get(item.name)
+        const coreItem = coreMenuByKey.get(item.name);
         return [
           item.name,
           {
             key: item.name,
             label: coreItem?.label || item.meta?.title || item.name,
-            path: coreItem?.path || normalizePath(item.name)
-          } satisfies CoreMenuItem
-        ]
+            path: coreItem?.path || normalizePath(item.name),
+          } satisfies CoreMenuItem,
+        ];
       })
-  )
+  );
 
-  return coreMenuItems.filter((item) => remoteMap.has(item.key)).map((item) => remoteMap.get(item.key) || item)
+  return coreMenuItems.filter((item) => remoteMap.has(item.key)).map((item) => remoteMap.get(item.key) || item);
 }
 
 export const useMenuStore = defineStore('menu', () => {
-  const items = ref<CoreMenuItem[]>(coreMenuItems)
-  const accessLoaded = ref(false)
-  const allowedRouteNames = computed(() => new Set(items.value.map((item) => item.key)))
+  const items = ref<CoreMenuItem[]>(coreMenuItems);
+  const accessLoaded = ref(false);
+  const allowedRouteNames = computed(() => new Set(items.value.map((item) => item.key)));
 
   function setItems(nextItems: CoreMenuItem[]) {
-    items.value = nextItems
+    items.value = nextItems;
   }
 
   function setAuthorizedMenus(remoteMenus: RemoteMenuItem[], allowAll = false) {
-    items.value = allowAll ? coreMenuItems : buildCoreMenuItems(remoteMenus)
-    accessLoaded.value = true
+    items.value = allowAll ? coreMenuItems : buildCoreMenuItems(remoteMenus);
+    accessLoaded.value = true;
   }
 
   function resetAccess() {
-    items.value = coreMenuItems
-    accessLoaded.value = false
+    items.value = coreMenuItems;
+    accessLoaded.value = false;
   }
 
   function canAccessRouteName(routeName: string | symbol | null | undefined) {
-    if (!routeName) return true
-    const name = String(routeName)
-    if (unrestrictedRouteNames.has(name)) return true
-    if (!accessLoaded.value) return true
-    return allowedRouteNames.value.has(name)
+    if (!routeName) return true;
+    const name = String(routeName);
+    if (unrestrictedRouteNames.has(name)) return true;
+    if (!accessLoaded.value) return true;
+    return allowedRouteNames.value.has(name);
   }
 
   function canAccessPath(path: string) {
-    if (!accessLoaded.value) return true
-    const normalizedPath = normalizePath(path)
-    if (normalizedPath === '/login' || normalizedPath === '/profile') return true
-    return items.value.some((item) => item.path === normalizedPath || normalizePath(item.key) === normalizedPath)
+    if (!accessLoaded.value) return true;
+    const normalizedPath = normalizePath(path);
+    if (normalizedPath === '/login' || normalizedPath === '/profile') return true;
+    return items.value.some((item) => item.path === normalizedPath || normalizePath(item.key) === normalizedPath);
   }
 
   function firstAuthorizedRouteName() {
-    return items.value[0]?.key || 'profile'
+    return items.value[0]?.key || 'profile';
   }
 
   function firstAuthorizedPath() {
-    return items.value[0]?.path || '/profile'
+    return items.value[0]?.path || '/profile';
   }
 
   return {
@@ -119,6 +117,6 @@ export const useMenuStore = defineStore('menu', () => {
     canAccessRouteName,
     canAccessPath,
     firstAuthorizedRouteName,
-    firstAuthorizedPath
-  }
-})
+    firstAuthorizedPath,
+  };
+});

@@ -4,7 +4,7 @@ This file gives repo-specific guidance for agents working in this project.
 
 ## Project Shape
 
-- Backend code lives in `apps/api` and workspace crates under `crates/`.
+- Backend process entry points live in `apps/ava`; the Axum HTTP capability crates live under `crates/`.
 - Frontend code lives in `apps/desktop`.
 - Database migrations live in `migrations/`.
 - Uploaded local files are served from `uploads/`; do not commit generated upload data.
@@ -12,8 +12,8 @@ This file gives repo-specific guidance for agents working in this project.
 ## Backend
 
 - Use REST-style routes under `/api`.
-- Public routes are registered in `apps/api/src/routes/public`.
-- Authenticated routes are registered in `apps/api/src/routes/protected` and use the `Authorization: Bearer <token>` header.
+- Public routes are registered in `crates/api/src/routes/public`.
+- Authenticated routes are registered in `crates/api/src/routes/protected` and use the `Authorization: Bearer <token>` header.
 - Keep response bodies in the shared envelope shape:
 
 ```json
@@ -25,9 +25,9 @@ This file gives repo-specific guidance for agents working in this project.
 ```
 
 - Use `admin_httpz::AppError` and the local `errors.rs` modules for stable error codes and messages.
-- Keep business logic in the owning domain crate (`crates/system`, `crates/file-storage`, etc.) rather than pushing it into route handlers.
+- Keep business logic in the owning capability crate (`crates/iam`, `crates/audit`, `crates/metadata`, `crates/file-storage`, etc.) rather than pushing it into route handlers.
 - When adding SQL schema changes, create a new migration in `migrations/`; do not edit an already-applied migration unless the user explicitly confirms the database can be reset.
-- Keep `sqlx::migrate!("../../migrations")` working from `apps/api`.
+- Keep `sqlx::migrate!("../../migrations")` working from `crates/db`.
 - Prefer explicit domain errors over generic string errors.
 
 ### Error Design
@@ -35,12 +35,12 @@ This file gives repo-specific guidance for agents working in this project.
 - Route and middleware handlers should return `admin_httpz::AppResult<T>`.
 - `crates/httpz` owns the shared HTTP boundary types: `AppError`, `AppResult<T>`, `ErrorSpec`, `ErrorSpecExt`, and `OptionAppExt`.
 - Keep stable error specs in the owning layer:
-  - domain errors: `crates/system/src/errors.rs` and `crates/file-storage/src/errors.rs`
-  - API boundary errors: `apps/api/src/errors.rs`
+  - domain errors: the owning capability crate's local `error.rs` or `errors.rs`
+  - API boundary errors: `crates/api/src/errors.rs` and route-local `error.rs` modules
 - Add `impl From<...> for AppError` only when the source error has one stable API meaning in every context.
 - When the same error type has context-specific semantics, map it explicitly at the call site with `.map_err(...)`.
 - Do not collapse `LoginError` into one API mapping:
-  - CRUD/user management keeps `crates/system/src/users.rs` `From<LoginError> for AppError`.
+  - CRUD/user management keeps IAM errors owned by `crates/iam/src/users`.
   - Login maps `InvalidCredentials` and `UserNotFound` to `INVALID_CREDENTIALS` to avoid account enumeration.
   - Auth middleware maps a missing/deleted token user to `SESSION_INVALID`.
 - `AuthSessionError` has one auth-session semantic, so `From<AuthSessionError> for AppError` is acceptable.
@@ -48,7 +48,7 @@ This file gives repo-specific guidance for agents working in this project.
 ## Frontend
 
 - The desktop app is Vue 3 + Vite + Pinia + Vue Router + Axios + Nuxt UI.
-- API wrappers live in `apps/desktop/src/api`; keep endpoint paths aligned with `apps/api/src/routes`.
+- API wrappers live in `apps/desktop/src/api`; keep endpoint paths aligned with `crates/api/src/routes`.
 - Keep the default API base URL as `http://127.0.0.1:3000/api` unless changing the runtime contract intentionally.
 - Use the shared HTTP client in `apps/desktop/src/api/http.ts` so backend envelope errors surface through the same path.
 - Keep UI changes consistent with the existing admin layout: dense, practical, and workflow-oriented.
@@ -89,7 +89,7 @@ npm run build
 For frontend/backend integration changes, run both servers and verify the real UI path:
 
 ```bash
-cargo run -p api
+cargo run -p ava -- serve
 cd apps/desktop && npm run dev
 ```
 

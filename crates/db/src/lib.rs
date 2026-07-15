@@ -11,3 +11,7 @@ pub async fn connect(database_url: &str) -> Result<DbPool, sqlx::Error> {
         .connect(database_url)
         .await
 }
+
+pub async fn migrate(pool: &DbPool) -> Result<(), sqlx::migrate::MigrateError> {
+    sqlx::migrate!("../../migrations").run(pool).await
+}

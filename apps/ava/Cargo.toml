@@ -1,0 +1,25 @@
+[package]
+name = "ava"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Local workspace crates.
+api.workspace = true
+audit.workspace = true
+auth.workspace = true
+db.workspace = true
+file-storage.workspace = true
+iam.workspace = true
+metadata.workspace = true
+
+# External crates.
+anyhow.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+redis.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-otel-extra.workspace = true

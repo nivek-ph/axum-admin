@@ -71,17 +71,12 @@ CREATE TABLE sys_dictionary_details (
     path TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE attachment_categories (
-    id BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    pid BIGINT NOT NULL DEFAULT 0
-);
-
 CREATE TABLE uploaded_files (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     url TEXT NOT NULL,
+    ext TEXT NOT NULL DEFAULT '',
     tag TEXT NOT NULL DEFAULT '',
-    class_id BIGINT NOT NULL DEFAULT 0,
+    category TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -32,9 +32,6 @@
         </div>
         <div class="page-panel-actions">
           <UiButton @click="loadLogs" :loading="loading">{{ $t('Refresh') }}</UiButton>
-          <UiButton :disabled="selectedIds.length === 0" @click="handleBatchDelete">
-            {{ $t('Delete') }}
-          </UiButton>
           <UiButton type="primary" @click="page = 1; loadLogs()">{{ $t('Search') }}</UiButton>
         </div>
       </div>
@@ -49,8 +46,7 @@
       </div>
 
       <div class="surface-card">
-        <UiTable :data="logs" :loading="loading" style="width: 100%" @selection-change="handleSelectionChange">
-          <UiTableColumn type="selection" width="44" />
+        <UiTable :data="logs" :loading="loading" style="width: 100%">
           <UiTableColumn prop="id" label="ID" width="80" />
           <UiTableColumn prop="username" label="Username" min-width="140" />
           <UiTableColumn prop="ip" label="IP" min-width="140" />
@@ -63,11 +59,6 @@
           </UiTableColumn>
           <UiTableColumn prop="errorMessage" label="Error message" min-width="180" />
           <UiTableColumn prop="createdAt" label="Time" min-width="180" />
-          <UiTableColumn label="Actions" width="120">
-            <template #default="{ row }">
-              <UiButton link type="danger" @click="handleDelete(row.id)">{{ $t('Delete') }}</UiButton>
-            </template>
-          </UiTableColumn>
         </UiTable>
       </div>
 
@@ -87,9 +78,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from '@/ui/feedback'
+import { ElMessage } from '@/ui/feedback'
 
-import { deleteLoginLog, deleteLoginLogs, fetchLoginLogs, type LoginLogRecord } from '@/api/logs'
+import { fetchLoginLogs, type LoginLogRecord } from '@/api/logs'
 import { t } from '@/i18n'
 
 const logs = ref<LoginLogRecord[]>([])
@@ -101,7 +92,6 @@ const filters = reactive({
   username: ''
 })
 const statusModel = ref<'success' | 'failed' | undefined>()
-const selectedIds = ref<number[]>([])
 const failedCount = computed(() => logs.value.filter((item) => !item.status).length)
 
 async function loadLogs() {
@@ -133,55 +123,6 @@ function handleSearch() {
 function handlePageChange(nextPage: number) {
   page.value = nextPage
   loadLogs()
-}
-
-function handleSelectionChange(rows: LoginLogRecord[]) {
-  selectedIds.value = rows.map((row) => row.id)
-}
-
-async function handleDelete(id: number) {
-  try {
-    await ElMessageBox.confirm(t('Delete this login log?'), t('Notice'), { type: 'warning' })
-  } catch {
-    return
-  }
-
-  try {
-    const response = await deleteLoginLog(id)
-    if (response.code === 'OK') {
-      ElMessage.success(t('Login log deleted'))
-      await loadLogs()
-      return
-    }
-    ElMessage.error(response.message || t('Delete failed'))
-  } catch {
-    ElMessage.error(t('Delete failed'))
-  }
-}
-
-async function handleBatchDelete() {
-  if (selectedIds.value.length === 0) return
-
-  try {
-    await ElMessageBox.confirm(t('Delete {count} login logs?', { count: selectedIds.value.length }), t('Notice'), {
-      type: 'warning'
-    })
-  } catch {
-    return
-  }
-
-  try {
-    const response = await deleteLoginLogs(selectedIds.value)
-    if (response.code === 'OK') {
-      ElMessage.success(t('Login logs deleted'))
-      selectedIds.value = []
-      await loadLogs()
-      return
-    }
-    ElMessage.error(response.message || t('Batch delete failed'))
-  } catch {
-    ElMessage.error(t('Batch delete failed'))
-  }
 }
 
 onMounted(() => {

@@ -1,23 +1,21 @@
-import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
+import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
 
-import AppLayout from '@/layouts/AppLayout.vue'
-import { useAuthStore } from '@/stores/auth'
-import { useMenuStore } from '@/stores/menu'
+import AppLayout from '@/layouts/AppLayout.vue';
+import { useAuthStore } from '@/stores/auth';
+import { useMenuStore } from '@/stores/menu';
 
-const LoginView = () => import('@/views/auth/LoginView.vue')
-const DashboardView = () => import('@/views/dashboard/DashboardView.vue')
-const UserListView = () => import('@/views/users/UserListView.vue')
-const RoleListView = () => import('@/views/roles/RoleListView.vue')
-const MenuListView = () => import('@/views/menus/MenuListView.vue')
-const ParamListView = () => import('@/views/params/ParamListView.vue')
-const DictionaryListView = () => import('@/views/dictionaries/DictionaryListView.vue')
-const FileLibraryView = () => import('@/views/files/FileLibraryView.vue')
-const LoginLogView = () => import('@/views/logs/LoginLogView.vue')
-const OperationLogView = () => import('@/views/logs/OperationLogView.vue')
-const ProfileView = () => import('@/views/profile/ProfileView.vue')
-const SystemConfigView = () => import('@/views/system/SystemConfigView.vue')
-const SystemStateView = () => import('@/views/system/SystemStateView.vue')
-const DeptTreeView = () => import('@/views/system/depts/DeptTreeView.vue')
+const LoginView = () => import('@/views/auth/LoginView.vue');
+const DashboardView = () => import('@/views/dashboard/DashboardView.vue');
+const UserListView = () => import('@/views/users/UserListView.vue');
+const RoleListView = () => import('@/views/roles/RoleListView.vue');
+const MenuListView = () => import('@/views/menus/MenuListView.vue');
+const ParamListView = () => import('@/views/params/ParamListView.vue');
+const DictionaryListView = () => import('@/views/dictionaries/DictionaryListView.vue');
+const FileLibraryView = () => import('@/views/files/FileLibraryView.vue');
+const LoginLogView = () => import('@/views/logs/LoginLogView.vue');
+const OperationLogView = () => import('@/views/logs/OperationLogView.vue');
+const ProfileView = () => import('@/views/profile/ProfileView.vue');
+const DeptTreeView = () => import('@/views/system/depts/DeptTreeView.vue');
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: LoginView },
@@ -36,36 +34,32 @@ const routes: RouteRecordRaw[] = [
       { path: 'login-logs', name: 'login-logs', component: LoginLogView },
       { path: 'operation-logs', name: 'operation-logs', component: OperationLogView },
       { path: 'profile', name: 'profile', component: ProfileView },
-      { path: 'system-config', name: 'system-config', component: SystemConfigView },
-      { path: 'system-state', name: 'system-state', component: SystemStateView },
-      { path: 'departments', name: 'departments', component: DeptTreeView }
-    ]
-  }
-]
+      { path: 'departments', name: 'departments', component: DeptTreeView },
+    ],
+  },
+];
 
 export function createAppRouter() {
   const router = createRouter({
     history: createWebHashHistory(),
-    routes
-  })
+    routes,
+  });
 
   router.beforeEach((to) => {
-    const authStore = useAuthStore()
-    const menuStore = useMenuStore()
+    const authStore = useAuthStore();
+    const menuStore = useMenuStore();
     if (to.name !== 'login' && !authStore.isAuthenticated) {
-      return { name: 'login' }
+      return { name: 'login' };
     }
     if (to.name === 'login' && authStore.isAuthenticated) {
-      const homeRouteName = authStore.homeRouteName
-      return router.hasRoute(homeRouteName) && menuStore.canAccessRouteName(homeRouteName)
-        ? { name: homeRouteName }
-        : { name: menuStore.firstAuthorizedRouteName() }
+      const homeRouteName = authStore.homeRouteName;
+      return router.hasRoute(homeRouteName) && menuStore.canAccessRouteName(homeRouteName) ? { name: homeRouteName } : { name: menuStore.firstAuthorizedRouteName() };
     }
     if (!menuStore.canAccessRouteName(to.name)) {
-      return { name: menuStore.firstAuthorizedRouteName() }
+      return { name: menuStore.firstAuthorizedRouteName() };
     }
-    return true
-  })
+    return true;
+  });
 
-  return router
+  return router;
 }

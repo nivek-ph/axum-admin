@@ -40,7 +40,7 @@ pub struct UserInfoView {
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
     pub id: i64,
-    pub data_scope: crate::data_scope::DataScopeFilter,
+    pub data_scope: crate::access::DataScopeFilter,
 }
 
 #[derive(Debug, Clone)]

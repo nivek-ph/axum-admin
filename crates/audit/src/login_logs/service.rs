@@ -18,12 +18,32 @@ impl LoginLogService {
     ) -> Result<(Vec<LoginLogView>, i64), LoginLogError> {
         Ok(get_login_log_list(&self.pool, query).await?)
     }
-    pub async fn delete(&self, id: i64) -> Result<(), LoginLogError> {
-        Ok(delete_login_log(&self.pool, id).await?)
+    pub async fn find(&self, id: i64) -> Result<Option<LoginLogView>, LoginLogError> {
+        Ok(find_login_log(&self.pool, id).await?)
     }
-    pub async fn delete_many(&self, ids: Vec<i64>) -> Result<(), LoginLogError> {
-        Ok(delete_login_logs(&self.pool, ids).await?)
-    }
+}
+
+pub(crate) async fn find_login_log(
+    pool: &sqlx::PgPool,
+    id: i64,
+) -> Result<Option<LoginLogView>, sqlx::Error> {
+    sqlx::query_as::<_, LoginLogView>(
+        r#"
+        select
+            id,
+            username,
+            ip,
+            status,
+            error_message,
+            agent,
+            to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') as created_at
+        from sys_login_logs
+        where id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
 }
 
 pub(crate) async fn create_login_log(
@@ -91,23 +111,4 @@ pub(crate) async fn get_login_log_list(
     .await?;
 
     Ok((list, total))
-}
-
-pub(crate) async fn delete_login_log(pool: &sqlx::PgPool, id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("delete from sys_login_logs where id = $1")
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub(crate) async fn delete_login_logs(
-    pool: &sqlx::PgPool,
-    ids: Vec<i64>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("delete from sys_login_logs where id = any($1)")
-        .bind(ids)
-        .execute(pool)
-        .await?;
-    Ok(())
 }

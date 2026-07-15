@@ -9,10 +9,8 @@ vi.mock('@/api/files', () => ({
     page: 1,
     pageSize: 10
   }),
-  fetchCategories: vi.fn().mockResolvedValue([]),
-  saveCategory: vi.fn(),
-  deleteCategory: vi.fn(),
   importFileUrl: vi.fn(),
+  uploadFile: vi.fn(),
   renameFile: vi.fn(),
   deleteFile: vi.fn()
 }))

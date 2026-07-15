@@ -1,13 +1,13 @@
 [workspace]
 members = [
-  "apps/api",
+  "apps/ava",
   "crates/audit",
+  "crates/api",
   "crates/auth",
   "crates/db",
   "crates/file-storage",
   "crates/httpz",
   "crates/iam",
-  "crates/menu",
   "crates/metadata",
 ]
 resolver = "2"
@@ -20,13 +20,12 @@ version = "0.1.0"
 [workspace.dependencies]
 # Local workspace crates. This lets us reference them in other crates without specifying a path.
 admin-httpz = { path = "crates/httpz" }
-api = { path = "apps/api" }
+api = { path = "crates/api" }
 audit = { path = "crates/audit" }
 auth = { path = "crates/auth" }
 db = { path = "crates/db" }
 file-storage = { path = "crates/file-storage" }
 iam = { path = "crates/iam" }
-menu = { path = "crates/menu" }
 metadata = { path = "crates/metadata" }
 
 # External crates.
@@ -35,6 +34,7 @@ argon2 = { version = "0.6.0-rc.8", features = ["getrandom", "password-hash"] }
 axum = { version = "0.8", features = ["json", "multipart"] }
 axum-otel = "0.32.0"
 captcha-rs = "0.5"
+clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
 hex = "0.4"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }

@@ -81,17 +81,6 @@ export async function fetchLoginLogs(filters: LoginLogFilters = {}) {
   return normalizeLoginLogListResponse(response);
 }
 
-export async function deleteLoginLog(id: number) {
-  return http.delete(`/login-logs/${id}`, withAuthHeaders());
-}
-
-export async function deleteLoginLogs(ids: number[]) {
-  return http.delete('/login-logs', {
-    ...withAuthHeaders(),
-    data: { ids },
-  });
-}
-
 export async function fetchOperationLogs(filters: OperationLogFilters = {}) {
   const response = await http.get('/operation-logs', {
     ...withAuthHeaders(),
@@ -104,11 +93,4 @@ export async function fetchOperationLogs(filters: OperationLogFilters = {}) {
     },
   });
   return normalizeOperationLogListResponse(response);
-}
-
-export async function deleteOperationLogs(ids: number[]) {
-  return http.delete('/operation-logs', {
-    ...withAuthHeaders(),
-    data: { ids },
-  });
 }

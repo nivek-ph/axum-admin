@@ -21,12 +21,49 @@ impl OperationLogService {
     ) -> Result<(Vec<OperationLogView>, i64), OperationLogError> {
         Ok(list(&self.pool, query).await?)
     }
-    pub async fn delete(&self, id: i64) -> Result<(), OperationLogError> {
-        Ok(delete(&self.pool, id).await?)
+    pub async fn find(&self, id: i64) -> Result<Option<OperationLogView>, OperationLogError> {
+        Ok(find(&self.pool, id).await?.map(OperationLogView::from))
     }
-    pub async fn delete_many(&self, ids: Vec<i64>) -> Result<(), OperationLogError> {
-        Ok(delete_many(&self.pool, ids).await?)
+}
+
+impl From<OperationLogRow> for OperationLogView {
+    fn from(row: OperationLogRow) -> Self {
+        Self {
+            id: row.id,
+            ip: row.ip,
+            method: row.method,
+            path: row.path,
+            status: row.status,
+            agent: row.agent,
+            error_message: row.error_message,
+            body: row.body,
+            resp: row.resp,
+            created_at: row.created_at,
+            user: OperationUserView {
+                user_name: row.user_name,
+                nick_name: row.nick_name,
+            },
+        }
     }
+}
+
+pub(crate) async fn find(
+    pool: &sqlx::PgPool,
+    id: i64,
+) -> Result<Option<OperationLogRow>, sqlx::Error> {
+    sqlx::query_as::<_, OperationLogRow>(
+        r#"
+        select r.id, r.ip, r.method, r.path, r.status, r.agent, r.error_message, r.body, r.resp,
+               to_char(r.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') as created_at,
+               coalesce(u.username, '') as user_name, coalesce(u.nick_name, '') as nick_name
+        from sys_operation_records r
+        left join sys_users u on u.id = r.user_id
+        where r.id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
 }
 
 pub(crate) async fn create(
@@ -98,40 +135,7 @@ pub(crate) async fn list(
     .await?;
 
     Ok((
-        rows.into_iter()
-            .map(|row| OperationLogView {
-                id: row.id,
-                ip: row.ip,
-                method: row.method,
-                path: row.path,
-                status: row.status,
-                agent: row.agent,
-                error_message: row.error_message,
-                body: row.body,
-                resp: row.resp,
-                created_at: row.created_at,
-                user: OperationUserView {
-                    user_name: row.user_name,
-                    nick_name: row.nick_name,
-                },
-            })
-            .collect(),
+        rows.into_iter().map(OperationLogView::from).collect(),
         total,
     ))
-}
-
-pub(crate) async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("delete from sys_operation_records where id = $1")
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub(crate) async fn delete_many(pool: &sqlx::PgPool, ids: Vec<i64>) -> Result<(), sqlx::Error> {
-    sqlx::query("delete from sys_operation_records where id = any($1)")
-        .bind(ids)
-        .execute(pool)
-        .await?;
-    Ok(())
 }

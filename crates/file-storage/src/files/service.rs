@@ -33,10 +33,11 @@ impl FileService {
     pub async fn upload(
         &self,
         name: &str,
-        class_id: i64,
+        tag: &str,
+        category: &str,
         bytes: &[u8],
     ) -> Result<StoredFile, FileError> {
-        store_uploaded_bytes(&self.pool, &self.upload_dir, name, class_id, bytes).await
+        store_uploaded_bytes(&self.pool, &self.upload_dir, name, tag, category, bytes).await
     }
     pub async fn delete(&self, id: i64) -> Result<(), FileError> {
         let Some(file) = find_file(&self.pool, id).await? else {
@@ -88,11 +89,11 @@ pub(crate) async fn list(
         r#"
         select count(*) from uploaded_files
         where ($1::text is null or name ilike '%' || $1 || '%' or url ilike '%' || $1 || '%')
-          and ($2::bigint is null or class_id = $2)
+          and ($2::text is null or category = $2)
         "#,
     )
     .bind(query.keyword.as_deref())
-    .bind(query.class_id)
+    .bind(query.category.as_deref())
     .fetch_one(pool)
     .await?;
     let list = sqlx::query_as::<_, StoredFile>(
@@ -101,18 +102,19 @@ pub(crate) async fn list(
             id,
             name,
             url,
+            ext,
             tag,
-            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at,
-            class_id
+            category,
+            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at
         from uploaded_files
         where ($1::text is null or name ilike '%' || $1 || '%' or url ilike '%' || $1 || '%')
-          and ($2::bigint is null or class_id = $2)
+          and ($2::text is null or category = $2)
         order by id desc
         limit $3 offset $4
         "#,
     )
     .bind(query.keyword.as_deref())
-    .bind(query.class_id)
+    .bind(query.category.as_deref())
     .bind(page_size)
     .bind(offset)
     .fetch_all(pool)
@@ -143,9 +145,10 @@ pub(crate) async fn find_file(
             id,
             name,
             url,
+            ext,
             tag,
-            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at,
-            class_id
+            category,
+            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at
         from uploaded_files
         where id = $1
         "#,
@@ -167,19 +170,17 @@ pub(crate) async fn import_url(
     pool: &sqlx::PgPool,
     payload: ImportUrlPayload,
 ) -> Result<(), FileError> {
-    let tag = payload
-        .url
-        .rsplit('.')
-        .next()
-        .unwrap_or_default()
-        .to_string();
-    sqlx::query("insert into uploaded_files (name, url, tag, class_id) values ($1, $2, $3, $4)")
-        .bind(payload.name)
-        .bind(payload.url)
-        .bind(tag)
-        .bind(payload.class_id.unwrap_or(0))
-        .execute(pool)
-        .await?;
+    let ext = normalized_extension(&payload.url);
+    sqlx::query(
+        "insert into uploaded_files (name, url, ext, tag, category) values ($1, $2, $3, $4, $5)",
+    )
+    .bind(payload.name)
+    .bind(payload.url)
+    .bind(ext)
+    .bind(payload.tag)
+    .bind(payload.category)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -187,11 +188,12 @@ pub(crate) async fn store_uploaded_bytes(
     pool: &sqlx::PgPool,
     upload_dir: &str,
     file_name: &str,
-    class_id: i64,
+    tag: &str,
+    category: &str,
     bytes: &[u8],
 ) -> Result<StoredFile, FileError> {
     tokio::fs::create_dir_all(upload_dir).await?;
-    let extension = file_name.rsplit('.').next().unwrap_or_default();
+    let ext = normalized_extension(file_name);
     let generated = format!("{}-{}", Uuid::new_v4(), file_name);
     let mut path = PathBuf::from(upload_dir);
     path.push(&generated);
@@ -202,15 +204,16 @@ pub(crate) async fn store_uploaded_bytes(
 
     let id_result: Result<i64, sqlx::Error> = sqlx::query_scalar(
         r#"
-        insert into uploaded_files (name, url, tag, class_id)
-        values ($1, $2, $3, $4)
+        insert into uploaded_files (name, url, ext, tag, category)
+        values ($1, $2, $3, $4, $5)
         returning id
         "#,
     )
     .bind(file_name)
     .bind(&url)
-    .bind(extension)
-    .bind(class_id)
+    .bind(&ext)
+    .bind(tag)
+    .bind(category)
     .fetch_one(pool)
     .await;
     let id = match id_result {
@@ -232,9 +235,10 @@ pub(crate) async fn store_uploaded_bytes(
             id,
             name,
             url,
+            ext,
             tag,
-            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at,
-            class_id
+            category,
+            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at
         from uploaded_files
         where id = $1
         "#,
@@ -242,4 +246,29 @@ pub(crate) async fn store_uploaded_bytes(
     .bind(id)
     .fetch_one(pool)
     .await?)
+}
+
+fn normalized_extension(value: &str) -> String {
+    value
+        .split(['?', '#'])
+        .next()
+        .and_then(|path| Path::new(path).extension())
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_extension;
+
+    #[test]
+    fn extension_is_normalized_without_query_or_fragment() {
+        assert_eq!(normalized_extension("photo.PNG"), "png");
+        assert_eq!(
+            normalized_extension("https://example.test/report.PDF?download=1"),
+            "pdf"
+        );
+        assert_eq!(normalized_extension("README"), "");
+    }
 }

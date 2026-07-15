@@ -52,7 +52,7 @@ export async function fetchDictionaries(name = '') {
 }
 
 export async function fetchDictionaryDetails(sysDictionaryId: number) {
-  const response = await http.get(`/dictionaries/${sysDictionaryId}/details/tree`, withAuthHeaders());
+  const response = await http.get(`/dictionaries/${sysDictionaryId}/tree`, withAuthHeaders());
   return normalizeDictionaryDetailTreeResponse(response);
 }
 
@@ -70,7 +70,7 @@ export async function deleteDictionary(id: number) {
 
 export async function createDictionaryDetail(payload: DictionaryDetailPayload) {
   return http.post(
-    '/dictionary-details',
+    `/dictionaries/${payload.sysDictionaryId}/tree`,
     {
       ...payload,
       level: 0,
@@ -83,7 +83,7 @@ export async function createDictionaryDetail(payload: DictionaryDetailPayload) {
 
 export async function updateDictionaryDetail(payload: DictionaryDetailPayload) {
   return http.put(
-    `/dictionary-details/${payload.id}`,
+    `/dictionaries/${payload.sysDictionaryId}/tree/${payload.id}`,
     {
       ...payload,
       level: 0,
@@ -94,6 +94,6 @@ export async function updateDictionaryDetail(payload: DictionaryDetailPayload) {
   );
 }
 
-export async function deleteDictionaryDetail(id: number) {
-  return http.delete(`/dictionary-details/${id}`, withAuthHeaders());
+export async function deleteDictionaryDetail(dictionaryId: number, id: number) {
+  return http.delete(`/dictionaries/${dictionaryId}/tree/${id}`, withAuthHeaders());
 }

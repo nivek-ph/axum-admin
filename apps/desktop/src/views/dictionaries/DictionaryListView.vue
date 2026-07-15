@@ -458,7 +458,7 @@ async function handleDeleteDetail(id: number) {
   }
 
   try {
-    const response = await deleteDictionaryDetail(id)
+    const response = await deleteDictionaryDetail(selectedDictionary.value.id, id)
     if (response.code === 'OK') {
       ElMessage.success(t('Dictionary detail deleted'))
       await loadDetails(selectedDictionary.value.id)

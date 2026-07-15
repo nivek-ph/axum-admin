@@ -9,7 +9,7 @@ pub enum RoleError {
     #[error("role is assigned to users")]
     InUse,
     #[error(transparent)]
-    Authorization(#[from] crate::authorization::AuthorizationError),
+    Access(#[from] crate::access::AccessError),
     #[error(transparent)]
-    InvalidMenuAssignment(#[from] crate::authorization::catalog::CatalogError),
+    InvalidMenuAssignment(#[from] crate::access::CatalogError),
 }

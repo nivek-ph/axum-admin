@@ -23,14 +23,17 @@ More screens: [Login](docs/screenshots/login.png) · [User Management](docs/scre
 ## Workspace layout:
 
 ```text
-apps/api          Axum HTTP API
-apps/desktop      Vue/Vite/Tauri desktop frontend
-crates/auth       password hashing and JWT helpers
-crates/db         database connection helpers
-crates/httpz      response envelope and application error model
-crates/system     users, roles, menus, API registry, params, dictionaries, logs
+apps/ava           Ava CLI and backend composition root
+apps/desktop       Vue/Vite/Tauri desktop frontend
+crates/api         Axum HTTP adapter
+crates/audit       login and operation audit logs
+crates/auth        password, token, and captcha helpers
+crates/db          database connection and migrations
 crates/file-storage
-migrations        SQLx migrations
+crates/httpz       response envelope and application error model
+crates/iam         users, roles, departments, menus, and access control
+crates/metadata    parameters and dictionaries
+migrations         SQLx migrations
 ```
 
 ## Environment
@@ -49,7 +52,7 @@ Optional:
 - `ADMIN_USERNAME`, default `admin`
 - `ADMIN_NICKNAME`, default `Administrator`
 
-Required only by the bootstrap command:
+Required only by `ava init`:
 
 - `ADMIN_PASSWORD`
 
@@ -66,14 +69,14 @@ postgres://postgres:postgres@localhost/axum_vue_admin
 ```
 
 On API startup, the server runs migrations. Default authority, menu, route
-registry, and admin user data are bootstrapped by a separate CLI.
+registry, and admin user data are initialized by the Ava CLI.
 
 ## Run
 
 Start the backend:
 
 ```bash
-cargo run -p api
+cargo run -p ava -- serve
 ```
 
 The API listens on:
@@ -114,7 +117,7 @@ Override it with:
 VITE_API_BASE_URL=http://127.0.0.1:3000/api npm run dev
 ```
 
-Login after running the bootstrap command:
+Login after running `ava init`:
 
 ```text
 username: value of ADMIN_USERNAME (default: admin)
@@ -124,7 +127,7 @@ password: value of ADMIN_PASSWORD
 Bootstrap default system data when setting up a database:
 
 ```bash
-cargo run -p api --bin bootstrap
+cargo run -p ava -- init
 ```
 
 ## API Contract
@@ -147,15 +150,15 @@ Authenticated requests send the JWT in the `Authorization: Bearer <token>` heade
 - `crates/httpz` owns the HTTP response envelope and the shared error boundary:
   `AppError`, `AppResult<T>`, `ErrorSpec`, `ErrorSpecExt`, and `OptionAppExt`.
 - Stable user-facing error codes and messages live in the owning layer:
-  domain errors in `crates/system/src/errors.rs` and `crates/file-storage/src/errors.rs`,
-  API boundary errors in `apps/api/src/errors.rs`.
+  domain errors in their owning capability crate and API boundary errors in
+  `crates/api/src/errors.rs` or route-local error modules.
 - Route and middleware handlers should return `AppResult<T>`.
 - Use `impl From<DomainError> for AppError` only when the source error has one
   stable HTTP/API meaning everywhere it is used.
 - Use explicit `.map_err(...)` at the call site when the same domain error needs
   different HTTP semantics in different contexts.
 - `LoginError` is intentionally context-mapped:
-  - CRUD/user management uses `crates/system/src/users.rs` `From<LoginError> for AppError`.
+  - CRUD/user management keeps IAM errors owned by `crates/iam/src/users`.
   - Login maps `InvalidCredentials` and `UserNotFound` to `INVALID_CREDENTIALS`
     so the login API does not reveal whether an account exists.
   - Auth middleware maps missing/deleted users to `SESSION_INVALID`, because an
@@ -184,8 +187,7 @@ Protected route groups:
 | Menus                 | `GET/POST /api/menus`, `GET /api/menus/current`, `GET /api/menus/tree`, `GET/PUT/DELETE /api/menus/{id}`, `GET/PUT /api/menus/{id}/roles`, `GET/POST /api/menus/authority`                                                                        |
 | API routes            | `GET/POST /api/routes`, `GET /api/routes/all`, `GET /api/routes/groups`, `GET/PUT/DELETE /api/routes/{id}`, `GET/PUT /api/routes/roles`, `DELETE /api/routes/batch`, `POST /api/routes/casbin/refresh`                                            |
 | Params                | `GET/POST /api/params`, `GET /api/params/by-key`, `GET/PUT/DELETE /api/params/{id}`, `DELETE /api/params/batch`                                                                                                                                   |
-| Dictionaries          | `GET/POST /api/dictionaries`, `POST /api/dictionaries/import`, `GET/PUT/DELETE /api/dictionaries/{id}`, `GET /api/dictionaries/{id}/export`, `GET /api/dictionaries/{id}/details/tree`                                                            |
-| Dictionary details    | `POST /api/dictionary-details`, `GET /api/dictionary-details/tree-by-type`, `GET /api/dictionary-details/by-parent`, `GET/PUT/DELETE /api/dictionary-details/{id}`, `GET /api/dictionary-details/{id}/path`                                       |
+| Dictionaries          | `GET/POST /api/dictionaries`, `POST /api/dictionaries/import`, `GET/PUT/DELETE /api/dictionaries/{id}`, `GET /api/dictionaries/{id}/export`, `GET/POST /api/dictionaries/{id}/tree`, `GET/PUT/DELETE /api/dictionaries/{id}/tree/{node_id}` |
 | Files                 | `GET /api/files`, `POST /api/files/upload`, `POST /api/files/import-url`, `DELETE /api/files/{id}`, `PATCH /api/files/{id}/name`                                                                                                                  |
 | Attachment categories | `GET/POST /api/attachment-categories`, `DELETE /api/attachment-categories/{id}`                                                                                                                                                                   |
 | Logs                  | `GET/DELETE /api/login-logs`, `GET/DELETE /api/login-logs/{id}`, `GET/DELETE /api/operation-logs`, `DELETE /api/operation-logs/{id}`                                                                                                              |
@@ -253,7 +255,7 @@ Recommended manual integration sweep:
 
 1. Start PostgreSQL for the configured `DATABASE_URL`.
 2. Start Redis 8 or newer for the configured `REDIS_URL`.
-3. Start the backend with `cargo run -p api`.
+3. Start the backend with `cargo run -p ava -- serve`.
 4. Start the frontend with `cd apps/desktop && npm run dev`.
 5. Log in with `admin / 123456`.
 6. Smoke test user, role, menu, API route, param, dictionary, file, log, and

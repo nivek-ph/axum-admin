@@ -1,6 +1,7 @@
+pub mod captcha;
 pub mod jwt;
 pub mod password;
-pub mod session;
+pub mod token;
 
 #[cfg(test)]
 mod tests {

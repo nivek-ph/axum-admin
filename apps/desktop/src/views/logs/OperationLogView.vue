@@ -32,9 +32,6 @@
         </div>
         <div class="page-panel-actions">
           <UiButton @click="loadLogs" :loading="loading">{{ $t('Refresh') }}</UiButton>
-          <UiButton :disabled="selectedIds.length === 0" @click="handleBatchDelete">
-            {{ $t('Delete') }}
-          </UiButton>
         </div>
       </div>
 
@@ -52,8 +49,7 @@
       </div>
 
       <div class="surface-card">
-        <UiTable :data="logs" :loading="loading" style="width: 100%" @selection-change="handleSelectionChange">
-          <UiTableColumn type="selection" width="44" />
+        <UiTable :data="logs" :loading="loading" style="width: 100%">
           <UiTableColumn prop="ID" label="ID" width="80" />
           <UiTableColumn prop="method" label="Method" width="100">
             <template #default="{ row }">
@@ -88,9 +84,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from '@/ui/feedback'
+import { ElMessage } from '@/ui/feedback'
 
-import { deleteOperationLogs, fetchOperationLogs, type OperationLogRecord } from '@/api/logs'
+import { fetchOperationLogs, type OperationLogRecord } from '@/api/logs'
 import { t } from '@/i18n'
 
 const methodOptions = ['GET', 'POST', 'PUT', 'DELETE']
@@ -104,7 +100,6 @@ const filters = reactive({
   path: ''
 })
 const statusModel = ref<number | undefined>()
-const selectedIds = ref<number[]>([])
 const errorCount = computed(() => logs.value.filter((item) => item.status >= 400).length)
 
 async function loadLogs() {
@@ -134,35 +129,6 @@ function handleSearch() {
 function handlePageChange(nextPage: number) {
   page.value = nextPage
   loadLogs()
-}
-
-function handleSelectionChange(rows: OperationLogRecord[]) {
-  selectedIds.value = rows.map((row) => row.id)
-}
-
-async function handleBatchDelete() {
-  if (selectedIds.value.length === 0) return
-
-  try {
-    await ElMessageBox.confirm(t('Delete {count} operation logs?', { count: selectedIds.value.length }), t('Notice'), {
-      type: 'warning'
-    })
-  } catch {
-    return
-  }
-
-  try {
-    const response = await deleteOperationLogs(selectedIds.value)
-    if (response.code === 'OK') {
-      ElMessage.success(t('Operation logs deleted'))
-      selectedIds.value = []
-      await loadLogs()
-      return
-    }
-    ElMessage.error(response.message || t('Batch delete failed'))
-  } catch {
-    ElMessage.error(t('Batch delete failed'))
-  }
 }
 
 onMounted(() => {

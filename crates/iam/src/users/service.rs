@@ -6,7 +6,7 @@ use super::{
     LoginIdentity, LoginRequest, RegisterRequest, ResetPasswordRequest, SetSelfInfoRequest,
     SetSelfSettingRequest, SetUserRolesRequest, UpdateUserRequest, UserInfoView, UserRecord,
 };
-use crate::data_scope::DataScopeFilter;
+use crate::access::DataScopeFilter;
 use crate::roles::RoleSummary;
 
 #[derive(Clone)]
@@ -343,7 +343,7 @@ pub(crate) async fn get_user_list(
     actor_user_id: Option<i64>,
 ) -> Result<(Vec<UserInfoView>, i64), LoginError> {
     let scope_filter = match actor_user_id {
-        Some(user_id) => crate::data_scope::resolve_user_data_scope(pool, user_id, "users").await?,
+        Some(user_id) => crate::access::resolve_user_data_scope(pool, user_id, "users").await?,
         None => DataScopeFilter::All,
     };
     get_user_list_with_scope(pool, query, scope_filter).await
@@ -473,7 +473,7 @@ pub(crate) async fn ensure_user_in_scope(
     actor_user_id: i64,
     target_user_id: i64,
 ) -> Result<(), LoginError> {
-    let filter = crate::data_scope::resolve_user_data_scope(pool, actor_user_id, "users").await?;
+    let filter = crate::access::resolve_user_data_scope(pool, actor_user_id, "users").await?;
     let visible = match filter {
         DataScopeFilter::All => true,
         DataScopeFilter::Owner(owner_id) => owner_id == target_user_id,
