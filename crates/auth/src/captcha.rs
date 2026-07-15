@@ -11,28 +11,13 @@ pub struct CaptchaChallenge {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("{kind}")]
-pub struct CaptchaError {
-    #[source]
-    kind: CaptchaErrorKind,
-}
-
-#[derive(Debug, thiserror::Error)]
-enum CaptchaErrorKind {
+pub enum CaptchaError {
     #[error("captcha store is unavailable")]
     StoreUnavailable,
     #[error("captcha store operation failed")]
-    Store(#[source] redis::RedisError),
+    Redis(#[from] redis::RedisError),
     #[error("captcha image rendering failed")]
     RenderFailed,
-}
-
-impl From<redis::RedisError> for CaptchaError {
-    fn from(source: redis::RedisError) -> Self {
-        Self {
-            kind: CaptchaErrorKind::Store(source),
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -71,9 +56,7 @@ impl CaptchaService {
         let code = captcha.text;
 
         if image == "data:image/jpeg;base64," {
-            return Err(CaptchaError {
-                kind: CaptchaErrorKind::RenderFailed,
-            });
+            return Err(CaptchaError::RenderFailed);
         }
 
         let key = format!("{CAPTCHA_KEY_PREFIX}{id}");
@@ -98,9 +81,9 @@ impl CaptchaService {
     }
 
     fn redis_connection(&self) -> Result<MultiplexedConnection, CaptchaError> {
-        self.redis_connection.clone().ok_or(CaptchaError {
-            kind: CaptchaErrorKind::StoreUnavailable,
-        })
+        self.redis_connection
+            .clone()
+            .ok_or(CaptchaError::StoreUnavailable)
     }
 }
 
@@ -118,10 +101,9 @@ mod tests {
         let error = CaptchaError::from(source);
 
         assert_eq!(error.to_string(), "captcha store operation failed");
-        let kind = error
+        let source = error
             .source()
-            .expect("capability error should keep its kind");
-        let source = kind.source().expect("store error should keep Redis source");
+            .expect("store error should keep Redis source");
         assert!(source.downcast_ref::<redis::RedisError>().is_some());
     }
 }
