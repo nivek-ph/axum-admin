@@ -1,11 +1,9 @@
 use std::ops::Deref;
 
 use axum::{extract::FromRequestParts, http::request::Parts};
-
-use crate::AppError;
 use iam::users::AuthenticatedUser;
 
-use crate::mappings::LOGIN_REQUIRED;
+use crate::{AppError, mappings::LOGIN_REQUIRED};
 
 #[derive(Debug, Clone)]
 pub struct CurrentUser(pub AuthenticatedUser);
@@ -36,7 +34,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use axum::{extract::FromRequestParts, http::Request};
+    use axum::{
+        extract::FromRequestParts,
+        http::{Request, StatusCode},
+    };
 
     use super::*;
 
@@ -48,7 +49,7 @@ mod tests {
             .await
             .expect_err("missing current user should be rejected");
 
-        assert_eq!(error.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(error.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(error.code(), "LOGIN_REQUIRED");
     }
 }

@@ -1,12 +1,11 @@
 use audit::{login_logs::LoginLogService, operation_logs::OperationLogService};
+use auth::{captcha::CaptchaService, token::TokenService};
 use file_storage::files::FileService;
 use iam::{
     access::AccessService, departments::DepartmentService, menus::MenuService, roles::RoleService,
     users::UserService,
 };
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
-
-use auth::{captcha::CaptchaService, token::TokenService};
 
 #[derive(Clone)]
 pub struct AppState {

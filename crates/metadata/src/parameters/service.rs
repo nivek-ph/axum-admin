@@ -11,27 +11,34 @@ impl ParameterService {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
     pub async fn list(
         &self,
         query: ParamListQuery,
     ) -> Result<(Vec<SysParam>, i64, i64, i64), ParameterError> {
         Ok(list(&self.pool, query).await?)
     }
+
     pub async fn create(&self, payload: SysParam) -> Result<(), ParameterError> {
         Ok(create(&self.pool, payload).await?)
     }
+
     pub async fn update(&self, payload: SysParam) -> Result<(), ParameterError> {
         Ok(update(&self.pool, payload).await?)
     }
+
     pub async fn find(&self, id: i64) -> Result<Option<SysParam>, ParameterError> {
         Ok(find(&self.pool, id).await?)
     }
+
     pub async fn delete(&self, id: i64) -> Result<(), ParameterError> {
         Ok(delete(&self.pool, id).await?)
     }
+
     pub async fn delete_many(&self, ids: Vec<i64>) -> Result<(), ParameterError> {
         Ok(delete_many(&self.pool, ids).await?)
     }
+
     pub async fn by_key(&self, key: &str) -> Result<Option<SysParam>, ParameterError> {
         Ok(get_by_key(&self.pool, key).await?)
     }

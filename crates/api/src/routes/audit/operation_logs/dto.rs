@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub struct OperationUserResponse {
@@ -43,28 +43,6 @@ impl From<audit::operation_logs::OperationLogView> for OperationLogResponse {
                 user_name: value.user.user_name,
                 nick_name: value.user.nick_name,
             },
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct OperationLogSearch {
-    pub page: i64,
-    #[serde(rename = "pageSize")]
-    pub page_size: i64,
-    pub method: Option<String>,
-    pub path: Option<String>,
-    pub status: Option<i32>,
-}
-
-impl From<OperationLogSearch> for audit::operation_logs::OperationLogSearch {
-    fn from(value: OperationLogSearch) -> Self {
-        Self {
-            page: value.page,
-            page_size: value.page_size,
-            method: value.method,
-            path: value.path,
-            status: value.status,
         }
     }
 }

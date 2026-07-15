@@ -1,7 +1,9 @@
+use std::collections::BTreeSet;
+
+use sqlx::PgPool;
+
 use super::{RoleError, RolePayload, RoleSummary};
 use crate::access::AccessService;
-use sqlx::PgPool;
-use std::collections::BTreeSet;
 
 #[derive(Clone)]
 pub struct RoleService {

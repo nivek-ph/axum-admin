@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Serialize)]
 pub struct DeptResponse {
@@ -46,7 +47,7 @@ impl From<iam::departments::DeptNode> for DeptNodeResponse {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct DeptPayload {
     pub parent_id: Option<i64>,
     pub name: String,

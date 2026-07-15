@@ -1,6 +1,11 @@
-#[derive(Debug, Clone)]
+use serde::Deserialize;
+use utoipa::IntoParams;
+
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ParamListQuery {
     pub page: Option<i64>,
+    #[serde(rename = "pageSize")]
     pub page_size: Option<i64>,
     pub name: Option<String>,
     pub key: Option<String>,

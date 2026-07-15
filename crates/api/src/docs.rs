@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
 use utoipa::{
-    Modify, OpenApi, ToSchema,
+    Modify, OpenApi,
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
 };
 
@@ -22,169 +21,84 @@ impl Modify for SecurityAddon {
     }
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct HealthData {
-    pub alive: bool,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct HealthResponse {
-    pub code: String,
-    pub data: HealthData,
-    pub message: String,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct CaptchaData {
-    #[schema(value_type = i32)]
-    #[serde(rename = "captchaLength")]
-    pub captcha_length: i32,
-    #[serde(rename = "picPath")]
-    pub pic_path: String,
-    #[serde(rename = "captchaId")]
-    pub captcha_id: String,
-    #[serde(rename = "openCaptcha")]
-    pub open_captcha: bool,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct CaptchaResponse {
-    pub code: String,
-    pub data: CaptchaData,
-    pub message: String,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct RoleDoc {
-    pub id: i64,
-    pub code: String,
-    pub name: String,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct UserDoc {
-    #[serde(rename = "id")]
-    pub id: i64,
-    pub uuid: String,
-    #[serde(rename = "userName")]
-    pub user_name: String,
-    #[serde(rename = "nickName")]
-    pub nick_name: String,
-    #[serde(rename = "headerImg")]
-    pub header_img: String,
-    #[serde(rename = "homeRoute")]
-    pub home_route: String,
-    pub roles: Vec<RoleDoc>,
-    #[serde(rename = "roleIds")]
-    pub role_ids: Vec<i64>,
-    pub enable: i32,
-    pub phone: String,
-    pub email: String,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct LoginData {
-    pub token: String,
-    pub user: UserDoc,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct LoginResponse {
-    pub code: String,
-    pub data: LoginData,
-    pub message: String,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct UserInfoData {
-    #[serde(rename = "userInfo")]
-    pub user_info: UserDoc,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct UserInfoResponse {
-    pub code: String,
-    pub data: UserInfoData,
-    pub message: String,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct MenuMetaDoc {
-    #[serde(rename = "activeName")]
-    pub active_name: String,
-    #[serde(rename = "keepAlive")]
-    pub keep_alive: bool,
-    #[serde(rename = "defaultMenu")]
-    pub default_menu: bool,
-    pub title: String,
-    pub icon: String,
-    #[serde(rename = "closeTab")]
-    pub close_tab: bool,
-    #[serde(rename = "transitionType")]
-    pub transition_type: String,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct MenuDoc {
-    #[serde(rename = "id")]
-    pub id: i64,
-    #[serde(rename = "parentId")]
-    pub parent_id: i64,
-    pub path: String,
-    pub name: String,
-    pub hidden: bool,
-    pub component: String,
-    pub sort: i32,
-    pub meta: MenuMetaDoc,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct MenuData {
-    pub menus: Vec<MenuDoc>,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct MenuResponse {
-    pub code: String,
-    pub data: MenuData,
-    pub message: String,
-}
-
 #[derive(OpenApi)]
 #[openapi(
     modifiers(&SecurityAddon),
+    servers((url = "/api", description = "API base path")),
     paths(
         crate::routes::health::health,
         crate::routes::auth::captcha::captcha,
         crate::routes::auth::login::login,
         crate::routes::auth::logout::logout,
         crate::routes::users::get_user_info,
+        crate::routes::users::get_user_list_by_query,
+        crate::routes::users::admin_register,
+        crate::routes::users::change_password,
+        crate::routes::users::set_user_info_by_id,
+        crate::routes::users::set_self_info,
+        crate::routes::users::set_self_setting,
+        crate::routes::users::delete_user_by_id,
+        crate::routes::users::reset_password_by_id,
+        crate::routes::users::set_user_roles_by_id,
         crate::routes::menus::get_menu,
-    ),
-    components(
-        schemas(
-            HealthData,
-            HealthResponse,
-            CaptchaData,
-            CaptchaResponse,
-            crate::routes::auth::login::LoginRequest,
-            RoleDoc,
-            UserDoc,
-            LoginData,
-            LoginResponse,
-            UserInfoData,
-            UserInfoResponse,
-            MenuMetaDoc,
-            MenuDoc,
-            MenuData,
-            MenuResponse
-        )
+        crate::routes::menus::get_base_menu_tree,
+        crate::routes::roles::get_roles,
+        crate::routes::roles::create_role,
+        crate::routes::roles::update_role,
+        crate::routes::roles::delete_role,
+        crate::routes::roles::get_role_menus,
+        crate::routes::roles::set_role_menus,
+        crate::routes::roles::get_role_depts,
+        crate::routes::roles::set_role_depts,
+        crate::routes::roles::get_role_users,
+        crate::routes::roles::set_role_users,
+        crate::routes::departments::get_dept_tree,
+        crate::routes::departments::find_dept_by_id,
+        crate::routes::departments::create_dept,
+        crate::routes::departments::update_dept_by_id,
+        crate::routes::departments::delete_dept_by_id,
+        crate::routes::dictionaries::get_sys_dictionary_list,
+        crate::routes::dictionaries::create_sys_dictionary,
+        crate::routes::dictionaries::import_sys_dictionary,
+        crate::routes::dictionaries::get_dictionary_tree_by_type,
+        crate::routes::dictionaries::find_sys_dictionary_by_id,
+        crate::routes::dictionaries::update_sys_dictionary_by_id,
+        crate::routes::dictionaries::delete_sys_dictionary_by_id,
+        crate::routes::dictionaries::export_sys_dictionary_by_id,
+        crate::routes::dictionaries::get_dictionary_tree,
+        crate::routes::dictionaries::create_dictionary_tree_node,
+        crate::routes::dictionaries::find_dictionary_tree_node,
+        crate::routes::dictionaries::update_dictionary_tree_node,
+        crate::routes::dictionaries::delete_dictionary_tree_node,
+        crate::routes::dictionaries::get_dictionary_tree_node_children,
+        crate::routes::dictionaries::get_dictionary_tree_node_path,
+        crate::routes::files::get_file_list_by_query,
+        crate::routes::files::import_url,
+        crate::routes::files::upload_file,
+        crate::routes::files::delete_file_by_id,
+        crate::routes::files::edit_file_name_by_id,
+        crate::routes::parameters::get_sys_params_list,
+        crate::routes::parameters::create_sys_params,
+        crate::routes::parameters::get_sys_param,
+        crate::routes::parameters::find_sys_params_by_id,
+        crate::routes::parameters::update_sys_params_by_id,
+        crate::routes::parameters::delete_sys_params_by_id,
+        crate::routes::parameters::delete_sys_params_by_ids,
+        crate::routes::audit::login_logs::get_login_log_list,
+        crate::routes::audit::login_logs::find_login_log_by_id,
+        crate::routes::audit::operation_logs::get_operation_log_list,
+        crate::routes::audit::operation_logs::find_operation_log_by_id,
     ),
     tags(
-        (name = "auth", description = "Auth endpoints"),
-        (name = "user", description = "User endpoints"),
-        (name = "menu", description = "Menu endpoints"),
-        (name = "system", description = "System endpoints")
+        (name = "auth", description = "Auth"),
+        (name = "users", description = "Users"),
+        (name = "menus", description = "Menus"),
+        (name = "roles", description = "Roles"),
+        (name = "departments", description = "Departments"),
+        (name = "dictionaries", description = "Dictionaries"),
+        (name = "files", description = "Files"),
+        (name = "parameters", description = "Parameters"),
+        (name = "audit", description = "Audit"),
     )
 )]
 pub struct ApiDoc;

@@ -1,20 +1,21 @@
-use crate::{ApiResponse, AppResult};
+use audit::operation_logs::OperationLogSearch;
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
-    routing::get,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use super::dto::{OperationLogResponse, OperationLogSearch};
-use crate::state::AppState;
+use super::dto::OperationLogResponse;
+use crate::{ApiResponse, AppResult, state::AppState};
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/", get(get_operation_log_list))
-        .route("/{id}", get(find_operation_log_by_id))
-}
-
+#[utoipa::path(
+    get,
+    path = "/operation-logs/{id}",
+    tag = "audit",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Operation log ID")),
+    responses((status = 200, description = "Operation log detail", body = ApiResponse<Value>))
+)]
 pub async fn find_operation_log_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -24,25 +25,31 @@ pub async fn find_operation_log_by_id(
         .find(id)
         .await?
         .map(OperationLogResponse::from);
-    Ok(Json(ApiResponse::ok(match item {
-        Some(log) => serde_json::json!(log),
-        None => serde_json::json!({}),
-    })))
+    Ok(Json(ApiResponse::ok(json!(item))))
 }
 
+#[utoipa::path(
+    get,
+    path = "/operation-logs",
+    tag = "audit",
+    security(("bearer_auth" = [])),
+    params(OperationLogSearch),
+    responses((status = 200, description = "Operation log list", body = ApiResponse<Value>))
+)]
 pub async fn get_operation_log_list(
     State(state): State<AppState>,
     Query(payload): Query<OperationLogSearch>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
     let page = payload.page.max(1);
+
     let page_size = payload.page_size.max(1);
-    let (list, total) = state.operation_logs.list(payload.into()).await?;
+    let (list, total) = state.operation_logs.list(payload).await?;
     let list = list
         .into_iter()
         .map(OperationLogResponse::from)
         .collect::<Vec<_>>();
 
-    Ok(Json(ApiResponse::ok(serde_json::json!({
+    Ok(Json(ApiResponse::ok(json!({
         "list": list,
         "total": total,
         "page": page,

@@ -38,9 +38,9 @@ export interface CreateUserForm {
 }
 
 export interface CreateUserPayload {
-  userName: string
+  username: string
   nickName: string
-  passWord: string
+  password: string
   phone?: string
   email?: string
   enable: number
@@ -63,9 +63,9 @@ export function normalizeUserListResponse(payload: any): UserListResult {
 
 export function buildCreateUserPayload(form: CreateUserForm): CreateUserPayload {
   return {
-    userName: form.userName.trim(),
+    username: form.userName.trim(),
     nickName: form.nickName.trim(),
-    passWord: form.password,
+    password: form.password,
     phone: form.phone?.trim() || undefined,
     email: form.email?.trim() || undefined,
     enable: form.enable,

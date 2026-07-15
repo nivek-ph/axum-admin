@@ -1,6 +1,7 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UserRoleResponse {
     pub id: i64,
     pub code: String,
@@ -25,7 +26,7 @@ impl From<iam::roles::RoleSummary> for UserRoleResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UserResponse {
     #[serde(rename = "id")]
     pub id: i64,
@@ -51,6 +52,12 @@ pub struct UserResponse {
     #[serde(rename = "roleIds")]
     pub role_ids: Vec<i64>,
 }
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserInfoData {
+    #[serde(rename = "userInfo")]
+    pub user_info: UserResponse,
+}
 impl From<iam::users::UserInfoView> for UserResponse {
     fn from(v: iam::users::UserInfoView) -> Self {
         Self {
@@ -72,177 +79,34 @@ impl From<iam::users::UserInfoView> for UserResponse {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct RegisterRequest {
-    #[serde(rename = "userName")]
-    pub user_name: String,
-    #[serde(rename = "passWord")]
-    pub password: String,
-    #[serde(rename = "nickName")]
-    pub nick_name: String,
-    #[serde(rename = "headerImg")]
-    pub header_img: Option<String>,
-    #[serde(rename = "roleIds")]
-    pub role_ids: Option<Vec<i64>>,
-    #[serde(rename = "deptId", alias = "dept_id")]
-    pub dept_id: Option<i64>,
-    pub enable: Option<i32>,
-    pub phone: Option<String>,
-    pub email: Option<String>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl From<RegisterRequest> for iam::users::RegisterRequest {
-    fn from(value: RegisterRequest) -> Self {
-        Self {
-            user_name: value.user_name,
-            password: value.password,
-            nick_name: value.nick_name,
-            header_img: value.header_img,
-            role_ids: value.role_ids,
-            dept_id: value.dept_id,
-            enable: value.enable,
-            phone: value.phone,
-            email: value.email,
-        }
-    }
-}
+    #[test]
+    fn user_info_data_keeps_transport_shape() {
+        let value = serde_json::to_value(UserInfoData {
+            user_info: UserResponse {
+                id: 1,
+                uuid: "uuid".to_string(),
+                user_name: "admin".to_string(),
+                nick_name: "Admin".to_string(),
+                header_img: String::new(),
+                home_route: "Dashboard".to_string(),
+                enable: 1,
+                phone: String::new(),
+                email: String::new(),
+                origin_setting: None,
+                dept_id: None,
+                dept_name: String::new(),
+                roles: Vec::new(),
+                role_ids: Vec::new(),
+            },
+        })
+        .expect("user info data should serialize");
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct UpdateUserRequest {
-    #[serde(rename = "id")]
-    pub id: i64,
-    #[serde(rename = "nickName")]
-    pub nick_name: String,
-    #[serde(rename = "headerImg")]
-    pub header_img: String,
-    pub enable: i32,
-    pub phone: Option<String>,
-    pub email: Option<String>,
-    #[serde(rename = "deptId", alias = "dept_id")]
-    pub dept_id: Option<i64>,
-}
-
-impl From<UpdateUserRequest> for iam::users::UpdateUserRequest {
-    fn from(value: UpdateUserRequest) -> Self {
-        Self {
-            id: value.id,
-            nick_name: value.nick_name,
-            header_img: value.header_img,
-            enable: value.enable,
-            phone: value.phone,
-            email: value.email,
-            dept_id: value.dept_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ChangePasswordRequest {
-    pub password: String,
-    #[serde(rename = "newPassword")]
-    pub new_password: String,
-}
-
-impl From<ChangePasswordRequest> for iam::users::ChangePasswordRequest {
-    fn from(value: ChangePasswordRequest) -> Self {
-        Self {
-            password: value.password,
-            new_password: value.new_password,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SetSelfInfoRequest {
-    #[serde(rename = "nickName")]
-    pub nick_name: Option<String>,
-    #[serde(rename = "headerImg")]
-    pub header_img: Option<String>,
-    pub phone: Option<String>,
-    pub email: Option<String>,
-}
-
-impl From<SetSelfInfoRequest> for iam::users::SetSelfInfoRequest {
-    fn from(value: SetSelfInfoRequest) -> Self {
-        Self {
-            nick_name: value.nick_name,
-            header_img: value.header_img,
-            phone: value.phone,
-            email: value.email,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SetSelfSettingRequest {
-    #[serde(flatten)]
-    pub origin_setting: serde_json::Value,
-}
-
-impl From<SetSelfSettingRequest> for iam::users::SetSelfSettingRequest {
-    fn from(value: SetSelfSettingRequest) -> Self {
-        Self {
-            origin_setting: value.origin_setting,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ResetPasswordRequest {
-    #[serde(rename = "id")]
-    pub id: i64,
-    pub password: String,
-}
-
-impl From<ResetPasswordRequest> for iam::users::ResetPasswordRequest {
-    fn from(value: ResetPasswordRequest) -> Self {
-        Self {
-            id: value.id,
-            password: value.password,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SetUserRolesRequest {
-    #[serde(rename = "roleIds", alias = "role_ids")]
-    pub role_ids: Vec<i64>,
-}
-
-impl From<SetUserRolesRequest> for iam::users::SetUserRolesRequest {
-    fn from(value: SetUserRolesRequest) -> Self {
-        Self {
-            role_ids: value.role_ids,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct GetUserListRequest {
-    pub page: i64,
-    #[serde(rename = "pageSize")]
-    pub page_size: i64,
-    pub username: Option<String>,
-    #[serde(rename = "nickName")]
-    pub nick_name: Option<String>,
-    pub phone: Option<String>,
-    pub email: Option<String>,
-    #[serde(rename = "orderKey")]
-    pub order_key: Option<String>,
-    pub desc: Option<bool>,
-}
-
-impl From<GetUserListRequest> for iam::users::GetUserListRequest {
-    fn from(value: GetUserListRequest) -> Self {
-        Self {
-            page: value.page,
-            page_size: value.page_size,
-            username: value.username,
-            nick_name: value.nick_name,
-            phone: value.phone,
-            email: value.email,
-            order_key: value.order_key,
-            desc: value.desc,
-        }
+        assert_eq!(value["userInfo"]["userName"], "admin");
+        assert_eq!(value["userInfo"]["homeRoute"], "Dashboard");
+        assert!(value.get("user_info").is_none());
     }
 }

@@ -1,4 +1,4 @@
-use axum::{Router, routing::post};
+use axum::Router;
 
 use super::{audit, auth, departments, dictionaries, files, menus, parameters, roles, users};
 
@@ -8,11 +8,11 @@ pub fn router() -> Router<crate::state::AppState> {
         .nest("/dictionaries", dictionaries::routes())
         .nest("/files", files::routes())
         .nest("/menus", menus::routes())
-        .merge(audit::routes())
         .nest("/params", parameters::routes())
         .nest("/roles", roles::routes())
         .nest("/users", users::routes())
-        .route("/auth/logout", post(auth::logout))
+        .merge(auth::protected_routes())
+        .merge(audit::routes())
 }
 
 #[cfg(test)]

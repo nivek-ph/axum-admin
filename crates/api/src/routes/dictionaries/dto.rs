@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Serialize)]
 pub struct DictionaryResponse {
@@ -114,62 +115,7 @@ impl From<metadata::dictionaries::DictionaryWithDetails> for DictionaryWithDetai
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct DictionaryPayload {
-    #[serde(rename = "id", default)]
-    pub id: i64,
-    pub name: String,
-    #[serde(rename = "type")]
-    pub dictionary_type: String,
-    pub status: Option<bool>,
-    pub desc: String,
-    #[serde(rename = "parentId")]
-    pub parent_id: Option<i64>,
-}
-
-impl From<DictionaryPayload> for metadata::dictionaries::SysDictionary {
-    fn from(value: DictionaryPayload) -> Self {
-        Self {
-            id: value.id,
-            name: value.name,
-            dict_type: value.dictionary_type,
-            status: value.status,
-            desc: value.desc,
-            parent_id: value.parent_id,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DictionaryListQuery {
-    pub page: Option<i64>,
-    #[serde(rename = "pageSize")]
-    pub page_size: Option<i64>,
-    pub name: Option<String>,
-}
-
-impl From<DictionaryListQuery> for metadata::dictionaries::DictionaryListQuery {
-    fn from(value: DictionaryListQuery) -> Self {
-        Self {
-            page: value.page,
-            page_size: value.page_size,
-            name: value.name,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ImportDictionaryPayload {
-    pub json: String,
-}
-
-impl From<ImportDictionaryPayload> for metadata::dictionaries::ImportDictionaryPayload {
-    fn from(value: ImportDictionaryPayload) -> Self {
-        Self { json: value.json }
-    }
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct DictionaryDetailPayload {
     #[serde(rename = "id", default)]
     pub id: i64,

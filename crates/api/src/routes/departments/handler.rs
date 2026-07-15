@@ -1,25 +1,19 @@
-use crate::{ApiResponse, AppResult};
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, State},
-    routing::get,
 };
 use serde_json::Value;
 
 use super::dto::{DeptNodeResponse, DeptPayload, DeptResponse};
-use crate::state::AppState;
+use crate::{ApiResponse, AppResult, state::AppState};
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/", get(get_dept_tree).post(create_dept))
-        .route(
-            "/{id}",
-            get(find_dept_by_id)
-                .put(update_dept_by_id)
-                .delete(delete_dept_by_id),
-        )
-}
-
+#[utoipa::path(
+    get,
+    path = "/depts",
+    tag = "department",
+    security(("bearer_auth" = [])),
+    responses((status = 200, description = "Department tree", body = ApiResponse<Value>))
+)]
 pub async fn get_dept_tree(State(state): State<AppState>) -> AppResult<Json<ApiResponse<Value>>> {
     let tree = state
         .departments
@@ -33,6 +27,14 @@ pub async fn get_dept_tree(State(state): State<AppState>) -> AppResult<Json<ApiR
     }))))
 }
 
+#[utoipa::path(
+    get,
+    path = "/depts/{id}",
+    tag = "department",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Department ID")),
+    responses((status = 200, description = "Department detail", body = ApiResponse<Value>))
+)]
 pub async fn find_dept_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -43,6 +45,14 @@ pub async fn find_dept_by_id(
     }))))
 }
 
+#[utoipa::path(
+    post,
+    path = "/depts",
+    tag = "department",
+    security(("bearer_auth" = [])),
+    request_body = DeptPayload,
+    responses((status = 200, description = "Department created", body = ApiResponse<Value>))
+)]
 pub async fn create_dept(
     State(state): State<AppState>,
     Json(payload): Json<DeptPayload>,
@@ -52,6 +62,15 @@ pub async fn create_dept(
     Ok(Json(ApiResponse::ok_message("created")))
 }
 
+#[utoipa::path(
+    put,
+    path = "/depts/{id}",
+    tag = "department",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Department ID")),
+    request_body = DeptPayload,
+    responses((status = 200, description = "Department updated", body = ApiResponse<Value>))
+)]
 pub async fn update_dept_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -62,6 +81,14 @@ pub async fn update_dept_by_id(
     Ok(Json(ApiResponse::ok_message("updated")))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/depts/{id}",
+    tag = "department",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Department ID")),
+    responses((status = 200, description = "Department deleted", body = ApiResponse<Value>))
+)]
 pub async fn delete_dept_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,

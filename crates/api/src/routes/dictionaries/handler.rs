@@ -1,74 +1,62 @@
-use crate::{ApiResponse, AppResult};
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
-    routing::{get, post},
 };
+use metadata::dictionaries::{DictionaryListQuery, ImportDictionaryPayload, SysDictionary};
 use serde_json::Value;
 
-use crate::state::AppState;
-
 use super::dto::{
-    DictionaryDetailPayload, DictionaryDetailResponse, DictionaryListQuery, DictionaryPayload,
-    DictionaryResponse, DictionaryWithDetailsResponse, ImportDictionaryPayload,
+    DictionaryDetailPayload, DictionaryDetailResponse, DictionaryResponse,
+    DictionaryWithDetailsResponse,
 };
+use crate::{ApiResponse, AppResult, state::AppState};
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/",
-            get(get_sys_dictionary_list).post(create_sys_dictionary),
-        )
-        .route("/import", post(import_sys_dictionary))
-        .route(
-            "/by-type/{dictionary_type}/tree",
-            get(get_dictionary_tree_by_type),
-        )
-        .route(
-            "/{id}",
-            get(find_sys_dictionary_by_id)
-                .put(update_sys_dictionary_by_id)
-                .delete(delete_sys_dictionary_by_id),
-        )
-        .route("/{id}/export", get(export_sys_dictionary_by_id))
-        .route(
-            "/{id}/tree",
-            get(get_dictionary_tree).post(create_dictionary_tree_node),
-        )
-        .route(
-            "/{id}/tree/{node_id}",
-            get(find_dictionary_tree_node)
-                .put(update_dictionary_tree_node)
-                .delete(delete_dictionary_tree_node),
-        )
-        .route(
-            "/{id}/tree/{node_id}/children",
-            get(get_dictionary_tree_node_children),
-        )
-        .route(
-            "/{id}/tree/{node_id}/path",
-            get(get_dictionary_tree_node_path),
-        )
-}
-
+#[utoipa::path(
+    post,
+    path = "/dictionaries",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    request_body = SysDictionary,
+    responses((status = 200, description = "Dictionary created", body = ApiResponse<Value>))
+)]
 pub async fn create_sys_dictionary(
     State(state): State<AppState>,
-    Json(payload): Json<DictionaryPayload>,
+    Json(payload): Json<SysDictionary>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
-    state.dictionaries.create(payload.into()).await?;
+    state.dictionaries.create(payload).await?;
+
     Ok(Json(ApiResponse::ok_message("created")))
 }
 
+#[utoipa::path(
+    put,
+    path = "/dictionaries/{id}",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Dictionary ID")),
+    request_body = SysDictionary,
+    responses((status = 200, description = "Dictionary updated", body = ApiResponse<Value>))
+)]
 pub async fn update_sys_dictionary_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(mut payload): Json<DictionaryPayload>,
+    Json(mut payload): Json<SysDictionary>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
     payload.id = id;
-    state.dictionaries.update(payload.into()).await?;
+
+    state.dictionaries.update(payload).await?;
+
     Ok(Json(ApiResponse::ok_message("updated")))
 }
 
+#[utoipa::path(
+    get,
+    path = "/dictionaries/{id}",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Dictionary ID")),
+    responses((status = 200, description = "Dictionary detail", body = ApiResponse<Value>))
+)]
 pub async fn find_sys_dictionary_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -83,13 +71,21 @@ pub async fn find_sys_dictionary_by_id(
     }))))
 }
 
+#[utoipa::path(
+    get,
+    path = "/dictionaries",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(DictionaryListQuery),
+    responses((status = 200, description = "Dictionary list", body = ApiResponse<Value>))
+)]
 pub async fn get_sys_dictionary_list(
     State(state): State<AppState>,
     Query(payload): Query<DictionaryListQuery>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
     let list = state
         .dictionaries
-        .list(payload.into())
+        .list(payload)
         .await?
         .into_iter()
         .map(DictionaryResponse::from)
@@ -97,6 +93,14 @@ pub async fn get_sys_dictionary_list(
     Ok(Json(ApiResponse::ok(serde_json::json!(list))))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/dictionaries/{id}",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Dictionary ID")),
+    responses((status = 200, description = "Dictionary deleted", body = ApiResponse<Value>))
+)]
 pub async fn delete_sys_dictionary_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -105,6 +109,14 @@ pub async fn delete_sys_dictionary_by_id(
     Ok(Json(ApiResponse::ok_message("deleted")))
 }
 
+#[utoipa::path(
+    get,
+    path = "/dictionaries/{id}/export",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Dictionary ID")),
+    responses((status = 200, description = "Dictionary export", body = ApiResponse<Value>))
+)]
 pub async fn export_sys_dictionary_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -115,14 +127,31 @@ pub async fn export_sys_dictionary_by_id(
     )))
 }
 
+#[utoipa::path(
+    post,
+    path = "/dictionaries/import",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    request_body = ImportDictionaryPayload,
+    responses((status = 200, description = "Dictionary imported", body = ApiResponse<Value>))
+)]
 pub async fn import_sys_dictionary(
     State(state): State<AppState>,
     Json(payload): Json<ImportDictionaryPayload>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
-    state.dictionaries.import(payload.into()).await?;
+    state.dictionaries.import(payload).await?;
+
     Ok(Json(ApiResponse::ok_message("imported")))
 }
 
+#[utoipa::path(
+    get,
+    path = "/dictionaries/{id}/tree",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Dictionary ID")),
+    responses((status = 200, description = "Dictionary tree", body = ApiResponse<Value>))
+)]
 pub async fn get_dictionary_tree(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -139,6 +168,15 @@ pub async fn get_dictionary_tree(
     }))))
 }
 
+#[utoipa::path(
+    post,
+    path = "/dictionaries/{id}/tree",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Dictionary ID")),
+    request_body = DictionaryDetailPayload,
+    responses((status = 200, description = "Dictionary node created", body = ApiResponse<Value>))
+)]
 pub async fn create_dictionary_tree_node(
     State(state): State<AppState>,
     Path(dictionary_id): Path<i64>,
@@ -151,6 +189,17 @@ pub async fn create_dictionary_tree_node(
     Ok(Json(ApiResponse::ok_message("created")))
 }
 
+#[utoipa::path(
+    get,
+    path = "/dictionaries/{id}/tree/{node_id}",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "Dictionary ID"),
+        ("node_id" = i64, Path, description = "Node ID")
+    ),
+    responses((status = 200, description = "Dictionary node", body = ApiResponse<Value>))
+)]
 pub async fn find_dictionary_tree_node(
     State(state): State<AppState>,
     Path((dictionary_id, node_id)): Path<(i64, i64)>,
@@ -166,6 +215,18 @@ pub async fn find_dictionary_tree_node(
     }))))
 }
 
+#[utoipa::path(
+    put,
+    path = "/dictionaries/{id}/tree/{node_id}",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "Dictionary ID"),
+        ("node_id" = i64, Path, description = "Node ID")
+    ),
+    request_body = DictionaryDetailPayload,
+    responses((status = 200, description = "Dictionary node updated", body = ApiResponse<Value>))
+)]
 pub async fn update_dictionary_tree_node(
     State(state): State<AppState>,
     Path((dictionary_id, node_id)): Path<(i64, i64)>,
@@ -178,6 +239,17 @@ pub async fn update_dictionary_tree_node(
     Ok(Json(ApiResponse::ok_message("updated")))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/dictionaries/{id}/tree/{node_id}",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "Dictionary ID"),
+        ("node_id" = i64, Path, description = "Node ID")
+    ),
+    responses((status = 200, description = "Dictionary node deleted", body = ApiResponse<Value>))
+)]
 pub async fn delete_dictionary_tree_node(
     State(state): State<AppState>,
     Path((dictionary_id, node_id)): Path<(i64, i64)>,
@@ -189,6 +261,14 @@ pub async fn delete_dictionary_tree_node(
     Ok(Json(ApiResponse::ok_message("deleted")))
 }
 
+#[utoipa::path(
+    get,
+    path = "/dictionaries/by-type/{dictionary_type}/tree",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(("dictionary_type" = String, Path, description = "Dictionary type")),
+    responses((status = 200, description = "Dictionary tree by type", body = ApiResponse<Value>))
+)]
 pub async fn get_dictionary_tree_by_type(
     State(state): State<AppState>,
     Path(dictionary_type): Path<String>,
@@ -203,6 +283,17 @@ pub async fn get_dictionary_tree_by_type(
     Ok(Json(ApiResponse::ok(serde_json::json!({ "list": list }))))
 }
 
+#[utoipa::path(
+    get,
+    path = "/dictionaries/{id}/tree/{node_id}/children",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "Dictionary ID"),
+        ("node_id" = i64, Path, description = "Node ID")
+    ),
+    responses((status = 200, description = "Dictionary node children", body = ApiResponse<Value>))
+)]
 pub async fn get_dictionary_tree_node_children(
     State(state): State<AppState>,
     Path((dictionary_id, node_id)): Path<(i64, i64)>,
@@ -221,6 +312,17 @@ pub async fn get_dictionary_tree_node_children(
     Ok(Json(ApiResponse::ok(serde_json::json!({ "list": list }))))
 }
 
+#[utoipa::path(
+    get,
+    path = "/dictionaries/{id}/tree/{node_id}/path",
+    tag = "dictionary",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "Dictionary ID"),
+        ("node_id" = i64, Path, description = "Node ID")
+    ),
+    responses((status = 200, description = "Dictionary node path", body = ApiResponse<Value>))
+)]
 pub async fn get_dictionary_tree_node_path(
     State(state): State<AppState>,
     Path((dictionary_id, node_id)): Path<(i64, i64)>,

@@ -1,5 +1,5 @@
-mod login_logs;
-mod operation_logs;
+pub(crate) mod login_logs;
+pub(crate) mod operation_logs;
 
 use axum::Router;
 
