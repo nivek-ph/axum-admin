@@ -1,4 +1,5 @@
 use sqlx::{PgConnection, PgPool};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{AuditError, AuditEvent, AuditEventView, AuditQuery};
 
@@ -56,6 +57,8 @@ impl AuditService {
         &self,
         query: AuditQuery,
     ) -> Result<(Vec<AuditEventView>, i64, i64, i64), AuditError> {
+        let started_at = parse_time(query.started_at.as_deref())?;
+        let ended_at = parse_time(query.ended_at.as_deref())?;
         let page = query.page.max(1);
         let page_size = query.page_size.max(1);
         let offset = (page - 1) * page_size;
@@ -67,8 +70,8 @@ impl AuditService {
               and ($3::text is null or resource_type = $3)
               and ($4::text is null or resource_id = $4)
               and ($5::text is null or result = $5)
-              and ($6::text is null or created_at >= $6::timestamptz)
-              and ($7::text is null or created_at <= $7::timestamptz)
+              and ($6::timestamptz is null or created_at >= $6)
+              and ($7::timestamptz is null or created_at <= $7)
             "#,
         )
         .bind(query.actor.as_deref())
@@ -76,8 +79,8 @@ impl AuditService {
         .bind(query.resource_type.as_deref())
         .bind(query.resource_id.as_deref())
         .bind(query.result.as_deref())
-        .bind(query.started_at.as_deref())
-        .bind(query.ended_at.as_deref())
+        .bind(started_at)
+        .bind(ended_at)
         .fetch_one(&self.pool)
         .await?;
 
@@ -93,8 +96,8 @@ impl AuditService {
               and ($3::text is null or resource_type = $3)
               and ($4::text is null or resource_id = $4)
               and ($5::text is null or result = $5)
-              and ($6::text is null or created_at >= $6::timestamptz)
-              and ($7::text is null or created_at <= $7::timestamptz)
+              and ($6::timestamptz is null or created_at >= $6)
+              and ($7::timestamptz is null or created_at <= $7)
             order by id desc
             limit $8 offset $9
             "#,
@@ -104,8 +107,8 @@ impl AuditService {
         .bind(query.resource_type.as_deref())
         .bind(query.resource_id.as_deref())
         .bind(query.result.as_deref())
-        .bind(query.started_at.as_deref())
-        .bind(query.ended_at.as_deref())
+        .bind(started_at)
+        .bind(ended_at)
         .bind(page_size)
         .bind(offset)
         .fetch_all(&self.pool)
@@ -129,4 +132,10 @@ impl AuditService {
         .fetch_optional(&self.pool)
         .await?)
     }
+}
+
+fn parse_time(value: Option<&str>) -> Result<Option<OffsetDateTime>, AuditError> {
+    value
+        .map(|value| OffsetDateTime::parse(value, &Rfc3339).map_err(AuditError::InvalidTimeRange))
+        .transpose()
 }

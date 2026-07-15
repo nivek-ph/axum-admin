@@ -64,6 +64,7 @@ mod tests {
         let id = body["data"]["list"][0]["id"].as_i64().unwrap();
 
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri(format!("/{id}"))
@@ -79,5 +80,21 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["data"]["id"], id);
         assert_eq!(body["data"]["action"], "user.assign_roles");
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/?page=1&pageSize=10&startedAt=not-a-timestamp")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["code"], "INVALID_AUDIT_TIME_RANGE");
     }
 }

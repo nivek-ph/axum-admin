@@ -61,18 +61,7 @@ pub async fn require_auth(
     if !is_self_service_endpoint(&method, &path) {
         let menu_id = state.access.required_menu(&method, &path)?;
         if !snapshot.allows_menu(menu_id) {
-            state
-                .audits
-                .record_best_effort(AuditEvent {
-                    actor: audit_context.actor.clone(),
-                    action: AuditAction::AccessDenied,
-                    resource: AuditResource::Route(path),
-                    result: AuditResult::Denied,
-                    reason_code: Some(AuditReason::PermissionDenied),
-                    source: audit_context.source.clone(),
-                    changes: Vec::new(),
-                })
-                .await;
+            record_access_denied(&state.audits, &audit_context, path).await;
             return Err(PERMISSION_DENIED.into());
         }
     }
@@ -86,6 +75,20 @@ pub async fn require_auth(
         });
     request.extensions_mut().insert(audit_context);
     Ok(next.run(request).await)
+}
+
+async fn record_access_denied(audits: &audit::AuditService, context: &AuditContext, path: String) {
+    audits
+        .record_best_effort(AuditEvent {
+            actor: context.actor.clone(),
+            action: AuditAction::AccessDenied,
+            resource: AuditResource::Route(path),
+            result: AuditResult::Denied,
+            reason_code: Some(AuditReason::PermissionDenied),
+            source: context.source.clone(),
+            changes: Vec::new(),
+        })
+        .await;
 }
 
 fn is_self_service_endpoint(method: &str, path: &str) -> bool {
@@ -127,6 +130,44 @@ mod tests {
         assert_eq!(
             permission_registry_path("/roles/1/menus/"),
             "/api/roles/1/menus"
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn permission_denial_records_the_expected_audit_classification(pool: sqlx::PgPool) {
+        record_access_denied(
+            &audit::AuditService::new(pool.clone()),
+            &AuditContext {
+                actor: AuditActor {
+                    id: Some(1),
+                    label: "admin".to_string(),
+                },
+                source: AuditSource {
+                    ip: "127.0.0.1".to_string(),
+                    user_agent: "auth-middleware-test".to_string(),
+                },
+            },
+            "/api/users".to_string(),
+        )
+        .await;
+
+        let event: (String, String, String, String) = sqlx::query_as(
+            r#"
+            select action, resource_id, result, reason_code
+            from sys_audit_events
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            event,
+            (
+                "auth.access_denied".to_string(),
+                "/api/users".to_string(),
+                "denied".to_string(),
+                "permission_denied".to_string(),
+            )
         );
     }
 }

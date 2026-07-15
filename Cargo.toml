@@ -45,9 +45,11 @@ sqlx = { version = "0.9", features = [
   "migrate",
   "postgres",
   "runtime-tokio",
+  "time",
   "tls-rustls",
 ] }
 thiserror = "2"
+time = { version = "0.3", features = ["parsing"] }
 tokio = { version = "1", features = [
   "macros",
   "rt-multi-thread",

@@ -33,6 +33,10 @@ const USER_ALREADY_EXISTS: ErrorSpec =
 const INVALID_PASSWORD: ErrorSpec = ErrorSpec::bad_request("INVALID_PASSWORD", "invalid password");
 const INVALID_ROLES: ErrorSpec =
     ErrorSpec::validation("INVALID_ROLES", "at least one enabled role is required");
+const INVALID_AUDIT_TIME_RANGE: ErrorSpec = ErrorSpec::validation(
+    "INVALID_AUDIT_TIME_RANGE",
+    "audit time range must use RFC 3339 timestamps",
+);
 const MULTIPART_FIELD_FAILED: ErrorSpec =
     ErrorSpec::bad_request("MULTIPART_FIELD_FAILED", "failed to read upload content");
 
@@ -245,7 +249,14 @@ impl From<metadata::parameters::ParameterError> for AppError {
 
 impl From<audit::AuditError> for AppError {
     fn from(error: audit::AuditError) -> Self {
-        INTERNAL_SERVER_ERROR.into_error().with_source(error)
+        match error {
+            audit::AuditError::InvalidTimeRange(source) => {
+                INVALID_AUDIT_TIME_RANGE.into_error().with_source(source)
+            }
+            audit::AuditError::Database(_) | audit::AuditError::Serialization(_) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(error)
+            }
+        }
     }
 }
 

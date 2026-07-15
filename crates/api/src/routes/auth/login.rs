@@ -281,4 +281,37 @@ mod tests {
         .unwrap();
         assert!(!payload.contains("must-not-be-recorded"));
     }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn successful_login_records_the_expected_audit_classification(pool: sqlx::PgPool) {
+        record_login(
+            &AuditService::new(pool.clone()),
+            &LoginInput {
+                username: "admin".to_string(),
+                password: "must-not-be-recorded".to_string(),
+                captcha: "must-not-be-recorded".to_string(),
+                captcha_id: "must-not-be-recorded".to_string(),
+                ip: "127.0.0.1".to_string(),
+                agent: "login-test".to_string(),
+            },
+            AuditResult::Succeeded,
+            None,
+            Some(1),
+        )
+        .await;
+
+        let event: (String, String, Option<String>, String) = sqlx::query_as(
+            r#"
+            select action, result, reason_code, jsonb_agg(to_jsonb(e)) over ()::text
+            from sys_audit_events e
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(event.0, "auth.login");
+        assert_eq!(event.1, "succeeded");
+        assert_eq!(event.2, None);
+        assert!(!event.3.contains("must-not-be-recorded"));
+    }
 }
