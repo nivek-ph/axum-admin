@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 
 use super::{
-    AccessError,
+    AccessEvaluationError, AccessInitError, AccessPropagationError,
     catalog::{AccessBinding, AccessCatalog, AccessNode, CatalogError},
 };
 use crate::{access::scope::DataScopeFilter, users};
@@ -73,15 +73,18 @@ impl AccessService {
         }
     }
 
-    pub async fn load(pool: PgPool, mut redis: MultiplexedConnection) -> Result<Self, AccessError> {
+    pub async fn load(
+        pool: PgPool,
+        mut redis: MultiplexedConnection,
+    ) -> Result<Self, AccessInitError> {
         let catalog = Arc::new(load_catalog(&pool).await?);
         let _: bool = redis.set_nx(AUTHZ_VERSION_KEY, 1_i64).await?;
+        increment_access_version(&mut redis).await?;
         let service = Self {
             pool,
             catalog,
             redis: Some(redis),
         };
-        service.bump_version().await?;
         Ok(service)
     }
 
@@ -92,7 +95,7 @@ impl AccessService {
         users::load_authenticated_user(&self.pool, user_id).await
     }
 
-    pub async fn snapshot(&self, user_id: i64) -> Result<AccessSnapshot, AccessError> {
+    pub async fn snapshot(&self, user_id: i64) -> Result<AccessSnapshot, AccessEvaluationError> {
         let Some(mut redis) = self.redis.clone() else {
             return self.load_snapshot_from_db(user_id, 0).await;
         };
@@ -118,15 +121,15 @@ impl AccessService {
         Ok(snapshot)
     }
 
-    pub async fn bump_version(&self) -> Result<(), AccessError> {
+    pub async fn bump_version(&self) -> Result<(), AccessPropagationError> {
         let Some(mut redis) = self.redis.clone() else {
             return Ok(());
         };
-        let _: i64 = redis.incr(AUTHZ_VERSION_KEY, 1_i64).await?;
+        increment_access_version(&mut redis).await?;
         Ok(())
     }
 
-    pub fn required_menu(&self, method: &str, path: &str) -> Result<i64, AccessError> {
+    pub fn required_menu(&self, method: &str, path: &str) -> Result<i64, AccessEvaluationError> {
         Ok(self.catalog.resolve(method, path)?)
     }
 
@@ -138,7 +141,7 @@ impl AccessService {
             .validate_assignment(&menu_ids.iter().copied().collect())
     }
 
-    pub async fn has_super_admin_role(&self, user_id: i64) -> Result<bool, AccessError> {
+    pub async fn has_super_admin_role(&self, user_id: i64) -> Result<bool, AccessEvaluationError> {
         Ok(self.snapshot(user_id).await?.is_super_admin())
     }
 
@@ -146,7 +149,7 @@ impl AccessService {
         &self,
         method: &str,
         path: &str,
-    ) -> Result<Option<String>, AccessError> {
+    ) -> Result<Option<String>, AccessEvaluationError> {
         match self.catalog.resolve(method, path) {
             Ok(menu_id) => Ok(self.catalog.permission(menu_id).map(ToOwned::to_owned)),
             Err(CatalogError::Unbound) => Ok(None),
@@ -154,7 +157,11 @@ impl AccessService {
         }
     }
 
-    pub async fn is_allowed(&self, user_id: i64, permission: &str) -> Result<bool, AccessError> {
+    pub async fn is_allowed(
+        &self,
+        user_id: i64,
+        permission: &str,
+    ) -> Result<bool, AccessEvaluationError> {
         Ok(self
             .snapshot(user_id)
             .await?
@@ -166,14 +173,14 @@ impl AccessService {
         &self,
         user_id: i64,
         version: i64,
-    ) -> Result<AccessSnapshot, AccessError> {
+    ) -> Result<AccessSnapshot, AccessEvaluationError> {
         let enabled = sqlx::query_scalar::<_, bool>("SELECT enable FROM sys_users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or(AccessError::UserNotFound)?;
+            .ok_or(AccessEvaluationError::UserNotFound)?;
         if !enabled {
-            return Err(AccessError::UserDisabled);
+            return Err(AccessEvaluationError::UserDisabled);
         }
 
         let role_codes = sqlx::query_scalar::<_, String>(
@@ -240,7 +247,14 @@ impl AccessService {
     }
 }
 
-async fn load_catalog(pool: &PgPool) -> Result<AccessCatalog, AccessError> {
+async fn increment_access_version(
+    redis: &mut MultiplexedConnection,
+) -> Result<(), redis::RedisError> {
+    let _: i64 = redis.incr(AUTHZ_VERSION_KEY, 1_i64).await?;
+    Ok(())
+}
+
+async fn load_catalog(pool: &PgPool) -> Result<AccessCatalog, AccessInitError> {
     let nodes = sqlx::query_as::<_, CatalogNodeRow>(
         "SELECT id, parent_id, menu_type, status, permission FROM sys_menus ORDER BY id",
     )

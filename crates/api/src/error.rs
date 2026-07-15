@@ -323,21 +323,21 @@ const INTERNAL_SERVER_ERROR: &str = "internal server error";
 /// let error = AppError::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "internal server error");
 /// let public_response_message = public_response_message(&error.kind, &error.message());
 /// assert_eq!(public_response_message, "internal server error");
-/// ```ignore
+/// ```
 ///
 /// ```ignore
 /// let error = AppError::new(StatusCode::BAD_REQUEST, "BAD_REQUEST", "bad request");
 /// let public_response_message = public_response_message(&error.kind, &error.message());
 /// assert_eq!(public_response_message, "bad request");
-/// ```ignore
-///
 /// ```
+///
+/// ```ignore
 /// let error = AppError::new(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "unauthorized");
 /// let public_response_message = public_response_message(&error.kind, &error.message());
 /// assert_eq!(public_response_message, "unauthorized");
 /// ```
 ///
-/// ```
+/// ```ignore
 /// let error = AppError::new(StatusCode::FORBIDDEN, "FORBIDDEN", "forbidden");
 /// let public_response_message = public_response_message(&error.kind, &error.message());
 /// assert_eq!(public_response_message, "forbidden");

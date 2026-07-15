@@ -42,24 +42,32 @@ impl From<axum::extract::multipart::MultipartError> for AppError {
     }
 }
 
-impl From<iam::access::AccessError> for AppError {
-    fn from(error: iam::access::AccessError) -> Self {
-        use iam::access::AccessError;
+impl From<iam::access::AccessEvaluationError> for AppError {
+    fn from(error: iam::access::AccessEvaluationError) -> Self {
+        use iam::access::AccessEvaluationError;
 
         match error {
-            AccessError::UserNotFound => SESSION_INVALID.into(),
-            AccessError::UserDisabled => USER_DISABLED.into(),
-            AccessError::Cache(source) => {
+            AccessEvaluationError::UserNotFound => SESSION_INVALID.into(),
+            AccessEvaluationError::UserDisabled => USER_DISABLED.into(),
+            AccessEvaluationError::Cache(source) => {
                 AUTHORIZATION_UNAVAILABLE.into_error().with_source(source)
             }
-            AccessError::Catalog(source) => AUTHORIZATION_CONFIG_INVALID
+            AccessEvaluationError::Catalog(source) => AUTHORIZATION_CONFIG_INVALID
                 .into_error()
                 .with_source(source),
-            AccessError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            AccessError::Serialization(source) => AUTHORIZATION_CONFIG_INVALID
+            AccessEvaluationError::Database(source) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+            }
+            AccessEvaluationError::Serialization(source) => AUTHORIZATION_CONFIG_INVALID
                 .into_error()
                 .with_source(source),
         }
+    }
+}
+
+impl From<iam::access::AccessPropagationError> for AppError {
+    fn from(error: iam::access::AccessPropagationError) -> Self {
+        INTERNAL_SERVER_ERROR.into_error().with_source(error)
     }
 }
 
@@ -113,7 +121,7 @@ impl From<iam::users::UserError> for AppError {
             UserError::InvalidRoles => INVALID_ROLES.into(),
             UserError::Password(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
             UserError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            UserError::Access(source) => source.into(),
+            UserError::AccessPropagation(source) => source.into(),
         }
     }
 }
@@ -159,7 +167,7 @@ impl From<iam::menus::MenuError> for AppError {
                 ErrorSpec::validation("MENU_INVALID_PAYLOAD", "invalid menu payload").into()
             }
             MenuError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            MenuError::Access(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
+            MenuError::AccessEvaluation(source) => source.into(),
         }
     }
 }
@@ -184,7 +192,7 @@ impl From<iam::roles::RoleError> for AppError {
             .into_error()
             .with_source(source),
             RoleError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            RoleError::Access(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
+            RoleError::AccessPropagation(source) => source.into(),
         }
     }
 }
@@ -198,7 +206,7 @@ impl From<iam::departments::DeptError> for AppError {
                 ErrorSpec::validation("DEPT_INVALID_PARENT", "invalid department parent").into()
             }
             DeptError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            DeptError::Access(source) => source.into(),
+            DeptError::AccessPropagation(source) => source.into(),
         }
     }
 }
@@ -282,22 +290,83 @@ mod tests {
     fn invalid_authorization_cache_payload_keeps_its_stable_code() {
         let source =
             serde_json::from_str::<serde_json::Value>("{").expect_err("invalid json should fail");
-        let error = AppError::from(iam::access::AccessError::Serialization(source));
+        let error = AppError::from(iam::access::AccessEvaluationError::Serialization(source));
 
         assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(error.code(), "AUTHORIZATION_CONFIG_INVALID");
     }
 
     #[test]
-    fn iam_mutation_invalidation_failure_remains_internal() {
-        let user_error = AppError::from(iam::users::UserError::Access(
-            iam::access::AccessError::Database(sqlx::Error::PoolTimedOut),
-        ));
-        let department_error = AppError::from(iam::departments::DeptError::Access(
-            iam::access::AccessError::Database(sqlx::Error::PoolTimedOut),
+    fn access_evaluation_cache_failure_remains_service_unavailable() {
+        let source = redis::RedisError::from((redis::ErrorKind::Io, "cache unavailable"));
+        let error = AppError::from(iam::access::AccessEvaluationError::Cache(source));
+
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
+    }
+
+    #[test]
+    fn menu_access_evaluation_uses_the_same_session_contract() {
+        let error = AppError::from(iam::menus::MenuError::AccessEvaluation(
+            iam::access::AccessEvaluationError::UserNotFound,
         ));
 
-        for error in [user_error, department_error] {
+        assert_eq!(error.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(error.code(), "SESSION_INVALID");
+    }
+
+    #[tokio::test]
+    async fn access_evaluation_contract_covers_user_catalog_and_database_failures() {
+        let pool = sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1/ava")
+            .expect("lazy pool should construct");
+        let catalog_error = iam::access::AccessService::new(pool)
+            .required_menu("GET", "/api/unbound")
+            .expect_err("an empty catalog should reject an unbound route");
+
+        let cases = [
+            (
+                AppError::from(iam::access::AccessEvaluationError::UserDisabled),
+                StatusCode::FORBIDDEN,
+                "USER_DISABLED",
+            ),
+            (
+                AppError::from(catalog_error),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "AUTHORIZATION_CONFIG_INVALID",
+            ),
+            (
+                AppError::from(iam::access::AccessEvaluationError::Database(
+                    sqlx::Error::PoolTimedOut,
+                )),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_SERVER_ERROR",
+            ),
+        ];
+
+        for (error, status, code) in cases {
+            assert_eq!(error.status(), status);
+            assert_eq!(error.code(), code);
+        }
+    }
+
+    #[test]
+    fn access_propagation_failure_is_internal_for_every_mutation_capability() {
+        fn propagation_error() -> iam::access::AccessPropagationError {
+            iam::access::AccessPropagationError::Cache(redis::RedisError::from((
+                redis::ErrorKind::Io,
+                "cache unavailable",
+            )))
+        }
+
+        let user_error =
+            AppError::from(iam::users::UserError::AccessPropagation(propagation_error()));
+        let role_error =
+            AppError::from(iam::roles::RoleError::AccessPropagation(propagation_error()));
+        let department_error = AppError::from(iam::departments::DeptError::AccessPropagation(
+            propagation_error(),
+        ));
+
+        for error in [user_error, role_error, department_error] {
             assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
             assert_eq!(error.code(), "INTERNAL_SERVER_ERROR");
         }

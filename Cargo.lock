@@ -127,6 +127,7 @@ dependencies = [
  "iam",
  "jsonwebtoken",
  "metadata",
+ "redis",
  "serde",
  "serde_json",
  "sqlx",

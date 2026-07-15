@@ -1,4 +1,4 @@
-use crate::access::AccessError;
+use crate::access::AccessEvaluationError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MenuError {
@@ -7,7 +7,7 @@ pub enum MenuError {
     #[error("{0}")]
     Database(#[from] sqlx::Error),
     #[error(transparent)]
-    Access(#[from] AccessError),
+    AccessEvaluation(#[from] AccessEvaluationError),
     #[error("invalid menu payload")]
     InvalidPayload,
 }

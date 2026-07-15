@@ -1,6 +1,6 @@
 use auth::password::PasswordError;
 
-use crate::access::AccessError;
+use crate::access::AccessPropagationError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UserError {
@@ -17,7 +17,7 @@ pub enum UserError {
     #[error("{0}")]
     Database(#[from] sqlx::Error),
     #[error(transparent)]
-    Access(#[from] AccessError),
+    AccessPropagation(#[from] AccessPropagationError),
 }
 
 #[derive(Debug, thiserror::Error)]

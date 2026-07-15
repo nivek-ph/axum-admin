@@ -31,4 +31,5 @@ utoipa-swagger-ui.workspace = true
 
 [dev-dependencies]
 jsonwebtoken.workspace = true
+redis.workspace = true
 sqlx.workspace = true

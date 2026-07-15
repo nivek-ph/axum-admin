@@ -1,4 +1,4 @@
-use crate::access::AccessError;
+use crate::access::AccessPropagationError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeptError {
@@ -7,5 +7,5 @@ pub enum DeptError {
     #[error("invalid department parent")]
     InvalidParent,
     #[error(transparent)]
-    Access(#[from] AccessError),
+    AccessPropagation(#[from] AccessPropagationError),
 }
