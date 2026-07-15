@@ -1,22 +1,23 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{CreateDeptPayload, Dept, DeptError, DeptNode, UpdateDeptPayload};
+use crate::access::AccessService;
 
 #[derive(Clone)]
 pub struct DepartmentService {
     pool: sqlx::PgPool,
-    access: crate::access::AccessService,
+    access: AccessService,
 }
 
 impl DepartmentService {
     pub fn new(pool: sqlx::PgPool) -> Self {
         Self {
-            access: crate::access::AccessService::new(pool.clone()),
+            access: AccessService::new(pool.clone()),
             pool,
         }
     }
 
-    pub fn with_access(pool: sqlx::PgPool, access: crate::access::AccessService) -> Self {
+    pub fn with_access(pool: sqlx::PgPool, access: AccessService) -> Self {
         Self { pool, access }
     }
 

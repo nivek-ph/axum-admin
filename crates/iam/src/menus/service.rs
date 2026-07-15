@@ -3,15 +3,16 @@ use std::collections::{HashMap, HashSet};
 use sqlx::PgPool;
 
 use super::{ApiBinding, MenuError, MenuMeta, MenuRecord, MenuView};
+use crate::access::AccessService;
 
 #[derive(Clone)]
 pub struct MenuService {
     pool: PgPool,
-    access: crate::access::AccessService,
+    access: AccessService,
 }
 
 impl MenuService {
-    pub fn new(pool: PgPool, access: crate::access::AccessService) -> Self {
+    pub fn new(pool: PgPool, access: AccessService) -> Self {
         Self { pool, access }
     }
 
