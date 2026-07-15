@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+audit.workspace = true
 auth.workspace = true
 redis.workspace = true
 serde.workspace = true

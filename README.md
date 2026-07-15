@@ -26,7 +26,7 @@ More screens: [Login](docs/screenshots/login.png) · [User Management](docs/scre
 apps/ava           Ava CLI and backend composition root
 apps/desktop       Vue/Vite/Tauri desktop frontend
 crates/api         Axum HTTP adapter
-crates/audit       login and operation audit logs
+crates/audit       structured business and security audit events
 crates/auth        password, token, and captcha helpers
 crates/db          database connection and migrations
 crates/file-storage
@@ -190,7 +190,7 @@ Protected route groups:
 | Dictionaries          | `GET/POST /api/dictionaries`, `POST /api/dictionaries/import`, `GET/PUT/DELETE /api/dictionaries/{id}`, `GET /api/dictionaries/{id}/export`, `GET/POST /api/dictionaries/{id}/tree`, `GET/PUT/DELETE /api/dictionaries/{id}/tree/{node_id}` |
 | Files                 | `GET /api/files`, `POST /api/files/upload`, `POST /api/files/import-url`, `DELETE /api/files/{id}`, `PATCH /api/files/{id}/name`                                                                                                                  |
 | Attachment categories | `GET/POST /api/attachment-categories`, `DELETE /api/attachment-categories/{id}`                                                                                                                                                                   |
-| Logs                  | `GET/DELETE /api/login-logs`, `GET/DELETE /api/login-logs/{id}`, `GET/DELETE /api/operation-logs`, `DELETE /api/operation-logs/{id}`                                                                                                              |
+| Audit events          | `GET /api/audit/events`, `GET /api/audit/events/{id}`                                                                                                                                                                                             |
 | System                | `GET/PUT /api/system/config`, `GET /api/system/server-info`, `POST /api/system/reload`                                                                                                                                                            |
 | Auth sessions         | `POST /api/auth/logout`                                                                                                                                                                                                                           |
 
@@ -206,8 +206,7 @@ Main modules:
 - Params
 - Dictionaries and dictionary details
 - Files and attachment categories
-- Login logs
-- Operation logs
+- Structured audit events
 - Profile
 - System config
 - System state
@@ -226,8 +225,7 @@ Main workflows:
 - File URL import
 - File multipart upload with preview and progress
 - File rename, delete, and preview
-- Login log batch delete
-- Operation log batch delete
+- Audit event filtering and detail inspection
 
 ## Verification
 
@@ -258,5 +256,5 @@ Recommended manual integration sweep:
 3. Start the backend with `cargo run -p ava -- serve`.
 4. Start the frontend with `cd apps/desktop && npm run dev`.
 5. Log in with `admin / 123456`.
-6. Smoke test user, role, menu, API route, param, dictionary, file, log, and
+6. Smoke test user, role, menu, API route, param, dictionary, file, audit, and
    system pages.

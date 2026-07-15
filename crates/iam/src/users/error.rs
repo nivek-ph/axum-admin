@@ -17,6 +17,8 @@ pub enum UserError {
     #[error("{0}")]
     Database(#[from] sqlx::Error),
     #[error(transparent)]
+    Audit(#[from] audit::AuditError),
+    #[error(transparent)]
     AccessPropagation(#[from] AccessPropagationError),
 }
 

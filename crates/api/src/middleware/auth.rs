@@ -1,3 +1,7 @@
+use audit::{
+    AuditAction, AuditActor, AuditContext, AuditEvent, AuditReason, AuditResource, AuditResult,
+    AuditSource,
+};
 use axum::{
     extract::{Request, State},
     http::{HeaderMap, header::AUTHORIZATION},
@@ -42,11 +46,33 @@ pub async fn require_auth(
         .to_string();
     let token = extract_bearer_token(headers).ok_or(LOGIN_REQUIRED)?;
     let claims = state.tokens.decode_active(token).await?;
+    let audit_context = AuditContext {
+        actor: AuditActor {
+            id: Some(claims.user_id),
+            label: claims.username.clone(),
+        },
+        source: AuditSource {
+            ip,
+            user_agent: agent,
+        },
+    };
     let snapshot = state.access.snapshot(claims.user_id).await?;
 
     if !is_self_service_endpoint(&method, &path) {
         let menu_id = state.access.required_menu(&method, &path)?;
         if !snapshot.allows_menu(menu_id) {
+            state
+                .audits
+                .record_best_effort(AuditEvent {
+                    actor: audit_context.actor.clone(),
+                    action: AuditAction::AccessDenied,
+                    resource: AuditResource::Route(path),
+                    result: AuditResult::Denied,
+                    reason_code: Some(AuditReason::PermissionDenied),
+                    source: audit_context.source.clone(),
+                    changes: Vec::new(),
+                })
+                .await;
             return Err(PERMISSION_DENIED.into());
         }
     }
@@ -58,22 +84,8 @@ pub async fn require_auth(
             id: user_id,
             data_scope: snapshot.data_scope,
         });
-    let response = next.run(request).await;
-    let _ = state
-        .operation_logs
-        .record(audit::operation_logs::CreateOperationLog {
-            ip,
-            method,
-            path,
-            status: response.status().as_u16() as i32,
-            agent,
-            error_message: String::new(),
-            body: String::new(),
-            resp: String::new(),
-            user_id,
-        })
-        .await;
-    Ok(response)
+    request.extensions_mut().insert(audit_context);
+    Ok(next.run(request).await)
 }
 
 fn is_self_service_endpoint(method: &str, path: &str) -> bool {

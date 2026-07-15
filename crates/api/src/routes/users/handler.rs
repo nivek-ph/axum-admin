@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
 };
 use iam::users::{
     ChangePasswordRequest, GetUserListRequest, RegisterRequest, ResetPasswordRequest,
@@ -203,10 +203,14 @@ pub async fn reset_password_by_id(
 pub async fn set_user_roles_by_id(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
+    Extension(audit_context): Extension<audit::AuditContext>,
     Path(id): Path<i64>,
     Json(payload): Json<SetUserRolesRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
-    state.users.set_roles_as(user.id, id, payload).await?;
+    state
+        .users
+        .set_roles_as(user.id, id, payload, audit_context)
+        .await?;
 
     Ok(Json(ApiResponse::ok_message("roles updated")))
 }

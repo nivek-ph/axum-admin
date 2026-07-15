@@ -1,31 +1,19 @@
 import { http } from './http';
 import { withAuthHeaders, type ApiResponse } from './core';
 
-export interface LoginLogRecord {
+export interface AuditEventRecord {
   id: number;
-  username: string;
-  ip: string;
-  status: boolean;
-  errorMessage: string;
-  agent: string;
+  actorId?: number;
+  actorLabel: string;
+  action: string;
+  resourceType: string;
+  resourceId?: string;
+  result: 'succeeded' | 'denied' | 'failed';
+  reasonCode?: string;
+  sourceIp: string;
+  userAgent: string;
+  changes: unknown[];
   createdAt: string;
-}
-
-export interface OperationLogRecord {
-  id: number;
-  ip: string;
-  method: string;
-  path: string;
-  status: number;
-  agent: string;
-  errorMessage: string;
-  body: string;
-  resp: string;
-  createdAt: string;
-  user?: {
-    userName: string;
-    nickName: string;
-  };
 }
 
 export interface PaginatedResult<T> {
@@ -35,22 +23,16 @@ export interface PaginatedResult<T> {
   pageSize: number;
 }
 
-export interface LoginLogFilters {
+export interface AuditEventFilters {
   page?: number;
   pageSize?: number;
-  username?: string;
-  status?: boolean;
+  actor?: string;
+  action?: string;
+  resourceType?: string;
+  result?: string;
 }
 
-export interface OperationLogFilters {
-  page?: number;
-  pageSize?: number;
-  method?: string;
-  path?: string;
-  status?: number;
-}
-
-export function normalizeLoginLogListResponse(payload: ApiResponse<PaginatedResult<LoginLogRecord>>): PaginatedResult<LoginLogRecord> {
+export function normalizeAuditEventListResponse(payload: ApiResponse<PaginatedResult<AuditEventRecord>>): PaginatedResult<AuditEventRecord> {
   return {
     list: payload?.data?.list || [],
     total: payload?.data?.total || 0,
@@ -59,38 +41,22 @@ export function normalizeLoginLogListResponse(payload: ApiResponse<PaginatedResu
   };
 }
 
-export function normalizeOperationLogListResponse(payload: ApiResponse<PaginatedResult<OperationLogRecord>>): PaginatedResult<OperationLogRecord> {
-  return {
-    list: payload?.data?.list || [],
-    total: payload?.data?.total || 0,
-    page: payload?.data?.page || 1,
-    pageSize: payload?.data?.pageSize || 10,
-  };
-}
-
-export async function fetchLoginLogs(filters: LoginLogFilters = {}) {
-  const response = await http.get('/login-logs', {
+export async function fetchAuditEvents(filters: AuditEventFilters = {}) {
+  const response = await http.get('/audit/events', {
     ...withAuthHeaders(),
     params: {
       page: filters.page || 1,
       pageSize: filters.pageSize || 10,
-      username: filters.username || undefined,
-      status: filters.status,
+      actor: filters.actor || undefined,
+      action: filters.action || undefined,
+      resourceType: filters.resourceType || undefined,
+      result: filters.result || undefined,
     },
   });
-  return normalizeLoginLogListResponse(response);
+  return normalizeAuditEventListResponse(response);
 }
 
-export async function fetchOperationLogs(filters: OperationLogFilters = {}) {
-  const response = await http.get('/operation-logs', {
-    ...withAuthHeaders(),
-    params: {
-      page: filters.page || 1,
-      pageSize: filters.pageSize || 10,
-      method: filters.method || undefined,
-      path: filters.path || undefined,
-      status: filters.status,
-    },
-  });
-  return normalizeOperationLogListResponse(response);
+export async function fetchAuditEvent(id: number) {
+  const response = await http.get<never, ApiResponse<AuditEventRecord | null>>(`/audit/events/${id}`, withAuthHeaders());
+  return response.data;
 }

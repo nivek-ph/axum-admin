@@ -121,6 +121,7 @@ impl From<iam::users::UserError> for AppError {
             UserError::InvalidRoles => INVALID_ROLES.into(),
             UserError::Password(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
             UserError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
+            UserError::Audit(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
             UserError::AccessPropagation(source) => source.into(),
         }
     }
@@ -242,14 +243,8 @@ impl From<metadata::parameters::ParameterError> for AppError {
     }
 }
 
-impl From<audit::login_logs::LoginLogError> for AppError {
-    fn from(error: audit::login_logs::LoginLogError) -> Self {
-        INTERNAL_SERVER_ERROR.into_error().with_source(error)
-    }
-}
-
-impl From<audit::operation_logs::OperationLogError> for AppError {
-    fn from(error: audit::operation_logs::OperationLogError) -> Self {
+impl From<audit::AuditError> for AppError {
+    fn from(error: audit::AuditError) -> Self {
         INTERNAL_SERVER_ERROR.into_error().with_source(error)
     }
 }

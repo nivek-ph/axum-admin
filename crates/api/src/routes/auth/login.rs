@@ -1,4 +1,7 @@
-use audit::login_logs::CreateLoginLog;
+use audit::{
+    AuditAction, AuditActor, AuditEvent, AuditReason, AuditResource, AuditResult, AuditService,
+    AuditSource,
+};
 use auth::{captcha::CaptchaError, token::TokenIssueError};
 use axum::{Json, extract::State, http::HeaderMap};
 use iam::users;
@@ -86,7 +89,14 @@ pub async fn login(
 
 async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginResponse, LoginError> {
     if let Err(error) = input.validate() {
-        record_login(&state.login_logs, &input, false, &error.to_string(), None).await;
+        record_login(
+            &state.audits,
+            &input,
+            AuditResult::Denied,
+            Some(AuditReason::CaptchaRequired),
+            None,
+        )
+        .await;
         return Err(error);
     }
 
@@ -98,10 +108,10 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginRespo
         Ok(valid) => valid,
         Err(error) => {
             record_login(
-                &state.login_logs,
+                &state.audits,
                 &input,
-                false,
-                "captcha operation failed",
+                AuditResult::Failed,
+                Some(AuditReason::CaptchaFailed),
                 None,
             )
             .await;
@@ -110,10 +120,10 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginRespo
     };
     if !captcha_valid {
         record_login(
-            &state.login_logs,
+            &state.audits,
             &input,
-            false,
-            "captcha is invalid or expired",
+            AuditResult::Denied,
+            Some(AuditReason::CaptchaInvalid),
             None,
         )
         .await;
@@ -130,7 +140,18 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginRespo
     {
         Ok(identity) => identity,
         Err(error) => {
-            record_login(&state.login_logs, &input, false, &error.to_string(), None).await;
+            let (result, reason) = match &error {
+                users::AuthenticateError::InvalidCredentials => {
+                    (AuditResult::Denied, AuditReason::InvalidCredentials)
+                }
+                users::AuthenticateError::Disabled => {
+                    (AuditResult::Denied, AuditReason::UserDisabled)
+                }
+                users::AuthenticateError::Credential(_) | users::AuthenticateError::Database(_) => {
+                    (AuditResult::Failed, AuditReason::InternalError)
+                }
+            };
+            record_login(&state.audits, &input, result, Some(reason), None).await;
             return Err(LoginError::Identity(error));
         }
     };
@@ -139,10 +160,10 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginRespo
         Ok(token) => token,
         Err(error) => {
             record_login(
-                &state.login_logs,
+                &state.audits,
                 &input,
-                false,
-                "token operation failed",
+                AuditResult::Failed,
+                Some(AuditReason::TokenIssueFailed),
                 Some(identity.user.id),
             )
             .await;
@@ -151,10 +172,10 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginRespo
     };
 
     record_login(
-        &state.login_logs,
+        &state.audits,
         &input,
-        true,
-        "login succeeded",
+        AuditResult::Succeeded,
+        None,
         Some(identity.user.id),
     )
     .await;
@@ -166,20 +187,27 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginRespo
 }
 
 async fn record_login(
-    audit: &audit::login_logs::LoginLogService,
+    audit: &AuditService,
     input: &LoginInput,
-    status: bool,
-    message: &str,
+    result: AuditResult,
+    reason_code: Option<AuditReason>,
     user_id: Option<i64>,
 ) {
-    let _ = audit
-        .record(CreateLoginLog {
-            username: input.username.clone(),
-            ip: input.ip.clone(),
-            status,
-            error_message: message.to_string(),
-            agent: input.agent.clone(),
-            user_id,
+    audit
+        .record_best_effort(AuditEvent {
+            actor: AuditActor {
+                id: user_id,
+                label: input.username.clone(),
+            },
+            action: AuditAction::Login,
+            resource: AuditResource::Account(input.username.clone()),
+            result,
+            reason_code,
+            source: AuditSource {
+                ip: input.ip.clone(),
+                user_agent: input.agent.clone(),
+            },
+            changes: Vec::new(),
         })
         .await;
 }

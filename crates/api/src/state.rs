@@ -1,4 +1,4 @@
-use audit::{login_logs::LoginLogService, operation_logs::OperationLogService};
+use audit::AuditService;
 use auth::{captcha::CaptchaService, token::TokenService};
 use file_storage::files::FileService;
 use iam::{
@@ -18,7 +18,6 @@ pub struct AppState {
     pub dictionaries: DictionaryService,
     pub parameters: ParameterService,
     pub menus: MenuService,
-    pub login_logs: LoginLogService,
-    pub operation_logs: OperationLogService,
+    pub audits: AuditService,
     pub files: FileService,
 }
