@@ -14,7 +14,7 @@ pub struct CaptchaChallenge {
 pub enum CaptchaError {
     #[error("captcha store is unavailable")]
     StoreUnavailable,
-    #[error("{0}")]
+    #[error("captcha store operation failed")]
     Redis(#[from] redis::RedisError),
     #[error("captcha image rendering failed")]
     RenderFailed,
@@ -84,5 +84,26 @@ impl CaptchaService {
         self.redis_connection
             .clone()
             .ok_or(CaptchaError::StoreUnavailable)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error as _;
+
+    use redis::ErrorKind;
+
+    use super::CaptchaError;
+
+    #[test]
+    fn redis_failure_keeps_a_stable_capability_message_and_source() {
+        let source = redis::RedisError::from((ErrorKind::Io, "redis detail"));
+        let error = CaptchaError::from(source);
+
+        assert_eq!(error.to_string(), "captcha store operation failed");
+        let source = error
+            .source()
+            .expect("store error should keep Redis source");
+        assert!(source.downcast_ref::<redis::RedisError>().is_some());
     }
 }

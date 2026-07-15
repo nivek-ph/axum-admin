@@ -1,5 +1,3 @@
 #[derive(Debug, thiserror::Error)]
-pub enum OperationLogError {
-    #[error("operation log storage operation failed")]
-    Database(#[from] sqlx::Error),
-}
+#[error("operation log storage operation failed")]
+pub struct OperationLogError(#[from] sqlx::Error);

@@ -213,14 +213,7 @@ impl From<iam::departments::DeptError> for AppError {
 
 impl From<file_storage::files::FileError> for AppError {
     fn from(error: file_storage::files::FileError) -> Self {
-        match error {
-            file_storage::files::FileError::Database(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-            file_storage::files::FileError::Io(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-        }
+        INTERNAL_SERVER_ERROR.into_error().with_source(error)
     }
 }
 
@@ -245,37 +238,40 @@ impl From<metadata::dictionaries::DictionaryError> for AppError {
 
 impl From<metadata::parameters::ParameterError> for AppError {
     fn from(error: metadata::parameters::ParameterError) -> Self {
-        match error {
-            metadata::parameters::ParameterError::Database(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-        }
+        INTERNAL_SERVER_ERROR.into_error().with_source(error)
     }
 }
 
 impl From<audit::login_logs::LoginLogError> for AppError {
     fn from(error: audit::login_logs::LoginLogError) -> Self {
-        match error {
-            audit::login_logs::LoginLogError::Database(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-        }
+        INTERNAL_SERVER_ERROR.into_error().with_source(error)
     }
 }
 
 impl From<audit::operation_logs::OperationLogError> for AppError {
     fn from(error: audit::operation_logs::OperationLogError) -> Self {
-        match error {
-            audit::operation_logs::OperationLogError::Database(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-        }
+        INTERNAL_SERVER_ERROR.into_error().with_source(error)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn capability_storage_failure_keeps_the_internal_error_contract() {
+        let Err(capability_error) = ::auth::captcha::CaptchaService::without_store()
+            .create()
+            .await
+        else {
+            panic!("captcha creation should require its store");
+        };
+        let error = AppError::from(capability_error);
+
+        assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code(), "INTERNAL_SERVER_ERROR");
+        assert_eq!(error.message(), "internal server error");
+    }
 
     #[test]
     fn authorization_store_unavailable_remains_service_unavailable() {

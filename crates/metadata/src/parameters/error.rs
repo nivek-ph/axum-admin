@@ -1,5 +1,3 @@
 #[derive(Debug, thiserror::Error)]
-pub enum ParameterError {
-    #[error("parameter storage operation failed")]
-    Database(#[from] sqlx::Error),
-}
+#[error("parameter storage operation failed")]
+pub struct ParameterError(#[from] sqlx::Error);

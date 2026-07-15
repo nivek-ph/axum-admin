@@ -53,7 +53,7 @@ impl FileService {
         if let Some((_, staged)) = staged {
             match tokio::fs::remove_file(staged).await {
                 Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(FileError::Io(error));
+                    return Err(error.into());
                 }
                 _ => {}
             }
@@ -72,7 +72,7 @@ impl FileService {
         match tokio::fs::rename(&original, &staged).await {
             Ok(()) => Ok(Some((original, staged))),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(FileError::Io(error)),
+            Err(error) => Err(error.into()),
         }
     }
 }
@@ -221,11 +221,11 @@ pub(crate) async fn store_uploaded_bytes(
         Err(error) => {
             match tokio::fs::remove_file(&path).await {
                 Err(cleanup_error) if cleanup_error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(FileError::Io(cleanup_error));
+                    return Err(cleanup_error.into());
                 }
                 _ => {}
             }
-            return Err(FileError::Database(error));
+            return Err(error.into());
         }
     };
 
