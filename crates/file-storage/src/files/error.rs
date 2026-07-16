@@ -1,5 +1,7 @@
 #[derive(Debug, thiserror::Error)]
 pub enum FileError {
+    #[error("uploaded file is too large")]
+    TooLarge,
     #[error("file storage operation failed")]
     Database(#[from] sqlx::Error),
     #[error("file storage operation failed")]

@@ -39,6 +39,15 @@ const INVALID_AUDIT_TIME_RANGE: ErrorSpec = ErrorSpec::validation(
 );
 const MULTIPART_FIELD_FAILED: ErrorSpec =
     ErrorSpec::bad_request("MULTIPART_FIELD_FAILED", "failed to read upload content");
+pub(crate) const MULTIPLE_FILES_NOT_SUPPORTED: ErrorSpec = ErrorSpec::bad_request(
+    "MULTIPLE_FILES_NOT_SUPPORTED",
+    "only one file can be uploaded at a time",
+);
+const FILE_TOO_LARGE: ErrorSpec = ErrorSpec::new(
+    StatusCode::PAYLOAD_TOO_LARGE,
+    "FILE_TOO_LARGE",
+    "uploaded file is too large",
+);
 
 impl From<axum::extract::multipart::MultipartError> for AppError {
     fn from(error: axum::extract::multipart::MultipartError) -> Self {
@@ -218,7 +227,14 @@ impl From<iam::departments::DeptError> for AppError {
 
 impl From<file_storage::files::FileError> for AppError {
     fn from(error: file_storage::files::FileError) -> Self {
-        INTERNAL_SERVER_ERROR.into_error().with_source(error)
+        use file_storage::files::FileError;
+
+        match error {
+            FileError::TooLarge => FILE_TOO_LARGE.into(),
+            source @ (FileError::Database(_) | FileError::Io(_)) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+            }
+        }
     }
 }
 
@@ -286,6 +302,15 @@ mod tests {
         assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
         assert_eq!(error.message(), "authorization service is unavailable");
+    }
+
+    #[test]
+    fn oversized_upload_has_a_stable_payload_too_large_contract() {
+        let error = AppError::from(file_storage::files::FileError::TooLarge);
+
+        assert_eq!(error.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(error.code(), "FILE_TOO_LARGE");
+        assert_eq!(error.message(), "uploaded file is too large");
     }
 
     #[test]
