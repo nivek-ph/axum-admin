@@ -33,3 +33,4 @@ utoipa-swagger-ui.workspace = true
 jsonwebtoken.workspace = true
 redis.workspace = true
 sqlx.workspace = true
+uuid.workspace = true

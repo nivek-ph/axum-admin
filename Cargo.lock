@@ -140,6 +140,7 @@ dependencies = [
  "tracing-otel-extra",
  "utoipa",
  "utoipa-swagger-ui",
+ "uuid",
 ]
 
 [[package]]
@@ -1020,6 +1021,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio",
+ "tracing",
  "utoipa",
  "uuid",
 ]
