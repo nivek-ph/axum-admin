@@ -235,4 +235,75 @@ mod tests {
         assert_eq!(stored_count, 0);
         assert!(!upload_dir.exists());
     }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn file_management_routes_keep_the_existing_transport_contract(pool: sqlx::PgPool) {
+        let app = routes().with_state(crate::state::test_state(pool));
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/import-url")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"name":"Remote report","url":"https://example.test/report.pdf","tag":"finance","category":"report"}"#,
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/?page=1&pageSize=10")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        assert_eq!(body["data"]["total"], 1);
+        assert_eq!(body["data"]["pageSize"], 10);
+        assert_eq!(body["data"]["list"][0]["name"], "Remote report");
+        let id = body["data"]["list"][0]["id"]
+            .as_i64()
+            .expect("imported file should have an ID");
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::patch(format!("/{id}/name"))
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"id":999,"name":"Renamed report"}"#))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/?page=1&pageSize=10")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        let body = response_json(response).await;
+        assert_eq!(body["data"]["list"][0]["id"], id);
+        assert_eq!(body["data"]["list"][0]["name"], "Renamed report");
+
+        let response = app
+            .oneshot(
+                Request::delete(format!("/{id}"))
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }
