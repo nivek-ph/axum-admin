@@ -1,6 +1,6 @@
 use sqlx::PgPool;
 
-use super::{ParamListQuery, ParameterError, SysParam};
+use super::{ParamListQuery, ParameterError, ParameterInput, SysParam};
 
 #[derive(Clone)]
 pub struct ParameterService {
@@ -19,12 +19,12 @@ impl ParameterService {
         Ok(list(&self.pool, query).await?)
     }
 
-    pub async fn create(&self, payload: SysParam) -> Result<(), ParameterError> {
+    pub async fn create(&self, payload: ParameterInput) -> Result<(), ParameterError> {
         Ok(create(&self.pool, payload).await?)
     }
 
-    pub async fn update(&self, payload: SysParam) -> Result<(), ParameterError> {
-        Ok(update(&self.pool, payload).await?)
+    pub async fn update(&self, id: i64, payload: ParameterInput) -> Result<(), ParameterError> {
+        Ok(update(&self.pool, id, payload).await?)
     }
 
     pub async fn find(&self, id: i64) -> Result<Option<SysParam>, ParameterError> {
@@ -83,7 +83,10 @@ pub(crate) async fn list(
     Ok((list, total, page, page_size))
 }
 
-pub(crate) async fn create(pool: &sqlx::PgPool, payload: SysParam) -> Result<(), sqlx::Error> {
+pub(crate) async fn create(
+    pool: &sqlx::PgPool,
+    payload: ParameterInput,
+) -> Result<(), sqlx::Error> {
     sqlx::query("insert into sys_params (name, \"key\", value, \"desc\") values ($1, $2, $3, $4)")
         .bind(payload.name)
         .bind(payload.key)
@@ -94,7 +97,11 @@ pub(crate) async fn create(pool: &sqlx::PgPool, payload: SysParam) -> Result<(),
     Ok(())
 }
 
-pub(crate) async fn update(pool: &sqlx::PgPool, payload: SysParam) -> Result<(), sqlx::Error> {
+pub(crate) async fn update(
+    pool: &sqlx::PgPool,
+    id: i64,
+    payload: ParameterInput,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         "update sys_params set name = $1, \"key\" = $2, value = $3, \"desc\" = $4 where id = $5",
     )
@@ -102,7 +109,7 @@ pub(crate) async fn update(pool: &sqlx::PgPool, payload: SysParam) -> Result<(),
     .bind(payload.key)
     .bind(payload.value)
     .bind(payload.desc)
-    .bind(payload.id)
+    .bind(id)
     .execute(pool)
     .await?;
     Ok(())

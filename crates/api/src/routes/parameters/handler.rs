@@ -2,10 +2,12 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use metadata::parameters::{ParamListQuery, SysParam};
 use serde_json::Value;
 
-use super::dto::{IdsRequest, ParamResponse};
+use super::dto::{
+    EmptyParameter, IdsRequest, ParamResponse, ParameterByKeyData, ParameterByKeyRequest,
+    ParameterDetailData, ParameterListData, ParameterListRequest, ParameterRequest,
+};
 use crate::{ApiResponse, AppResult, state::AppState};
 
 #[utoipa::path(
@@ -13,12 +15,12 @@ use crate::{ApiResponse, AppResult, state::AppState};
     path = "/params",
     tag = "parameter",
     security(("bearer_auth" = [])),
-    request_body = SysParam,
+    request_body = ParameterRequest,
     responses((status = 200, description = "Parameter created", body = ApiResponse<Value>))
 )]
 pub async fn create_sys_params(
     State(state): State<AppState>,
-    Json(payload): Json<SysParam>,
+    Json(payload): Json<ParameterRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
     state.parameters.create(payload).await?;
 
@@ -31,17 +33,15 @@ pub async fn create_sys_params(
     tag = "parameter",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Parameter ID")),
-    request_body = SysParam,
+    request_body = ParameterRequest,
     responses((status = 200, description = "Parameter updated", body = ApiResponse<Value>))
 )]
 pub async fn update_sys_params_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(mut payload): Json<SysParam>,
+    Json(payload): Json<ParameterRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
-    payload.id = id;
-
-    state.parameters.update(payload).await?;
+    state.parameters.update(id, payload).await?;
 
     Ok(Json(ApiResponse::ok_message("updated")))
 }
@@ -52,17 +52,18 @@ pub async fn update_sys_params_by_id(
     tag = "parameter",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Parameter ID")),
-    responses((status = 200, description = "Parameter detail", body = ApiResponse<Value>))
+    responses((status = 200, description = "Parameter detail", body = ApiResponse<ParameterDetailData>))
 )]
 pub async fn find_sys_params_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<ParameterDetailData>>> {
     let item = state.parameters.find(id).await?.map(ParamResponse::from);
-    Ok(Json(ApiResponse::ok(
-        item.map(|value| serde_json::json!(value))
-            .unwrap_or_else(|| serde_json::json!({})),
-    )))
+    let data = match item {
+        Some(item) => ParameterDetailData::Parameter(item),
+        None => ParameterDetailData::Empty(EmptyParameter {}),
+    };
+    Ok(Json(ApiResponse::ok(data)))
 }
 
 #[utoipa::path(
@@ -70,25 +71,25 @@ pub async fn find_sys_params_by_id(
     path = "/params",
     tag = "parameter",
     security(("bearer_auth" = [])),
-    params(ParamListQuery),
-    responses((status = 200, description = "Parameter list", body = ApiResponse<Value>))
+    params(ParameterListRequest),
+    responses((status = 200, description = "Parameter list", body = ApiResponse<ParameterListData>))
 )]
 pub async fn get_sys_params_list(
     State(state): State<AppState>,
-    Query(payload): Query<ParamListQuery>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+    Query(payload): Query<ParameterListRequest>,
+) -> AppResult<Json<ApiResponse<ParameterListData>>> {
     let (list, total, page, page_size) = state.parameters.list(payload).await?;
 
     let list = list
         .into_iter()
         .map(ParamResponse::from)
         .collect::<Vec<_>>();
-    Ok(Json(ApiResponse::ok(serde_json::json!({
-        "list": list,
-        "total": total,
-        "page": page,
-        "pageSize": page_size
-    }))))
+    Ok(Json(ApiResponse::ok(ParameterListData {
+        list,
+        total,
+        page,
+        page_size,
+    })))
 }
 
 #[utoipa::path(
@@ -129,19 +130,19 @@ pub async fn delete_sys_params_by_ids(
     tag = "parameter",
     security(("bearer_auth" = [])),
     params(("key" = String, Query, description = "Parameter key")),
-    responses((status = 200, description = "Parameter value", body = ApiResponse<Value>))
+    responses((status = 200, description = "Parameter value", body = ApiResponse<ParameterByKeyData>))
 )]
 pub async fn get_sys_param(
     State(state): State<AppState>,
-    Query(payload): Query<ParamListQuery>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+    Query(payload): Query<ParameterByKeyRequest>,
+) -> AppResult<Json<ApiResponse<ParameterByKeyData>>> {
     let key = payload.key.unwrap_or_default();
     let item = state
         .parameters
         .by_key(&key)
         .await?
         .map(ParamResponse::from);
-    Ok(Json(ApiResponse::ok(serde_json::json!({
-        "sysParam": item
-    }))))
+    Ok(Json(ApiResponse::ok(ParameterByKeyData {
+        parameter: item,
+    })))
 }
