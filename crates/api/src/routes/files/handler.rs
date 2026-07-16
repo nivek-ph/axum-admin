@@ -2,51 +2,35 @@ use axum::{
     Json,
     extract::{Multipart, Path, Query, State},
 };
-use file_storage::files::{FileEditPayload, FileListQuery, FileUpload, ImportUrlPayload};
-use serde::Deserialize;
+use file_storage::files::FileUpload;
 use serde_json::Value;
-use utoipa::{IntoParams, ToSchema};
 
-use super::dto::FileResponse;
+use super::dto::{
+    FileListData, FileListRequest, FileResponse, ImportFileUrlRequest, RenameFileRequest,
+    UploadFileData, UploadFileRequest, UploadMetadataRequest,
+};
 use crate::{ApiResponse, AppResult, mappings::MULTIPLE_FILES_NOT_SUPPORTED, state::AppState};
-
-#[derive(Debug, Clone, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct UploadMetadataQuery {
-    #[serde(default)]
-    pub tag: String,
-    #[serde(default)]
-    pub category: String,
-}
-
-#[derive(Debug, ToSchema)]
-pub struct UploadFileRequest {
-    #[schema(value_type = String, format = Binary)]
-    #[schema(example = "example.png")]
-    #[allow(dead_code)]
-    pub file: Vec<u8>,
-}
 
 #[utoipa::path(
     get,
     path = "/files",
     tag = "file",
     security(("bearer_auth" = [])),
-    params(FileListQuery),
-    responses((status = 200, description = "File list", body = ApiResponse<Value>))
+    params(FileListRequest),
+    responses((status = 200, description = "File list", body = ApiResponse<FileListData>))
 )]
 pub async fn get_file_list_by_query(
     State(state): State<AppState>,
-    Query(payload): Query<FileListQuery>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+    Query(payload): Query<FileListRequest>,
+) -> AppResult<Json<ApiResponse<FileListData>>> {
     let (list, total, page, page_size) = state.files.list(payload).await?;
     let list = list.into_iter().map(FileResponse::from).collect::<Vec<_>>();
-    Ok(Json(ApiResponse::ok(serde_json::json!({
-        "list": list,
-        "total": total,
-        "page": page,
-        "pageSize": page_size
-    }))))
+    Ok(Json(ApiResponse::ok(FileListData {
+        list,
+        total,
+        page,
+        page_size,
+    })))
 }
 
 #[utoipa::path(
@@ -71,16 +55,15 @@ pub async fn delete_file_by_id(
     tag = "file",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "File ID")),
-    request_body = FileEditPayload,
+    request_body = RenameFileRequest,
     responses((status = 200, description = "File renamed", body = ApiResponse<Value>))
 )]
 pub async fn edit_file_name_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(mut payload): Json<FileEditPayload>,
+    Json(payload): Json<RenameFileRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
-    payload.id = id;
-    state.files.edit_name(payload).await?;
+    state.files.edit_name(payload.into_input(id)).await?;
     Ok(Json(ApiResponse::ok_message("updated")))
 }
 
@@ -89,14 +72,14 @@ pub async fn edit_file_name_by_id(
     path = "/files/import-url",
     tag = "file",
     security(("bearer_auth" = [])),
-    request_body = ImportUrlPayload,
+    request_body = ImportFileUrlRequest,
     responses((status = 200, description = "URL imported", body = ApiResponse<Value>))
 )]
 pub async fn import_url(
     State(state): State<AppState>,
-    Json(payload): Json<ImportUrlPayload>,
+    Json(payload): Json<ImportFileUrlRequest>,
 ) -> AppResult<Json<ApiResponse<Value>>> {
-    state.files.import_url(payload).await?;
+    state.files.import_url(payload.into()).await?;
     Ok(Json(ApiResponse::ok_message("imported")))
 }
 
@@ -105,15 +88,15 @@ pub async fn import_url(
     path = "/files/upload",
     tag = "file",
     security(("bearer_auth" = [])),
-    params(UploadMetadataQuery),
+    params(UploadMetadataRequest),
     request_body(content = inline(UploadFileRequest), content_type = "multipart/form-data"),
-    responses((status = 200, description = "File uploaded", body = ApiResponse<Value>))
+    responses((status = 200, description = "File uploaded", body = ApiResponse<UploadFileData>))
 )]
 pub async fn upload_file(
     State(state): State<AppState>,
-    Query(query): Query<UploadMetadataQuery>,
+    Query(query): Query<UploadMetadataRequest>,
     mut multipart: Multipart,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<UploadFileData>>> {
     let mut pending_upload: Option<FileUpload> = None;
 
     loop {
@@ -165,8 +148,8 @@ pub async fn upload_file(
     };
     let file_url = uploaded.as_ref().map(|file| file.url.clone());
 
-    Ok(Json(ApiResponse::ok(serde_json::json!({
-        "file": uploaded,
-        "url": file_url
-    }))))
+    Ok(Json(ApiResponse::ok(UploadFileData {
+        file: uploaded,
+        url: file_url,
+    })))
 }

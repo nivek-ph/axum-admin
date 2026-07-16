@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
-use super::{FileEditPayload, FileError, FileListQuery, ImportUrlPayload, StoredFile};
+use super::{FileError, FileListQuery, ImportFileUrl, RenameFile, StoredFile};
 
 pub const MAX_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
 
@@ -150,10 +150,10 @@ impl FileService {
     ) -> Result<(Vec<StoredFile>, i64, i64, i64), FileError> {
         list(&self.pool, query).await
     }
-    pub async fn edit_name(&self, payload: FileEditPayload) -> Result<(), FileError> {
+    pub async fn edit_name(&self, payload: RenameFile) -> Result<(), FileError> {
         edit_name(&self.pool, payload).await
     }
-    pub async fn import_url(&self, payload: ImportUrlPayload) -> Result<(), FileError> {
+    pub async fn import_url(&self, payload: ImportFileUrl) -> Result<(), FileError> {
         import_url(&self.pool, payload).await
     }
     pub async fn begin_upload(
@@ -272,10 +272,7 @@ pub(crate) async fn list(
     Ok((list, total, page, page_size))
 }
 
-pub(crate) async fn edit_name(
-    pool: &sqlx::PgPool,
-    payload: FileEditPayload,
-) -> Result<(), FileError> {
+pub(crate) async fn edit_name(pool: &sqlx::PgPool, payload: RenameFile) -> Result<(), FileError> {
     sqlx::query("update uploaded_files set name = $1, updated_at = now() where id = $2")
         .bind(payload.name)
         .bind(payload.id)
@@ -317,7 +314,7 @@ pub(crate) async fn delete_file(pool: &sqlx::PgPool, id: i64) -> Result<(), File
 
 pub(crate) async fn import_url(
     pool: &sqlx::PgPool,
-    payload: ImportUrlPayload,
+    payload: ImportFileUrl,
 ) -> Result<(), FileError> {
     let ext = normalized_extension(&payload.url);
     sqlx::query(
