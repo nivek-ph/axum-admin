@@ -51,7 +51,11 @@ const FILE_TOO_LARGE: ErrorSpec = ErrorSpec::new(
 
 impl From<axum::extract::multipart::MultipartError> for AppError {
     fn from(error: axum::extract::multipart::MultipartError) -> Self {
-        MULTIPART_FIELD_FAILED.into_error().with_source(error)
+        if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            FILE_TOO_LARGE.into_error().with_source(error)
+        } else {
+            MULTIPART_FIELD_FAILED.into_error().with_source(error)
+        }
     }
 }
 

@@ -6,9 +6,12 @@ use axum::{
     extract::DefaultBodyLimit,
     routing::{delete, get, patch, post},
 };
+use file_storage::files::MAX_UPLOAD_BYTES;
 pub(crate) use handler::*;
 
 use crate::state::AppState;
+
+const MAX_UPLOAD_REQUEST_BYTES: usize = MAX_UPLOAD_BYTES + 1024 * 1024;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -16,7 +19,7 @@ pub fn routes() -> Router<AppState> {
         .route("/import-url", post(handler::import_url))
         .route(
             "/upload",
-            post(handler::upload_file).layer(DefaultBodyLimit::disable()),
+            post(handler::upload_file).layer(DefaultBodyLimit::max(MAX_UPLOAD_REQUEST_BYTES)),
         )
         .route("/{id}", delete(handler::delete_file_by_id))
         .route("/{id}/name", patch(handler::edit_file_name_by_id))
@@ -55,6 +58,19 @@ mod tests {
             body.extend_from_slice(b"\r\n");
         }
         body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        (
+            format!("multipart/form-data; boundary={boundary}"),
+            Body::from(body),
+        )
+    }
+
+    fn multipart_value_body(bytes: Vec<u8>) -> (String, Body) {
+        let boundary = format!("ava-upload-{}", Uuid::new_v4());
+        let mut body = Vec::new();
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"note\"\r\n\r\n");
+        body.extend_from_slice(&bytes);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
         (
             format!("multipart/form-data; boundary={boundary}"),
             Body::from(body),
@@ -188,6 +204,36 @@ mod tests {
         tokio::fs::remove_dir_all(upload_dir)
             .await
             .expect("test upload directory should be removed");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn upload_route_rejects_an_oversized_non_file_part(pool: sqlx::PgPool) {
+        let upload_dir = upload_dir();
+        let mut state = crate::state::test_state(pool.clone());
+        state.files = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+        let app = routes().with_state(state);
+        let (content_type, body) =
+            multipart_value_body(vec![0; MAX_UPLOAD_BYTES + 1024 * 1024 + 1]);
+
+        let response = app
+            .oneshot(
+                Request::post("/upload")
+                    .header(CONTENT_TYPE, content_type)
+                    .body(body)
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let body = response_json(response).await;
+        assert_eq!(body["code"], "FILE_TOO_LARGE");
+
+        let stored_count: i64 = sqlx::query_scalar("select count(*) from uploaded_files")
+            .fetch_one(&pool)
+            .await
+            .expect("stored file count should be readable");
+        assert_eq!(stored_count, 0);
+        assert!(!upload_dir.exists());
     }
 
     #[sqlx::test(migrations = "../../migrations")]
