@@ -7,7 +7,8 @@ pub type ParameterRequest = metadata::parameters::ParameterInput;
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ParameterByKeyRequest {
-    pub key: Option<String>,
+    /// Parameter key
+    pub key: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
