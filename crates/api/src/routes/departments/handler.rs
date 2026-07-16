@@ -2,9 +2,11 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use serde_json::Value;
 
-use super::dto::{DeptNodeResponse, DeptPayload, DeptResponse};
+use super::dto::{
+    DeptDetail, DeptDetailData, DeptMutationData, DeptNodeResponse, DeptPayload, DeptResponse,
+    DeptTreeData, EmptyDept,
+};
 use crate::{ApiResponse, AppResult, state::AppState};
 
 #[utoipa::path(
@@ -12,9 +14,11 @@ use crate::{ApiResponse, AppResult, state::AppState};
     path = "/depts",
     tag = "department",
     security(("bearer_auth" = [])),
-    responses((status = 200, description = "Department tree", body = ApiResponse<Value>))
+    responses((status = 200, description = "Department tree", body = ApiResponse<DeptTreeData>))
 )]
-pub async fn get_dept_tree(State(state): State<AppState>) -> AppResult<Json<ApiResponse<Value>>> {
+pub async fn get_dept_tree(
+    State(state): State<AppState>,
+) -> AppResult<Json<ApiResponse<DeptTreeData>>> {
     let tree = state
         .departments
         .tree()
@@ -22,9 +26,7 @@ pub async fn get_dept_tree(State(state): State<AppState>) -> AppResult<Json<ApiR
         .into_iter()
         .map(DeptNodeResponse::from)
         .collect::<Vec<_>>();
-    Ok(Json(ApiResponse::ok(serde_json::json!({
-        "list": tree
-    }))))
+    Ok(Json(ApiResponse::ok(DeptTreeData { list: tree })))
 }
 
 #[utoipa::path(
@@ -33,16 +35,17 @@ pub async fn get_dept_tree(State(state): State<AppState>) -> AppResult<Json<ApiR
     tag = "department",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Department ID")),
-    responses((status = 200, description = "Department detail", body = ApiResponse<Value>))
+    responses((status = 200, description = "Department detail", body = ApiResponse<DeptDetailData>))
 )]
 pub async fn find_dept_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<Value>>> {
-    let item = state.departments.find(id).await?.map(DeptResponse::from);
-    Ok(Json(ApiResponse::ok(serde_json::json!({
-        "dept": item.map(|dept| serde_json::json!(dept)).unwrap_or_else(|| serde_json::json!({}))
-    }))))
+) -> AppResult<Json<ApiResponse<DeptDetailData>>> {
+    let dept = match state.departments.find(id).await? {
+        Some(dept) => DeptDetail::Dept(DeptResponse::from(dept)),
+        None => DeptDetail::Empty(EmptyDept {}),
+    };
+    Ok(Json(ApiResponse::ok(DeptDetailData { dept })))
 }
 
 #[utoipa::path(
@@ -51,14 +54,14 @@ pub async fn find_dept_by_id(
     tag = "department",
     security(("bearer_auth" = [])),
     request_body = DeptPayload,
-    responses((status = 200, description = "Department created", body = ApiResponse<Value>))
+    responses((status = 200, description = "Department created", body = ApiResponse<DeptMutationData>))
 )]
 pub async fn create_dept(
     State(state): State<AppState>,
     Json(payload): Json<DeptPayload>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<DeptMutationData>>> {
     state.departments.create(payload.into()).await?;
-    Ok(Json(ApiResponse::ok_message("created")))
+    Ok(Json(ApiResponse::new("OK", "created", None)))
 }
 
 #[utoipa::path(
@@ -68,15 +71,15 @@ pub async fn create_dept(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Department ID")),
     request_body = DeptPayload,
-    responses((status = 200, description = "Department updated", body = ApiResponse<Value>))
+    responses((status = 200, description = "Department updated", body = ApiResponse<DeptMutationData>))
 )]
 pub async fn update_dept_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<DeptPayload>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<DeptMutationData>>> {
     state.departments.update(id, payload.into()).await?;
-    Ok(Json(ApiResponse::ok_message("updated")))
+    Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
 
 #[utoipa::path(
@@ -85,12 +88,12 @@ pub async fn update_dept_by_id(
     tag = "department",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Department ID")),
-    responses((status = 200, description = "Department deleted", body = ApiResponse<Value>))
+    responses((status = 200, description = "Department deleted", body = ApiResponse<DeptMutationData>))
 )]
 pub async fn delete_dept_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<DeptMutationData>>> {
     state.departments.delete(id).await?;
-    Ok(Json(ApiResponse::ok_message("deleted")))
+    Ok(Json(ApiResponse::new("OK", "deleted", None)))
 }
