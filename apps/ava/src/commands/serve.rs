@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use audit::{login_logs::LoginLogService, operation_logs::OperationLogService};
+use audit::AuditService;
 use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
 use file_storage::files::FileService;
 use iam::{
@@ -37,8 +37,7 @@ pub async fn run(config: ServeConfig) -> Result<()> {
         .await
         .context("authorization catalog and cache should initialize")?;
     let users = UserService::with_access(pool.clone(), password_service, access.clone());
-    let login_logs = LoginLogService::new(pool.clone());
-    let operation_logs = OperationLogService::new(pool.clone());
+    let audits = AuditService::new(pool.clone());
     let state = api::AppState {
         tokens,
         captcha,
@@ -49,8 +48,7 @@ pub async fn run(config: ServeConfig) -> Result<()> {
         dictionaries: DictionaryService::new(pool.clone()),
         parameters: ParameterService::new(pool.clone()),
         menus: MenuService::new(pool.clone(), access),
-        login_logs,
-        operation_logs,
+        audits,
         files: FileService::new(pool, "./uploads"),
     };
 

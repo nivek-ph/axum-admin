@@ -3,6 +3,7 @@ import type { App } from 'vue';
 import UiAlert from './UiAlert.vue';
 import UiButton from './UiButton.vue';
 import UiCard from './UiCard.vue';
+import UiDateTimePicker from './UiDateTimePicker.vue';
 import UiDialog from './UiDialog.vue';
 import UiForm from './UiForm.vue';
 import UiFormItem from './UiFormItem.vue';
@@ -21,6 +22,7 @@ export const UiComponents = {
     app.component('UiAlert', UiAlert);
     app.component('UiButton', UiButton);
     app.component('UiCard', UiCard);
+    app.component('UiDateTimePicker', UiDateTimePicker);
     app.component('UiDialog', UiDialog);
     app.component('UiForm', UiForm);
     app.component('UiFormItem', UiFormItem);

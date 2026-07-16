@@ -1,3 +1,7 @@
+use audit::{
+    AuditAction, AuditContext, AuditEvent, AuditReason, AuditResource, AuditResult, AuditService,
+    AuditValue, FieldChange,
+};
 use auth::password::PasswordService;
 use uuid::Uuid;
 
@@ -20,12 +24,14 @@ pub struct UserService {
     pool: sqlx::PgPool,
     passwords: PasswordService,
     access: AccessService,
+    audit: AuditService,
 }
 
 impl UserService {
     pub fn new(pool: sqlx::PgPool, passwords: PasswordService) -> Self {
         Self {
             access: AccessService::new(pool.clone()),
+            audit: AuditService::new(pool.clone()),
             pool,
             passwords,
         }
@@ -37,6 +43,7 @@ impl UserService {
         access: AccessService,
     ) -> Self {
         Self {
+            audit: AuditService::new(pool.clone()),
             pool,
             passwords,
             access,
@@ -153,11 +160,59 @@ impl UserService {
         actor_user_id: i64,
         target_user_id: i64,
         payload: SetUserRolesRequest,
+        audit_context: AuditContext,
     ) -> Result<(), UserError> {
-        ensure_user_in_scope(&self.pool, actor_user_id, target_user_id).await?;
-        ensure_role_assignment_actor(&self.pool, actor_user_id, &payload.role_ids).await?;
-        set_user_roles(&self.pool, target_user_id, payload).await?;
+        if let Err(error) = ensure_user_in_scope(&self.pool, actor_user_id, target_user_id).await {
+            self.record_role_assignment_failure(&audit_context, target_user_id, &error)
+                .await;
+            return Err(error);
+        }
+        if let Err(error) =
+            ensure_role_assignment_actor(&self.pool, actor_user_id, &payload.role_ids).await
+        {
+            self.record_role_assignment_failure(&audit_context, target_user_id, &error)
+                .await;
+            return Err(error);
+        }
+        if let Err(error) =
+            set_user_roles_with_audit(&self.pool, target_user_id, payload, audit_context.clone())
+                .await
+        {
+            self.record_role_assignment_failure(&audit_context, target_user_id, &error)
+                .await;
+            return Err(error);
+        }
         self.bump_access_version().await
+    }
+
+    async fn record_role_assignment_failure(
+        &self,
+        context: &AuditContext,
+        target_user_id: i64,
+        error: &UserError,
+    ) {
+        let (result, reason_code) = match error {
+            UserError::NotFound | UserError::InvalidRoles => {
+                (AuditResult::Denied, AuditReason::InvalidRoleAssignment)
+            }
+            UserError::AlreadyExists
+            | UserError::InvalidPassword
+            | UserError::Password(_)
+            | UserError::Database(_)
+            | UserError::Audit(_)
+            | UserError::AccessPropagation(_) => (AuditResult::Failed, AuditReason::InternalError),
+        };
+        self.audit
+            .record_best_effort(AuditEvent {
+                actor: context.actor.clone(),
+                action: AuditAction::AssignUserRoles,
+                resource: AuditResource::User(target_user_id),
+                result,
+                reason_code: Some(reason_code),
+                source: context.source.clone(),
+                changes: Vec::new(),
+            })
+            .await;
     }
 
     async fn bump_access_version(&self) -> Result<(), UserError> {
@@ -595,14 +650,58 @@ pub(crate) async fn reset_password(
     Ok(())
 }
 
-pub(crate) async fn set_user_roles(
+async fn set_user_roles_with_audit(
     pool: &sqlx::PgPool,
     user_id: i64,
     payload: SetUserRolesRequest,
+    audit_context: AuditContext,
 ) -> Result<(), UserError> {
     let role_ids = normalize_role_ids(Some(&payload.role_ids))?;
     ensure_assignable_roles(pool, &role_ids).await?;
-    replace_user_roles(pool, user_id, role_ids).await?;
+
+    let mut tx = pool.begin().await?;
+    let previous_role_ids = sqlx::query_scalar::<_, i64>(
+        "select role_id from sys_user_roles where user_id = $1 order by role_id",
+    )
+    .bind(user_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    sqlx::query("delete from sys_user_roles where user_id = $1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query(
+        r#"
+        insert into sys_user_roles (user_id, role_id)
+        select $1, unnest($2::bigint[])
+        on conflict do nothing
+        "#,
+    )
+    .bind(user_id)
+    .bind(&role_ids)
+    .execute(&mut *tx)
+    .await?;
+
+    AuditService::record_in(
+        &mut tx,
+        AuditEvent {
+            actor: audit_context.actor,
+            action: AuditAction::AssignUserRoles,
+            resource: AuditResource::User(user_id),
+            result: AuditResult::Succeeded,
+            reason_code: None,
+            source: audit_context.source,
+            changes: vec![FieldChange {
+                field: "role_ids".to_string(),
+                before: AuditValue::Ids(previous_role_ids),
+                after: AuditValue::Ids(role_ids),
+            }],
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -798,19 +897,17 @@ async fn replace_user_roles(
         .execute(&mut *tx)
         .await?;
 
-    for role_id in role_ids {
-        sqlx::query(
-            r#"
-            insert into sys_user_roles (user_id, role_id)
-            values ($1, $2)
-            on conflict do nothing
-            "#,
-        )
-        .bind(user_id)
-        .bind(role_id)
-        .execute(&mut *tx)
-        .await?;
-    }
+    sqlx::query(
+        r#"
+        insert into sys_user_roles (user_id, role_id)
+        select $1, unnest($2::bigint[])
+        on conflict do nothing
+        "#,
+    )
+    .bind(user_id)
+    .bind(&role_ids)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
     Ok(())
@@ -878,6 +975,48 @@ async fn ensure_role_assignment_actor(
 mod tests {
     use super::*;
 
+    async fn seed_role_assignment(pool: &sqlx::PgPool) {
+        sqlx::query(
+            r#"
+            insert into sys_users (
+                id, uuid, username, password_hash, nick_name, header_img, home_route,
+                enable, dept_id, is_system
+            ) values
+                (100, 'actor-uuid', 'actor', 'hash', 'Actor', '', 'dashboard', true, 1, false),
+                (101, 'target-uuid', 'target', 'hash', 'Target', '', 'dashboard', true, 1, false)
+            "#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into sys_roles (id, code, name, status, sort, data_scope, is_system)
+            values (2, 'audited_role', 'Audited Role', 'enabled', 10, 'self', false)
+            "#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query("insert into sys_user_roles (user_id, role_id) values (101, 1)")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    fn audit_context() -> AuditContext {
+        AuditContext {
+            actor: audit::AuditActor {
+                id: Some(100),
+                label: "actor".to_string(),
+            },
+            source: audit::AuditSource {
+                ip: "127.0.0.1".to_string(),
+                user_agent: "iam-test".to_string(),
+            },
+        }
+    }
+
     #[test]
     fn scope_sql_clause_matches_filter_shape() {
         assert_eq!(scope_sql_clause(&DataScopeFilter::All), "");
@@ -901,5 +1040,66 @@ mod tests {
             normalize_role_ids(Some(&vec![2, 1, 2])).unwrap(),
             vec![1, 2]
         );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn role_assignment_and_audit_event_commit_together(pool: sqlx::PgPool) {
+        seed_role_assignment(&pool).await;
+
+        set_user_roles_with_audit(
+            &pool,
+            101,
+            SetUserRolesRequest { role_ids: vec![2] },
+            audit_context(),
+        )
+        .await
+        .unwrap();
+
+        let role_ids = sqlx::query_scalar::<_, i64>(
+            "select role_id from sys_user_roles where user_id = 101 order by role_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(role_ids, vec![2]);
+
+        let (action, result, changes): (String, String, serde_json::Value) = sqlx::query_as(
+            "select action, result, changes from sys_audit_events where resource_type = 'user' and resource_id = '101'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(action, "user.assign_roles");
+        assert_eq!(result, "succeeded");
+        assert_eq!(changes[0]["field"], "role_ids");
+        assert_eq!(changes[0]["before"]["value"], serde_json::json!([1]));
+        assert_eq!(changes[0]["after"]["value"], serde_json::json!([2]));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn role_assignment_rolls_back_when_audit_insert_fails(pool: sqlx::PgPool) {
+        seed_role_assignment(&pool).await;
+        sqlx::query("drop table sys_audit_events")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let error = set_user_roles_with_audit(
+            &pool,
+            101,
+            SetUserRolesRequest { role_ids: vec![2] },
+            audit_context(),
+        )
+        .await
+        .expect_err("missing audit store should fail the role assignment");
+        assert!(matches!(error, UserError::Audit(_)));
+
+        let role_ids = sqlx::query_scalar::<_, i64>(
+            "select role_id from sys_user_roles where user_id = 101 order by role_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(role_ids, vec![1]);
     }
 }

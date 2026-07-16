@@ -16,30 +16,26 @@ CREATE TABLE sys_users (
 
 CREATE INDEX idx_sys_users_username ON sys_users(username);
 
-CREATE TABLE sys_login_logs (
+CREATE TABLE sys_audit_events (
     id BIGSERIAL PRIMARY KEY,
-    username TEXT NOT NULL,
-    ip TEXT NOT NULL DEFAULT '',
-    status BOOLEAN NOT NULL,
-    error_message TEXT NOT NULL DEFAULT '',
-    agent TEXT NOT NULL DEFAULT '',
-    user_id BIGINT,
+    actor_id BIGINT,
+    actor_label TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT,
+    result TEXT NOT NULL,
+    reason_code TEXT,
+    source_ip TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    changes JSONB NOT NULL DEFAULT '[]'::JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE sys_operation_records (
-    id BIGSERIAL PRIMARY KEY,
-    ip TEXT NOT NULL DEFAULT '',
-    method TEXT NOT NULL,
-    path TEXT NOT NULL,
-    status INTEGER NOT NULL DEFAULT 200,
-    agent TEXT NOT NULL DEFAULT '',
-    error_message TEXT NOT NULL DEFAULT '',
-    body TEXT NOT NULL DEFAULT '',
-    resp TEXT NOT NULL DEFAULT '',
-    user_id BIGINT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+CREATE INDEX idx_sys_audit_events_actor ON sys_audit_events(actor_id, created_at DESC);
+CREATE INDEX idx_sys_audit_events_action ON sys_audit_events(action, created_at DESC);
+CREATE INDEX idx_sys_audit_events_resource
+    ON sys_audit_events(resource_type, resource_id, created_at DESC);
+CREATE INDEX idx_sys_audit_events_result ON sys_audit_events(result, created_at DESC);
 
 CREATE TABLE sys_params (
     id BIGSERIAL PRIMARY KEY,

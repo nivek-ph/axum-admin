@@ -1,8 +1,9 @@
 import { mount } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import { nextTick, ref } from 'vue';
 import { describe, expect, it } from 'vitest';
 
 import UiButton from './UiButton.vue';
+import UiDateTimePicker from './UiDateTimePicker.vue';
 import UiDialog from './UiDialog.vue';
 import UiInput from './UiInput.vue';
 import UiSelect from './UiSelect.vue';
@@ -49,6 +50,45 @@ describe('ui primitives', () => {
     await wrapper.get('input').setValue('admin');
 
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['admin']);
+  });
+
+  it('reads and emits UTC timestamps from UiDateTimePicker', async () => {
+    const wrapper = mount(UiDateTimePicker, {
+      props: {
+        modelValue: '2026-07-16T14:00:00Z',
+        label: 'Start time (UTC)',
+      },
+      attrs: {
+        class: 'audit-time-filter',
+        name: 'startedAt',
+        step: '60',
+      },
+    });
+
+    expect(wrapper.classes()).toContain('audit-time-filter');
+    expect((wrapper.get('input').element as HTMLInputElement).value).toBe('2026-07-16T14:00');
+    await wrapper.get('input').setValue('2026-07-16T15:30');
+
+    expect(wrapper.get('input').attributes('type')).toBe('datetime-local');
+    expect(wrapper.get('input').attributes('name')).toBe('startedAt');
+    expect(wrapper.get('input').attributes('step')).toBe('60');
+    expect(wrapper.get('input').attributes('aria-label')).toBe('Start time (UTC)');
+    expect(wrapper.text()).toContain('UTC');
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['2026-07-16T15:30:00.000Z']);
+  });
+
+  it('forwards updated attributes to the date-time input', async () => {
+    const name = ref('startedAt');
+    const wrapper = mount({
+      components: { UiDateTimePicker },
+      setup: () => ({ name }),
+      template: '<UiDateTimePicker model-value="" :name="name" />',
+    });
+
+    expect(wrapper.get('input').attributes('name')).toBe('startedAt');
+    name.value = 'endedAt';
+    await nextTick();
+    expect(wrapper.get('input').attributes('name')).toBe('endedAt');
   });
 
   it('updates UiSelect model value from the application menu', async () => {

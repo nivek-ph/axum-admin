@@ -12,8 +12,7 @@ fn test_state() -> api::AppState {
     let tokens = auth::token::TokenService::without_revocation_store("test-secret");
     let captcha = auth::captcha::CaptchaService::without_store();
     let users = iam::users::UserService::new(pool.clone(), passwords);
-    let login_logs = audit::login_logs::LoginLogService::new(pool.clone());
-    let operation_logs = audit::operation_logs::OperationLogService::new(pool.clone());
+    let audits = audit::AuditService::new(pool.clone());
     api::AppState {
         tokens,
         captcha,
@@ -27,8 +26,7 @@ fn test_state() -> api::AppState {
             pool.clone(),
             iam::access::AccessService::new(pool.clone()),
         ),
-        login_logs,
-        operation_logs,
+        audits,
         files: file_storage::files::FileService::new(pool, "./uploads"),
     }
 }

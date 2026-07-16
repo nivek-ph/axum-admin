@@ -16,8 +16,7 @@ const coreMenuItems: CoreMenuItem[] = [
   { key: 'params', label: 'Params', path: '/params' },
   { key: 'dictionaries', label: 'Dictionaries', path: '/dictionaries' },
   { key: 'files', label: 'Files', path: '/files' },
-  { key: 'login-logs', label: 'Login logs', path: '/login-logs' },
-  { key: 'operation-logs', label: 'Operation logs', path: '/operation-logs' },
+  { key: 'audit-events', label: 'Audit events', path: '/audit-events' },
   { key: 'profile', label: 'Profile', path: '/profile' },
 ];
 

@@ -84,10 +84,8 @@ impl Modify for SecurityAddon {
         crate::routes::parameters::update_sys_params_by_id,
         crate::routes::parameters::delete_sys_params_by_id,
         crate::routes::parameters::delete_sys_params_by_ids,
-        crate::routes::audit::login_logs::get_login_log_list,
-        crate::routes::audit::login_logs::find_login_log_by_id,
-        crate::routes::audit::operation_logs::get_operation_log_list,
-        crate::routes::audit::operation_logs::find_operation_log_by_id,
+        crate::routes::audit::events::get_audit_events,
+        crate::routes::audit::events::find_audit_event,
     ),
     tags(
         (name = "auth", description = "Auth"),

@@ -12,8 +12,7 @@ const MenuListView = () => import('@/views/menus/MenuListView.vue');
 const ParamListView = () => import('@/views/params/ParamListView.vue');
 const DictionaryListView = () => import('@/views/dictionaries/DictionaryListView.vue');
 const FileLibraryView = () => import('@/views/files/FileLibraryView.vue');
-const LoginLogView = () => import('@/views/logs/LoginLogView.vue');
-const OperationLogView = () => import('@/views/logs/OperationLogView.vue');
+const AuditEventView = () => import('@/views/logs/AuditEventView.vue');
 const ProfileView = () => import('@/views/profile/ProfileView.vue');
 const DeptTreeView = () => import('@/views/system/depts/DeptTreeView.vue');
 
@@ -31,8 +30,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'params', name: 'params', component: ParamListView },
       { path: 'dictionaries', name: 'dictionaries', component: DictionaryListView },
       { path: 'files', name: 'files', component: FileLibraryView },
-      { path: 'login-logs', name: 'login-logs', component: LoginLogView },
-      { path: 'operation-logs', name: 'operation-logs', component: OperationLogView },
+      { path: 'audit-events', name: 'audit-events', component: AuditEventView },
       { path: 'profile', name: 'profile', component: ProfileView },
       { path: 'departments', name: 'departments', component: DeptTreeView },
     ],

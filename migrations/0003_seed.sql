@@ -53,8 +53,7 @@ VALUES
     (3304, 33, '', 'files:rename', true, '', 40, 'Rename file', '', 'action', 'enabled', 'system:file:rename'),
 
     (40, NULL, '/audit', 'audit', false, 'Layout', 50, 'Audit', 'history', 'directory', 'enabled', NULL),
-    (41, 40, '/login-logs', 'login-logs', false, 'view/logs/login.vue', 10, 'Login Logs', 'log-in', 'page', 'enabled', 'system:login-log:list'),
-    (42, 40, '/operation-logs', 'operation-logs', false, 'view/logs/operation.vue', 20, 'Operation Logs', 'clipboard-list', 'page', 'enabled', 'system:operation-log:list');
+    (41, 40, '/audit-events', 'audit-events', false, 'view/logs/audit.vue', 10, 'Audit Events', 'history', 'page', 'enabled', 'system:audit-event:list');
 
 INSERT INTO sys_menu_apis (menu_id, method, path_pattern)
 VALUES
@@ -113,7 +112,5 @@ VALUES
     (3303, 'DELETE', '/api/files/{id}'),
     (3304, 'PATCH', '/api/files/{id}/name'),
 
-    (41, 'GET', '/api/login-logs'),
-    (41, 'GET', '/api/login-logs/{id}'),
-    (42, 'GET', '/api/operation-logs'),
-    (42, 'GET', '/api/operation-logs/{id}');
+    (41, 'GET', '/api/audit/events'),
+    (41, 'GET', '/api/audit/events/{id}');

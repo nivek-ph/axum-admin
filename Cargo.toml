@@ -45,9 +45,13 @@ sqlx = { version = "0.9", features = [
   "migrate",
   "postgres",
   "runtime-tokio",
+  "time",
   "tls-rustls",
 ] }
+strum = { version = "0.28", features = ["derive"] }
+strum_macros = { version = "0.28" }
 thiserror = "2"
+time = { version = "0.3", features = ["parsing"] }
 tokio = { version = "1", features = [
   "macros",
   "rt-multi-thread",
