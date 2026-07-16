@@ -10,12 +10,6 @@ use utoipa::{IntoParams, ToSchema};
 use super::dto::FileResponse;
 use crate::{ApiResponse, AppResult, mappings::MULTIPLE_FILES_NOT_SUPPORTED, state::AppState};
 
-async fn abort_upload(upload: FileUpload, reason: &'static str) {
-    if let Err(error) = upload.abort().await {
-        tracing::error!(%error, reason, "failed to clean up upload");
-    }
-}
-
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct UploadMetadataQuery {
@@ -169,10 +163,15 @@ pub async fn upload_file(
         Some(upload) => Some(FileResponse::from(upload.finish().await?)),
         None => None,
     };
-    let file_url = uploaded.as_ref().map(|file| file.url.clone());
 
     Ok(Json(ApiResponse::ok(serde_json::json!({
         "file": uploaded,
-        "url": file_url
+        "url": uploaded.as_ref().map(|file| &file.url),
     }))))
+}
+
+async fn abort_upload(upload: FileUpload, reason: &'static str) {
+    if let Err(error) = upload.abort().await {
+        tracing::error!(%error, reason, "failed to clean up upload");
+    }
 }
