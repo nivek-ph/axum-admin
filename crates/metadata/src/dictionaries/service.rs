@@ -252,12 +252,15 @@ pub(crate) async fn create_detail(
     dictionary_id: i64,
     payload: DictionaryDetailInput,
 ) -> Result<(), DictionaryError> {
-    let (level, path) = detail_level_and_path(pool, payload.parent_id, dictionary_id)
-        .await?
-        .ok_or(DictionaryError::DetailNotFound {
-            dictionary_id,
-            detail_id: payload.parent_id.unwrap_or_default(),
-        })?;
+    let (level, path) = match payload.parent_id {
+        Some(parent_id) => detail_level_and_path(pool, Some(parent_id), dictionary_id)
+            .await?
+            .ok_or(DictionaryError::DetailNotFound {
+                dictionary_id,
+                detail_id: parent_id,
+            })?,
+        None => (0, String::new()),
+    };
     sqlx::query(
         r#"
         insert into sys_dictionary_details
@@ -313,31 +316,33 @@ pub(crate) async fn update_detail(
             });
         }
     }
-    let parent = match payload.parent_id {
-        Some(parent_id) => sqlx::query_as::<_, (i32, String)>(
-            "select level, path from sys_dictionary_details where sys_dictionary_id = $1 and id = $2",
-        )
-        .bind(dictionary_id)
-        .bind(parent_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        .map(|(level, path)| {
-            (
-                level + 1,
-                if path.is_empty() {
-                    parent_id.to_string()
-                } else {
-                    format!("{path},{parent_id}")
-                },
+    let (level, path) = match payload.parent_id {
+        Some(parent_id) => {
+            let parent_info: Option<(i32, String)> = sqlx::query_as(
+                "select level, path from sys_dictionary_details where sys_dictionary_id = $1 and id = $2",
             )
-        }),
-        None => Some((0, String::new())),
-    }
-    .ok_or(DictionaryError::DetailNotFound {
-        dictionary_id,
-        detail_id: payload.parent_id.unwrap_or_default(),
-    })?;
-    let (level, path) = parent;
+            .bind(dictionary_id)
+            .bind(parent_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+
+            match parent_info {
+                Some((level, path)) => {
+                    let new_path = if path.is_empty() {
+                        parent_id.to_string()
+                    } else {
+                        format!("{path},{parent_id}")
+                    };
+                    Ok((level + 1, new_path))
+                }
+                None => Err(DictionaryError::DetailNotFound {
+                    dictionary_id,
+                    detail_id: parent_id,
+                }),
+            }
+        }
+        None => Ok((0, String::new())),
+    }?;
     let result = sqlx::query(
         r#"
         update sys_dictionary_details

@@ -91,6 +91,39 @@ async fn oversized_file_is_rejected_while_streaming_and_cleaned_up(pool: sqlx::P
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn file_at_the_limit_is_fully_persisted(pool: sqlx::PgPool) {
+    let upload_dir = upload_dir();
+    let service = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+    let mut upload = service
+        .begin_upload("limit.bin", "", "")
+        .await
+        .expect("upload should start");
+
+    upload
+        .write_chunk(&vec![0; MAX_UPLOAD_BYTES])
+        .await
+        .expect("bytes at the limit should be accepted");
+    let stored = upload.finish().await.expect("upload should finish");
+
+    let stored_count: i64 = sqlx::query_scalar("select count(*) from uploaded_files")
+        .fetch_one(&pool)
+        .await
+        .expect("stored file count should be readable");
+    assert_eq!(stored_count, 1);
+    let stored_name = Path::new(&stored.url)
+        .file_name()
+        .expect("stored URL should contain a file name");
+    let metadata = tokio::fs::metadata(upload_dir.join(stored_name))
+        .await
+        .expect("stored file should exist");
+    assert_eq!(metadata.len(), MAX_UPLOAD_BYTES as u64);
+
+    tokio::fs::remove_dir_all(upload_dir)
+        .await
+        .expect("test upload directory should be removed");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn finalization_failure_removes_the_temporary_file(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
     let service = FileService::new(pool, upload_dir.to_string_lossy());
