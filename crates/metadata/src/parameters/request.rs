@@ -10,3 +10,11 @@ pub struct ParamListQuery {
     pub name: Option<String>,
     pub key: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+pub struct ParameterInput {
+    pub name: String,
+    pub key: String,
+    pub value: String,
+    pub desc: String,
+}
