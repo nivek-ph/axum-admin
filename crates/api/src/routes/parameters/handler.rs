@@ -129,17 +129,16 @@ pub async fn delete_sys_params_by_ids(
     path = "/params/by-key",
     tag = "parameter",
     security(("bearer_auth" = [])),
-    params(("key" = String, Query, description = "Parameter key")),
+    params(ParameterByKeyRequest),
     responses((status = 200, description = "Parameter value", body = ApiResponse<ParameterByKeyData>))
 )]
 pub async fn get_sys_param(
     State(state): State<AppState>,
     Query(payload): Query<ParameterByKeyRequest>,
 ) -> AppResult<Json<ApiResponse<ParameterByKeyData>>> {
-    let key = payload.key.unwrap_or_default();
     let item = state
         .parameters
-        .by_key(&key)
+        .by_key(&payload.key)
         .await?
         .map(ParamResponse::from);
     Ok(Json(ApiResponse::ok(ParameterByKeyData {
