@@ -2,10 +2,11 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use iam::roles::{RoleDeptPayload, RoleMenuPayload, RolePayload, RoleUsersPayload};
-use serde_json::Value;
 
-use super::dto::RoleResponse;
+use super::dto::{
+    RoleData, RoleDeptIdsData, RoleDeptRequest, RoleListData, RoleMenuIdsData, RoleMenuRequest,
+    RoleMutationData, RoleRequest, RoleResponse, RoleUserIdsData, RoleUsersRequest,
+};
 use crate::{ApiResponse, AppResult, state::AppState};
 
 #[utoipa::path(
@@ -13,9 +14,11 @@ use crate::{ApiResponse, AppResult, state::AppState};
     path = "/roles",
     tag = "role",
     security(("bearer_auth" = [])),
-    responses((status = 200, description = "Role list", body = ApiResponse<Value>))
+    responses((status = 200, description = "Role list", body = ApiResponse<RoleListData>))
 )]
-pub async fn get_roles(State(state): State<AppState>) -> AppResult<Json<ApiResponse<Value>>> {
+pub async fn get_roles(
+    State(state): State<AppState>,
+) -> AppResult<Json<ApiResponse<RoleListData>>> {
     let list = state
         .roles
         .list()
@@ -24,7 +27,7 @@ pub async fn get_roles(State(state): State<AppState>) -> AppResult<Json<ApiRespo
         .map(RoleResponse::from)
         .collect::<Vec<_>>();
 
-    Ok(Json(ApiResponse::ok(serde_json::json!({ "list": list }))))
+    Ok(Json(ApiResponse::ok(RoleListData { list })))
 }
 
 #[utoipa::path(
@@ -32,16 +35,16 @@ pub async fn get_roles(State(state): State<AppState>) -> AppResult<Json<ApiRespo
     path = "/roles",
     tag = "role",
     security(("bearer_auth" = [])),
-    request_body = RolePayload,
-    responses((status = 200, description = "Role created", body = ApiResponse<Value>))
+    request_body = RoleRequest,
+    responses((status = 200, description = "Role created", body = ApiResponse<RoleData>))
 )]
 pub async fn create_role(
     State(state): State<AppState>,
-    Json(payload): Json<RolePayload>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+    Json(payload): Json<RoleRequest>,
+) -> AppResult<Json<ApiResponse<RoleData>>> {
     let role = RoleResponse::from(state.roles.create(payload).await?);
 
-    Ok(Json(ApiResponse::ok(serde_json::json!({ "role": role }))))
+    Ok(Json(ApiResponse::ok(RoleData { role })))
 }
 
 #[utoipa::path(
@@ -50,17 +53,17 @@ pub async fn create_role(
     tag = "role",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
-    request_body = RolePayload,
-    responses((status = 200, description = "Role updated", body = ApiResponse<Value>))
+    request_body = RoleRequest,
+    responses((status = 200, description = "Role updated", body = ApiResponse<RoleData>))
 )]
 pub async fn update_role(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(payload): Json<RolePayload>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+    Json(payload): Json<RoleRequest>,
+) -> AppResult<Json<ApiResponse<RoleData>>> {
     let role = RoleResponse::from(state.roles.update(id, payload).await?);
 
-    Ok(Json(ApiResponse::ok(serde_json::json!({ "role": role }))))
+    Ok(Json(ApiResponse::ok(RoleData { role })))
 }
 
 #[utoipa::path(
@@ -69,15 +72,15 @@ pub async fn update_role(
     tag = "role",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
-    responses((status = 200, description = "Role deleted", body = ApiResponse<Value>))
+    responses((status = 200, description = "Role deleted", body = ApiResponse<RoleMutationData>))
 )]
 pub async fn delete_role(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<RoleMutationData>>> {
     state.roles.delete(id).await?;
 
-    Ok(Json(ApiResponse::ok_message("deleted")))
+    Ok(Json(ApiResponse::new("OK", "deleted", None)))
 }
 
 #[utoipa::path(
@@ -86,17 +89,15 @@ pub async fn delete_role(
     tag = "role",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
-    responses((status = 200, description = "Role menu IDs", body = ApiResponse<Value>))
+    responses((status = 200, description = "Role menu IDs", body = ApiResponse<RoleMenuIdsData>))
 )]
 pub async fn get_role_menus(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<RoleMenuIdsData>>> {
     let menu_ids = state.roles.menu_ids(id).await?;
 
-    Ok(Json(ApiResponse::ok(serde_json::json!({
-        "menuIds": menu_ids,
-    }))))
+    Ok(Json(ApiResponse::ok(RoleMenuIdsData { menu_ids })))
 }
 
 #[utoipa::path(
@@ -105,17 +106,17 @@ pub async fn get_role_menus(
     tag = "role",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
-    request_body = RoleMenuPayload,
-    responses((status = 200, description = "Role menus saved", body = ApiResponse<Value>))
+    request_body = RoleMenuRequest,
+    responses((status = 200, description = "Role menus saved", body = ApiResponse<RoleMutationData>))
 )]
 pub async fn set_role_menus(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(payload): Json<RoleMenuPayload>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+    Json(payload): Json<RoleMenuRequest>,
+) -> AppResult<Json<ApiResponse<RoleMutationData>>> {
     state.roles.set_menu_ids(id, payload.menu_ids).await?;
 
-    Ok(Json(ApiResponse::ok_message("saved")))
+    Ok(Json(ApiResponse::new("OK", "saved", None)))
 }
 
 #[utoipa::path(
@@ -124,17 +125,15 @@ pub async fn set_role_menus(
     tag = "role",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
-    responses((status = 200, description = "Role department IDs", body = ApiResponse<Value>))
+    responses((status = 200, description = "Role department IDs", body = ApiResponse<RoleDeptIdsData>))
 )]
 pub async fn get_role_depts(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<RoleDeptIdsData>>> {
     let dept_ids = state.roles.dept_ids(id).await?;
 
-    Ok(Json(ApiResponse::ok(serde_json::json!({
-        "deptIds": dept_ids,
-    }))))
+    Ok(Json(ApiResponse::ok(RoleDeptIdsData { dept_ids })))
 }
 
 #[utoipa::path(
@@ -143,17 +142,17 @@ pub async fn get_role_depts(
     tag = "role",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
-    request_body = RoleDeptPayload,
-    responses((status = 200, description = "Role departments saved", body = ApiResponse<Value>))
+    request_body = RoleDeptRequest,
+    responses((status = 200, description = "Role departments saved", body = ApiResponse<RoleMutationData>))
 )]
 pub async fn set_role_depts(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(payload): Json<RoleDeptPayload>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+    Json(payload): Json<RoleDeptRequest>,
+) -> AppResult<Json<ApiResponse<RoleMutationData>>> {
     state.roles.set_dept_ids(id, payload.dept_ids).await?;
 
-    Ok(Json(ApiResponse::ok_message("saved")))
+    Ok(Json(ApiResponse::new("OK", "saved", None)))
 }
 
 #[utoipa::path(
@@ -162,15 +161,15 @@ pub async fn set_role_depts(
     tag = "role",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
-    responses((status = 200, description = "Role user IDs", body = ApiResponse<Value>))
+    responses((status = 200, description = "Role user IDs", body = ApiResponse<RoleUserIdsData>))
 )]
 pub async fn get_role_users(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+) -> AppResult<Json<ApiResponse<RoleUserIdsData>>> {
     let user_ids = state.roles.user_ids(id).await?;
 
-    Ok(Json(ApiResponse::ok(serde_json::json!(user_ids))))
+    Ok(Json(ApiResponse::ok(RoleUserIdsData(user_ids))))
 }
 
 #[utoipa::path(
@@ -179,15 +178,15 @@ pub async fn get_role_users(
     tag = "role",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
-    request_body = RoleUsersPayload,
-    responses((status = 200, description = "Role users saved", body = ApiResponse<Value>))
+    request_body = RoleUsersRequest,
+    responses((status = 200, description = "Role users saved", body = ApiResponse<RoleMutationData>))
 )]
 pub async fn set_role_users(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(payload): Json<RoleUsersPayload>,
-) -> AppResult<Json<ApiResponse<Value>>> {
+    Json(payload): Json<RoleUsersRequest>,
+) -> AppResult<Json<ApiResponse<RoleMutationData>>> {
     state.roles.set_user_ids(id, payload.user_ids).await?;
 
-    Ok(Json(ApiResponse::ok_message("saved")))
+    Ok(Json(ApiResponse::new("OK", "saved", None)))
 }
