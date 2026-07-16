@@ -93,7 +93,6 @@ pub struct UserResponse {
     pub phone: String,
     pub email: String,
     #[serde(rename = "originSetting")]
-    /// User-defined UI settings are persisted as open JSON and have no fixed response schema.
     pub origin_setting: Option<serde_json::Value>,
     #[serde(rename = "deptId")]
     pub dept_id: Option<i64>,
@@ -119,6 +118,8 @@ pub struct UserListData {
     pub page_size: i64,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserMutationData {}
 impl From<iam::users::UserInfoView> for UserResponse {
     fn from(v: iam::users::UserInfoView) -> Self {
         Self {
@@ -172,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn user_list_data_keeps_transport_shape() {
+    fn user_list_and_mutation_data_keep_transport_shape() {
         let list = serde_json::to_value(UserListData {
             list: Vec::new(),
             total: 0,
@@ -182,5 +183,11 @@ mod tests {
         .expect("user list data should serialize");
         assert_eq!(list["pageSize"], 10);
         assert!(list.get("page_size").is_none());
+
+        let mutation = serde_json::to_value(crate::ApiResponse::<UserMutationData>::new(
+            "OK", "updated", None,
+        ))
+        .expect("mutation response should serialize");
+        assert!(mutation["data"].is_null());
     }
 }

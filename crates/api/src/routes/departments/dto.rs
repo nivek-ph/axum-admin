@@ -99,6 +99,9 @@ pub struct DeptDetailData {
     pub dept: DeptDetail,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DeptMutationData {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +117,14 @@ mod tests {
         })
         .expect("empty department detail should serialize");
         assert_eq!(detail, serde_json::json!({ "dept": {} }));
+    }
+
+    #[test]
+    fn department_mutation_keeps_null_data() {
+        let response = serde_json::to_value(crate::ApiResponse::<DeptMutationData>::new(
+            "OK", "updated", None,
+        ))
+        .expect("mutation response should serialize");
+        assert!(response["data"].is_null());
     }
 }

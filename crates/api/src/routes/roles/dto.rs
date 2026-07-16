@@ -42,6 +42,9 @@ pub struct RoleDeptIdsData {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RoleUserIdsData(pub Vec<i64>);
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RoleMutationData {}
+
 impl From<iam::roles::RoleSummary> for RoleResponse {
     fn from(v: iam::roles::RoleSummary) -> Self {
         Self {
@@ -76,5 +79,15 @@ mod tests {
         let users =
             serde_json::to_value(RoleUserIdsData(vec![4, 5])).expect("user IDs should serialize");
         assert_eq!(users, serde_json::json!([4, 5]));
+    }
+
+    #[test]
+    fn mutation_response_keeps_null_data() {
+        let response = serde_json::to_value(crate::ApiResponse::<RoleMutationData>::new(
+            "OK", "saved", None,
+        ))
+        .expect("mutation response should serialize");
+
+        assert!(response["data"].is_null());
     }
 }

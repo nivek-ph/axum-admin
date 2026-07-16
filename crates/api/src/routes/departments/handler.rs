@@ -4,10 +4,10 @@ use axum::{
 };
 
 use super::dto::{
-    DeptDetail, DeptDetailData, DeptNodeResponse, DeptPayload, DeptResponse, DeptTreeData,
-    EmptyDept,
+    DeptDetail, DeptDetailData, DeptMutationData, DeptNodeResponse, DeptPayload, DeptResponse,
+    DeptTreeData, EmptyDept,
 };
-use crate::{ApiResponse, AppResult, NoData, state::AppState};
+use crate::{ApiResponse, AppResult, state::AppState};
 
 #[utoipa::path(
     get,
@@ -54,12 +54,12 @@ pub async fn find_dept_by_id(
     tag = "department",
     security(("bearer_auth" = [])),
     request_body = DeptPayload,
-    responses((status = 200, description = "Department created", body = ApiResponse<NoData>))
+    responses((status = 200, description = "Department created", body = ApiResponse<DeptMutationData>))
 )]
 pub async fn create_dept(
     State(state): State<AppState>,
     Json(payload): Json<DeptPayload>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<DeptMutationData>>> {
     state.departments.create(payload.into()).await?;
     Ok(Json(ApiResponse::new("OK", "created", None)))
 }
@@ -71,13 +71,13 @@ pub async fn create_dept(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Department ID")),
     request_body = DeptPayload,
-    responses((status = 200, description = "Department updated", body = ApiResponse<NoData>))
+    responses((status = 200, description = "Department updated", body = ApiResponse<DeptMutationData>))
 )]
 pub async fn update_dept_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<DeptPayload>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<DeptMutationData>>> {
     state.departments.update(id, payload.into()).await?;
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -88,12 +88,12 @@ pub async fn update_dept_by_id(
     tag = "department",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Department ID")),
-    responses((status = 200, description = "Department deleted", body = ApiResponse<NoData>))
+    responses((status = 200, description = "Department deleted", body = ApiResponse<DeptMutationData>))
 )]
 pub async fn delete_dept_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<DeptMutationData>>> {
     state.departments.delete(id).await?;
     Ok(Json(ApiResponse::new("OK", "deleted", None)))
 }

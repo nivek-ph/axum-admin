@@ -3,14 +3,13 @@ use axum::{
     extract::{Multipart, Path, Query, State},
 };
 use file_storage::files::FileUpload;
+use serde_json::Value;
 
 use super::dto::{
     FileListData, FileListRequest, FileResponse, ImportFileUrlRequest, RenameFileRequest,
     UploadFileData, UploadFileRequest, UploadMetadataRequest,
 };
-use crate::{
-    ApiResponse, AppResult, NoData, mappings::MULTIPLE_FILES_NOT_SUPPORTED, state::AppState,
-};
+use crate::{ApiResponse, AppResult, mappings::MULTIPLE_FILES_NOT_SUPPORTED, state::AppState};
 
 #[utoipa::path(
     get,
@@ -40,14 +39,14 @@ pub async fn get_file_list_by_query(
     tag = "file",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "File ID")),
-    responses((status = 200, description = "File deleted", body = ApiResponse<NoData>))
+    responses((status = 200, description = "File deleted", body = ApiResponse<Value>))
 )]
 pub async fn delete_file_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<Value>>> {
     state.files.delete(id).await?;
-    Ok(Json(ApiResponse::new("OK", "deleted", None)))
+    Ok(Json(ApiResponse::ok_message("deleted")))
 }
 
 #[utoipa::path(
@@ -57,15 +56,15 @@ pub async fn delete_file_by_id(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "File ID")),
     request_body = RenameFileRequest,
-    responses((status = 200, description = "File renamed", body = ApiResponse<NoData>))
+    responses((status = 200, description = "File renamed", body = ApiResponse<Value>))
 )]
 pub async fn edit_file_name_by_id(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<RenameFileRequest>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<Value>>> {
     state.files.edit_name(payload.into_input(id)).await?;
-    Ok(Json(ApiResponse::new("OK", "updated", None)))
+    Ok(Json(ApiResponse::ok_message("updated")))
 }
 
 #[utoipa::path(
@@ -74,14 +73,14 @@ pub async fn edit_file_name_by_id(
     tag = "file",
     security(("bearer_auth" = [])),
     request_body = ImportFileUrlRequest,
-    responses((status = 200, description = "URL imported", body = ApiResponse<NoData>))
+    responses((status = 200, description = "URL imported", body = ApiResponse<Value>))
 )]
 pub async fn import_url(
     State(state): State<AppState>,
     Json(payload): Json<ImportFileUrlRequest>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<Value>>> {
     state.files.import_url(payload.into()).await?;
-    Ok(Json(ApiResponse::new("OK", "imported", None)))
+    Ok(Json(ApiResponse::ok_message("imported")))
 }
 
 #[utoipa::path(
@@ -105,7 +104,7 @@ pub async fn upload_file(
             Ok(field) => field,
             Err(error) => {
                 if let Some(upload) = pending_upload.take() {
-                    upload.abort().await?;
+                    abort_upload(upload, "multipart read failed").await;
                 }
                 return Err(error.into());
             }
@@ -116,7 +115,7 @@ pub async fn upload_file(
 
         if let Some(file_name) = file_name {
             if let Some(upload) = pending_upload.take() {
-                upload.abort().await?;
+                abort_upload(upload, "multiple files received").await;
                 return Err(MULTIPLE_FILES_NOT_SUPPORTED.into());
             }
             let mut upload = state
@@ -127,7 +126,7 @@ pub async fn upload_file(
                 let chunk = match field.chunk().await {
                     Ok(chunk) => chunk,
                     Err(error) => {
-                        upload.abort().await?;
+                        abort_upload(upload, "file chunk read failed").await;
                         return Err(error.into());
                     }
                 };
@@ -135,7 +134,7 @@ pub async fn upload_file(
                     break;
                 };
                 if let Err(error) = upload.write_chunk(&chunk).await {
-                    upload.abort().await?;
+                    abort_upload(upload, "file chunk write failed").await;
                     return Err(error.into());
                 }
             }
@@ -153,4 +152,10 @@ pub async fn upload_file(
         file: uploaded,
         url: file_url,
     })))
+}
+
+async fn abort_upload(upload: FileUpload, reason: &'static str) {
+    if let Err(error) = upload.abort().await {
+        tracing::error!(%error, reason, "failed to clean up upload");
+    }
 }

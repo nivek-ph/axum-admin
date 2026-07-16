@@ -5,9 +5,9 @@ use axum::{
 
 use super::dto::{
     RoleData, RoleDeptIdsData, RoleDeptRequest, RoleListData, RoleMenuIdsData, RoleMenuRequest,
-    RoleRequest, RoleResponse, RoleUserIdsData, RoleUsersRequest,
+    RoleMutationData, RoleRequest, RoleResponse, RoleUserIdsData, RoleUsersRequest,
 };
-use crate::{ApiResponse, AppResult, NoData, state::AppState};
+use crate::{ApiResponse, AppResult, state::AppState};
 
 #[utoipa::path(
     get,
@@ -72,12 +72,12 @@ pub async fn update_role(
     tag = "role",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
-    responses((status = 200, description = "Role deleted", body = ApiResponse<NoData>))
+    responses((status = 200, description = "Role deleted", body = ApiResponse<RoleMutationData>))
 )]
 pub async fn delete_role(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<RoleMutationData>>> {
     state.roles.delete(id).await?;
 
     Ok(Json(ApiResponse::new("OK", "deleted", None)))
@@ -107,13 +107,13 @@ pub async fn get_role_menus(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
     request_body = RoleMenuRequest,
-    responses((status = 200, description = "Role menus saved", body = ApiResponse<NoData>))
+    responses((status = 200, description = "Role menus saved", body = ApiResponse<RoleMutationData>))
 )]
 pub async fn set_role_menus(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<RoleMenuRequest>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<RoleMutationData>>> {
     state.roles.set_menu_ids(id, payload.menu_ids).await?;
 
     Ok(Json(ApiResponse::new("OK", "saved", None)))
@@ -143,13 +143,13 @@ pub async fn get_role_depts(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
     request_body = RoleDeptRequest,
-    responses((status = 200, description = "Role departments saved", body = ApiResponse<NoData>))
+    responses((status = 200, description = "Role departments saved", body = ApiResponse<RoleMutationData>))
 )]
 pub async fn set_role_depts(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<RoleDeptRequest>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<RoleMutationData>>> {
     state.roles.set_dept_ids(id, payload.dept_ids).await?;
 
     Ok(Json(ApiResponse::new("OK", "saved", None)))
@@ -179,13 +179,13 @@ pub async fn get_role_users(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Role ID")),
     request_body = RoleUsersRequest,
-    responses((status = 200, description = "Role users saved", body = ApiResponse<NoData>))
+    responses((status = 200, description = "Role users saved", body = ApiResponse<RoleMutationData>))
 )]
 pub async fn set_role_users(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<RoleUsersRequest>,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<RoleMutationData>>> {
     state.roles.set_user_ids(id, payload.user_ids).await?;
 
     Ok(Json(ApiResponse::new("OK", "saved", None)))
