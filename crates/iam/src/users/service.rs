@@ -408,7 +408,7 @@ pub(crate) async fn get_user_list(
 async fn get_user_list_with_scope(
     pool: &sqlx::PgPool,
     query: GetUserListRequest,
-    scope_filter: ResolvedDataScope,
+    resolved_data_scope: ResolvedDataScope,
 ) -> Result<(Vec<UserInfoView>, i64), UserError> {
     let page = query.page.max(1);
     let page_size = query.page_size.max(1);
@@ -426,10 +426,10 @@ async fn get_user_list_with_scope(
         "asc"
     };
     let order_clause = format!("{order_key} {order_dir}");
-    if matches!(&scope_filter, ResolvedDataScope::DeptIds(dept_ids) if dept_ids.is_empty()) {
+    if matches!(&resolved_data_scope, ResolvedDataScope::DeptIds(dept_ids) if dept_ids.is_empty()) {
         return Ok((Vec::new(), 0));
     }
-    let scope_clause = scope_sql_clause(&scope_filter);
+    let scope_clause = scope_sql_clause(&resolved_data_scope);
 
     let total_sql = format!(
         r#"
@@ -447,7 +447,7 @@ async fn get_user_list_with_scope(
         .bind(query.phone.as_deref())
         .bind(query.email.as_deref());
 
-    total_query = match &scope_filter {
+    total_query = match &resolved_data_scope {
         ResolvedDataScope::All => total_query,
         ResolvedDataScope::DeptIds(dept_ids) => total_query.bind(dept_ids),
         ResolvedDataScope::Owner(owner_id) => total_query.bind(owner_id),
@@ -480,12 +480,12 @@ async fn get_user_list_with_scope(
         order by {order_clause}
         limit ${limit_placeholder} offset ${offset_placeholder}
         "#,
-        limit_placeholder = if matches!(&scope_filter, ResolvedDataScope::All) {
+        limit_placeholder = if matches!(&resolved_data_scope, ResolvedDataScope::All) {
             5
         } else {
             6
         },
-        offset_placeholder = if matches!(&scope_filter, ResolvedDataScope::All) {
+        offset_placeholder = if matches!(&resolved_data_scope, ResolvedDataScope::All) {
             6
         } else {
             7
@@ -497,7 +497,7 @@ async fn get_user_list_with_scope(
         .bind(query.nick_name.as_deref())
         .bind(query.phone.as_deref())
         .bind(query.email.as_deref());
-    rows_query = match &scope_filter {
+    rows_query = match &resolved_data_scope {
         ResolvedDataScope::All => rows_query,
         ResolvedDataScope::DeptIds(dept_ids) => rows_query.bind(dept_ids),
         ResolvedDataScope::Owner(owner_id) => rows_query.bind(owner_id),
