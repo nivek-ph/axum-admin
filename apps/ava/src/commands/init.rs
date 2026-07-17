@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use audit::AuditService;
 use auth::password::PasswordService;
+use iam::{access::AccessService, users::UserService};
 use tracing::info;
 
 use crate::config::InitConfig;
@@ -13,7 +15,9 @@ pub async fn run(config: InitConfig) -> Result<()> {
         .await
         .context("database migrations should run")?;
 
-    iam::users::UserService::new(pool, PasswordService::new())
+    let access = AccessService::new(pool.clone());
+    let audit = AuditService::new(pool.clone());
+    UserService::new(pool, access, audit, PasswordService::new())
         .ensure_admin(
             &config.admin_username,
             &config.admin_password,

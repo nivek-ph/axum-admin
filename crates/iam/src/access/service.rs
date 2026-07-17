@@ -8,12 +8,12 @@ use super::{
     AccessEvaluationError, AccessInitError, AccessPropagationError,
     catalog::{AccessBinding, AccessCatalog, AccessNode, CatalogError},
 };
-use crate::access::scope::DataScopeFilter;
+use crate::access::scope::ResolvedDataScope;
 
+const SUPER_ADMIN_ROLE_CODE: &str = "super_admin";
 const AUTHZ_VERSION_KEY: &str = "ava:authz:version";
 const AUTHZ_USER_KEY_PREFIX: &str = "ava:authz:user:";
 const AUTHZ_SNAPSHOT_TTL_SECONDS: u64 = 300;
-const SUPER_ADMIN_ROLE_CODE: &str = "super_admin";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccessSnapshot {
@@ -22,7 +22,7 @@ pub struct AccessSnapshot {
     pub role_codes: BTreeSet<String>,
     pub menu_ids: BTreeSet<i64>,
     pub permissions: BTreeSet<String>,
-    pub data_scope: DataScopeFilter,
+    pub data_scope: ResolvedDataScope,
 }
 
 impl AccessSnapshot {

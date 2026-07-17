@@ -2,6 +2,9 @@ use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, header},
 };
+use iam::{
+    access::AccessService, departments::DepartmentService, roles::RoleService, users::UserService,
+};
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -11,15 +14,18 @@ fn test_state() -> api::AppState {
     let passwords = auth::password::PasswordService::new();
     let tokens = auth::token::TokenService::without_revocation_store("test-secret");
     let captcha = auth::captcha::CaptchaService::without_store();
-    let users = iam::users::UserService::new(pool.clone(), passwords);
+    let access = AccessService::new(pool.clone());
     let audits = audit::AuditService::new(pool.clone());
+    let users = UserService::new(pool.clone(), access.clone(), audits.clone(), passwords);
+    let roles = RoleService::new(pool.clone(), access.clone());
+    let departments = DepartmentService::new(pool.clone(), access.clone());
     api::AppState {
         tokens,
         captcha,
         users,
-        roles: iam::roles::RoleService::new(pool.clone()),
-        departments: iam::departments::DepartmentService::new(pool.clone()),
-        access: iam::access::AccessService::new(pool.clone()),
+        roles,
+        departments,
+        access,
         dictionaries: metadata::dictionaries::DictionaryService::new(pool.clone()),
         parameters: metadata::parameters::ParameterService::new(pool.clone()),
         menus: iam::menus::MenuService::new(pool.clone()),

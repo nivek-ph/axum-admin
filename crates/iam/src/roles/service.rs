@@ -12,14 +12,7 @@ pub struct RoleService {
 }
 
 impl RoleService {
-    pub fn new(pool: PgPool) -> Self {
-        Self {
-            access: AccessService::new(pool.clone()),
-            pool,
-        }
-    }
-
-    pub fn with_access(pool: PgPool, access: AccessService) -> Self {
+    pub fn new(pool: PgPool, access: AccessService) -> Self {
         Self { pool, access }
     }
 
@@ -274,7 +267,7 @@ mod tests {
         )
         .unwrap();
         let access = AccessService::with_catalog(pool.clone(), catalog);
-        let service = RoleService::with_access(pool, access);
+        let service = RoleService::new(pool, access);
         service.set_menu_ids(2, vec![11, 10, 11]).await.unwrap();
         service.set_dept_ids(2, vec![3, 3, 0]).await.unwrap();
         service.set_user_ids(2, vec![101, 101, 0]).await.unwrap();

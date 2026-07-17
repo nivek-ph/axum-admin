@@ -71,7 +71,7 @@ pub async fn admin_register(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<RegisterUserRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.users.register_as(user.id, payload).await?;
+    state.users.create(user.id, payload).await?;
 
     Ok(Json(ApiResponse::new("OK", "registered", None)))
 }
@@ -185,7 +185,7 @@ pub async fn reset_password_by_id(
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     state
         .users
-        .reset_password_as(user.id, id, payload.into())
+        .reset_password_by_id(user.id, id, payload.into())
         .await?;
 
     Ok(Json(ApiResponse::new("OK", "password reset", None)))
@@ -209,7 +209,7 @@ pub async fn set_user_roles_by_id(
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     state
         .users
-        .set_roles_as(user.id, id, payload, audit_context)
+        .set_user_roles_by_id(user.id, id, payload, audit_context)
         .await?;
 
     Ok(Json(ApiResponse::new("OK", "roles updated", None)))

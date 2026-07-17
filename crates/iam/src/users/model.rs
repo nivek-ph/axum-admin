@@ -1,6 +1,6 @@
 use sqlx::FromRow;
 
-use crate::roles::RoleSummary;
+use crate::{access::ResolvedDataScope, roles::RoleSummary};
 
 #[derive(Debug, Clone, FromRow)]
 pub struct UserRecord {
@@ -40,7 +40,7 @@ pub struct UserInfoView {
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
     pub id: i64,
-    pub data_scope: crate::access::DataScopeFilter,
+    pub data_scope: ResolvedDataScope,
 }
 
 #[derive(Debug, Clone)]

@@ -10,14 +10,7 @@ pub struct DepartmentService {
 }
 
 impl DepartmentService {
-    pub fn new(pool: sqlx::PgPool) -> Self {
-        Self {
-            access: AccessService::new(pool.clone()),
-            pool,
-        }
-    }
-
-    pub fn with_access(pool: sqlx::PgPool, access: AccessService) -> Self {
+    pub fn new(pool: sqlx::PgPool, access: AccessService) -> Self {
         Self { pool, access }
     }
 

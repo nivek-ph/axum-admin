@@ -13,7 +13,7 @@ use super::{
     SetUserRolesRequest, UpdateUserInput, UserError, UserInfoView, UserRecord,
 };
 use crate::{
-    access::{AccessService, DataScopeFilter},
+    access::{AccessService, ResolvedDataScope},
     roles::RoleSummary,
 };
 
@@ -29,25 +29,17 @@ pub struct UserService {
 }
 
 impl UserService {
-    pub fn new(pool: sqlx::PgPool, passwords: PasswordService) -> Self {
-        Self {
-            access: AccessService::new(pool.clone()),
-            audit: AuditService::new(pool.clone()),
-            pool,
-            passwords,
-        }
-    }
-
-    pub fn with_access(
+    pub fn new(
         pool: sqlx::PgPool,
-        passwords: PasswordService,
         access: AccessService,
+        audit: AuditService,
+        passwords: PasswordService,
     ) -> Self {
         Self {
-            audit: AuditService::new(pool.clone()),
             pool,
-            passwords,
             access,
+            audit,
+            passwords,
         }
     }
 
@@ -62,7 +54,7 @@ impl UserService {
     pub async fn list_with_scope(
         &self,
         query: GetUserListRequest,
-        scope: DataScopeFilter,
+        scope: ResolvedDataScope,
     ) -> Result<(Vec<UserInfoView>, i64), UserError> {
         get_user_list_with_scope(&self.pool, query, scope).await
     }
@@ -81,18 +73,18 @@ impl UserService {
     }
 
     pub async fn register(&self, payload: RegisterRequest) -> Result<(), UserError> {
-        register_user(&self.pool, &self.passwords, payload).await?;
+        create_user(&self.pool, &self.passwords, payload).await?;
         self.bump_access_version().await
     }
 
-    pub async fn register_as(
+    pub async fn create(
         &self,
         actor_user_id: i64,
         payload: RegisterRequest,
     ) -> Result<(), UserError> {
         let role_ids = normalize_role_ids(payload.role_ids.as_ref())?;
         ensure_role_assignment_actor(&self.pool, actor_user_id, &role_ids).await?;
-        register_user(&self.pool, &self.passwords, payload).await?;
+        create_user(&self.pool, &self.passwords, payload).await?;
         self.bump_access_version().await
     }
 
@@ -135,7 +127,7 @@ impl UserService {
         user_id: i64,
         payload: SetSelfSettingRequest,
     ) -> Result<(), UserError> {
-        set_self_setting(&self.pool, user_id, payload).await
+        update_setting_by_user_id(&self.pool, user_id, payload).await
     }
 
     pub async fn delete(&self, actor_user_id: i64, target_user_id: i64) -> Result<(), UserError> {
@@ -144,7 +136,7 @@ impl UserService {
         self.bump_access_version().await
     }
 
-    pub async fn reset_password_as(
+    pub async fn reset_password_by_id(
         &self,
         actor_user_id: i64,
         target_user_id: i64,
@@ -154,7 +146,7 @@ impl UserService {
         reset_password(&self.pool, &self.passwords, target_user_id, payload).await
     }
 
-    pub async fn set_roles_as(
+    pub async fn set_user_roles_by_id(
         &self,
         actor_user_id: i64,
         target_user_id: i64,
@@ -327,7 +319,7 @@ async fn ensure_user_with_role(
     Ok(())
 }
 
-pub(crate) async fn register_user(
+pub(crate) async fn create_user(
     pool: &sqlx::PgPool,
     password_service: &PasswordService,
     payload: RegisterRequest,
@@ -408,7 +400,7 @@ pub(crate) async fn get_user_list(
 ) -> Result<(Vec<UserInfoView>, i64), UserError> {
     let scope_filter = match actor_user_id {
         Some(user_id) => crate::access::resolve_user_data_scope(pool, user_id, "users").await?,
-        None => DataScopeFilter::All,
+        None => ResolvedDataScope::All,
     };
     get_user_list_with_scope(pool, query, scope_filter).await
 }
@@ -416,7 +408,7 @@ pub(crate) async fn get_user_list(
 async fn get_user_list_with_scope(
     pool: &sqlx::PgPool,
     query: GetUserListRequest,
-    scope_filter: DataScopeFilter,
+    scope_filter: ResolvedDataScope,
 ) -> Result<(Vec<UserInfoView>, i64), UserError> {
     let page = query.page.max(1);
     let page_size = query.page_size.max(1);
@@ -434,7 +426,7 @@ async fn get_user_list_with_scope(
         "asc"
     };
     let order_clause = format!("{order_key} {order_dir}");
-    if matches!(&scope_filter, DataScopeFilter::DeptIds(dept_ids) if dept_ids.is_empty()) {
+    if matches!(&scope_filter, ResolvedDataScope::DeptIds(dept_ids) if dept_ids.is_empty()) {
         return Ok((Vec::new(), 0));
     }
     let scope_clause = scope_sql_clause(&scope_filter);
@@ -456,9 +448,9 @@ async fn get_user_list_with_scope(
         .bind(query.email.as_deref());
 
     total_query = match &scope_filter {
-        DataScopeFilter::All => total_query,
-        DataScopeFilter::DeptIds(dept_ids) => total_query.bind(dept_ids),
-        DataScopeFilter::Owner(owner_id) => total_query.bind(owner_id),
+        ResolvedDataScope::All => total_query,
+        ResolvedDataScope::DeptIds(dept_ids) => total_query.bind(dept_ids),
+        ResolvedDataScope::Owner(owner_id) => total_query.bind(owner_id),
     };
     let total = total_query.fetch_one(pool).await?;
 
@@ -488,12 +480,12 @@ async fn get_user_list_with_scope(
         order by {order_clause}
         limit ${limit_placeholder} offset ${offset_placeholder}
         "#,
-        limit_placeholder = if matches!(&scope_filter, DataScopeFilter::All) {
+        limit_placeholder = if matches!(&scope_filter, ResolvedDataScope::All) {
             5
         } else {
             6
         },
-        offset_placeholder = if matches!(&scope_filter, DataScopeFilter::All) {
+        offset_placeholder = if matches!(&scope_filter, ResolvedDataScope::All) {
             6
         } else {
             7
@@ -506,9 +498,9 @@ async fn get_user_list_with_scope(
         .bind(query.phone.as_deref())
         .bind(query.email.as_deref());
     rows_query = match &scope_filter {
-        DataScopeFilter::All => rows_query,
-        DataScopeFilter::DeptIds(dept_ids) => rows_query.bind(dept_ids),
-        DataScopeFilter::Owner(owner_id) => rows_query.bind(owner_id),
+        ResolvedDataScope::All => rows_query,
+        ResolvedDataScope::DeptIds(dept_ids) => rows_query.bind(dept_ids),
+        ResolvedDataScope::Owner(owner_id) => rows_query.bind(owner_id),
     };
     let rows = rows_query
         .bind(page_size)
@@ -527,11 +519,11 @@ async fn get_user_list_with_scope(
     Ok((list, total))
 }
 
-fn scope_sql_clause(filter: &DataScopeFilter) -> &'static str {
+fn scope_sql_clause(filter: &ResolvedDataScope) -> &'static str {
     match filter {
-        DataScopeFilter::All => "",
-        DataScopeFilter::DeptIds(_) => "and u.dept_id = any($5)",
-        DataScopeFilter::Owner(_) => "and u.id = $5",
+        ResolvedDataScope::All => "",
+        ResolvedDataScope::DeptIds(_) => "and u.dept_id = any($5)",
+        ResolvedDataScope::Owner(_) => "and u.id = $5",
     }
 }
 
@@ -542,9 +534,9 @@ pub(crate) async fn ensure_user_in_scope(
 ) -> Result<(), UserError> {
     let filter = crate::access::resolve_user_data_scope(pool, actor_user_id, "users").await?;
     let visible = match filter {
-        DataScopeFilter::All => true,
-        DataScopeFilter::Owner(owner_id) => owner_id == target_user_id,
-        DataScopeFilter::DeptIds(dept_ids) => {
+        ResolvedDataScope::All => true,
+        ResolvedDataScope::Owner(owner_id) => owner_id == target_user_id,
+        ResolvedDataScope::DeptIds(dept_ids) => {
             if dept_ids.is_empty() {
                 false
             } else {
@@ -748,7 +740,7 @@ pub(crate) async fn set_self_info(
     Ok(())
 }
 
-pub(crate) async fn set_self_setting(
+pub(crate) async fn update_setting_by_user_id(
     pool: &sqlx::PgPool,
     user_id: i64,
     payload: SetSelfSettingRequest,
@@ -1053,13 +1045,13 @@ mod tests {
 
     #[test]
     fn scope_sql_clause_matches_filter_shape() {
-        assert_eq!(scope_sql_clause(&DataScopeFilter::All), "");
+        assert_eq!(scope_sql_clause(&ResolvedDataScope::All), "");
         assert_eq!(
-            scope_sql_clause(&DataScopeFilter::DeptIds(vec![1, 2])),
+            scope_sql_clause(&ResolvedDataScope::DeptIds(vec![1, 2])),
             "and u.dept_id = any($5)"
         );
         assert_eq!(
-            scope_sql_clause(&DataScopeFilter::Owner(7)),
+            scope_sql_clause(&ResolvedDataScope::Owner(7)),
             "and u.id = $5"
         );
     }
@@ -1114,7 +1106,9 @@ mod tests {
         .await
         .unwrap();
 
-        let service = UserService::new(pool, PasswordService::new());
+        let access = AccessService::new(pool.clone());
+        let audit = AuditService::new(pool.clone());
+        let service = UserService::new(pool, access, audit, PasswordService::new());
         let first_page = GetUserListRequest {
             page: 1,
             page_size: 2,
@@ -1126,7 +1120,7 @@ mod tests {
             desc: Some(false),
         };
         let (users, total) = service
-            .list_with_scope(first_page.clone(), DataScopeFilter::All)
+            .list_with_scope(first_page.clone(), ResolvedDataScope::All)
             .await
             .unwrap();
 
@@ -1147,7 +1141,7 @@ mod tests {
                     page: 2,
                     ..first_page
                 },
-                DataScopeFilter::All,
+                ResolvedDataScope::All,
             )
             .await
             .unwrap();

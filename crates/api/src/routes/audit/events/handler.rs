@@ -44,6 +44,6 @@ pub async fn find_audit_event(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<Option<AuditEventResponse>>>> {
-    let event = state.audits.find(id).await?.map(AuditEventResponse::from);
-    Ok(Json(ApiResponse::ok(event)))
+    let event = state.audits.find(id).await?;
+    Ok(Json(ApiResponse::ok(event.map(Into::into))))
 }

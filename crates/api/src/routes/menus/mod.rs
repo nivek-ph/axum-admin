@@ -20,7 +20,7 @@ mod tests {
         body::{Body, to_bytes},
         http::Request,
     };
-    use iam::access::{AccessSnapshot, DataScopeFilter};
+    use iam::access::{AccessSnapshot, ResolvedDataScope};
     use serde_json::Value;
     use tower::ServiceExt;
 
@@ -42,7 +42,7 @@ mod tests {
             },
             menu_ids: menu_ids.into_iter().collect(),
             permissions: permissions.into_iter().map(Into::into).collect(),
-            data_scope: DataScopeFilter::All,
+            data_scope: ResolvedDataScope::All,
         }
     }
 
