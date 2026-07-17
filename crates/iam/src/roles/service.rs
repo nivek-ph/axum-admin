@@ -167,20 +167,22 @@ async fn replace(
         .bind(role_id)
         .execute(&mut *tx)
         .await?;
-    let insert = if column == "user_id" {
-        format!(
-            "INSERT INTO {table}(user_id,role_id) SELECT unnest($2::bigint[]),$1 ON CONFLICT DO NOTHING"
-        )
-    } else {
-        format!(
-            "INSERT INTO {table}(role_id,{column}) SELECT $1,unnest($2::bigint[]) ON CONFLICT DO NOTHING"
-        )
-    };
-    sqlx::query(sqlx::AssertSqlSafe(insert))
-        .bind(role_id)
-        .bind(&values)
-        .execute(&mut *tx)
-        .await?;
+    if !values.is_empty() {
+        let insert = if column == "user_id" {
+            format!(
+                "INSERT INTO {table}(user_id,role_id) SELECT unnest($2::bigint[]),$1 ON CONFLICT DO NOTHING"
+            )
+        } else {
+            format!(
+                "INSERT INTO {table}(role_id,{column}) SELECT $1,unnest($2::bigint[]) ON CONFLICT DO NOTHING"
+            )
+        };
+        sqlx::query(sqlx::AssertSqlSafe(insert))
+            .bind(role_id)
+            .bind(&values)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
     Ok(())
 }
