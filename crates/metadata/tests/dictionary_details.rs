@@ -1,5 +1,6 @@
 use metadata::dictionaries::{
-    DictionaryDetailInput, DictionaryError, DictionaryInput, DictionaryListQuery, DictionaryService,
+    DictionaryDetailInput, DictionaryError, DictionaryInput, DictionaryListQuery,
+    DictionaryService, SysDictionaryDetail,
 };
 use sqlx::PgPool;
 
@@ -48,6 +49,66 @@ async fn detail_id(service: &DictionaryService, dictionary_id: i64, label: &str)
         .find(|item| item.label == label)
         .expect("detail should exist")
         .id
+}
+
+fn tree_shape(items: &[SysDictionaryDetail]) -> Vec<(i64, Vec<i64>)> {
+    items
+        .iter()
+        .flat_map(|item| {
+            let children = item.children.iter().map(|child| child.id).collect();
+            std::iter::once((item.id, children)).chain(tree_shape(&item.children))
+        })
+        .collect()
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn dictionary_tree_keeps_hierarchy_order_and_shared_read_behavior(pool: PgPool) {
+    let service = DictionaryService::new(pool.clone());
+    service
+        .create(dictionary("Tree Shape", "tree_shape"))
+        .await
+        .unwrap();
+    let dictionary_id = dictionary_id(&service, "Tree Shape").await;
+
+    assert!(
+        service
+            .tree_by_dictionary(dictionary_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    sqlx::query(
+        r#"
+        insert into sys_dictionary_details
+            (id, label, value, sort, sys_dictionary_id, parent_id, level, path)
+        values
+            (20, 'Root Last', 'root-last', 1, $1, null, 0, ''),
+            (10, 'Root Middle', 'root-middle', 1, $1, null, 0, ''),
+            (12, 'Root First', 'root-first', 0, $1, null, 0, ''),
+            (30, 'Child', 'child', 0, $1, 10, 1, '10'),
+            (40, 'Grandchild', 'grandchild', 0, $1, 30, 2, '10,30'),
+            (50, 'Orphan', 'orphan', 0, $1, 999, 1, '999')
+        "#,
+    )
+    .bind(dictionary_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let tree = service.tree_by_dictionary(dictionary_id).await.unwrap();
+    assert_eq!(
+        tree.iter().map(|item| item.id).collect::<Vec<_>>(),
+        vec![12, 10, 20]
+    );
+    assert_eq!(tree[1].children[0].id, 30);
+    assert_eq!(tree[1].children[0].children[0].id, 40);
+    let expected_shape = tree_shape(&tree);
+
+    let by_type = service.tree_by_type("tree_shape").await.unwrap();
+    assert_eq!(tree_shape(&by_type), expected_shape);
+    let exported = service.export(dictionary_id).await.unwrap().unwrap();
+    assert_eq!(tree_shape(&exported.details), expected_shape);
 }
 
 #[sqlx::test(migrations = "../../migrations")]

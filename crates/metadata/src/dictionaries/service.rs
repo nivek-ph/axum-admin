@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sqlx::PgPool;
 
 use super::{
@@ -463,7 +465,12 @@ pub(crate) async fn tree_by_dictionary(
     .fetch_all(pool)
     .await?;
 
-    Ok(build_detail_tree(&rows, None))
+    let mut rows_by_parent = HashMap::<Option<i64>, Vec<_>>::new();
+    for row in rows {
+        rows_by_parent.entry(row.parent_id).or_default().push(row);
+    }
+
+    Ok(build_detail_tree(&mut rows_by_parent, None))
 }
 
 pub(crate) async fn tree_by_type(
@@ -572,20 +579,20 @@ async fn detail_level_and_path(
 }
 
 fn build_detail_tree(
-    rows: &[SysDictionaryDetailRow],
+    rows_by_parent: &mut HashMap<Option<i64>, Vec<SysDictionaryDetailRow>>,
     parent_id: Option<i64>,
 ) -> Vec<SysDictionaryDetail> {
-    let mut list = rows
-        .iter()
-        .filter(|row| row.parent_id == parent_id)
+    rows_by_parent
+        .remove(&parent_id)
+        .unwrap_or_default()
+        .into_iter()
         .map(|row| {
-            let mut item = detail_from_row(row.clone());
-            item.children = build_detail_tree(rows, Some(row.id));
+            let id = row.id;
+            let mut item = detail_from_row(row);
+            item.children = build_detail_tree(rows_by_parent, Some(id));
             item
         })
-        .collect::<Vec<_>>();
-    list.sort_by_key(|item| (item.sort, item.id));
-    list
+        .collect()
 }
 
 fn detail_from_row(row: SysDictionaryDetailRow) -> SysDictionaryDetail {
