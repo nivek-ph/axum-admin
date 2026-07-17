@@ -167,18 +167,20 @@ async fn replace(
         .bind(role_id)
         .execute(&mut *tx)
         .await?;
-    for value in values {
-        let sql = if column == "user_id" {
-            format!("INSERT INTO {table}(user_id,role_id) VALUES($2,$1) ON CONFLICT DO NOTHING")
-        } else {
-            format!("INSERT INTO {table}(role_id,{column}) VALUES($1,$2) ON CONFLICT DO NOTHING")
-        };
-        sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(role_id)
-            .bind(value)
-            .execute(&mut *tx)
-            .await?;
-    }
+    let insert = if column == "user_id" {
+        format!(
+            "INSERT INTO {table}(user_id,role_id) SELECT unnest($2::bigint[]),$1 ON CONFLICT DO NOTHING"
+        )
+    } else {
+        format!(
+            "INSERT INTO {table}(role_id,{column}) SELECT $1,unnest($2::bigint[]) ON CONFLICT DO NOTHING"
+        )
+    };
+    sqlx::query(sqlx::AssertSqlSafe(insert))
+        .bind(role_id)
+        .bind(&values)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -194,9 +196,96 @@ fn normalize(v: Vec<i64>) -> Vec<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::access::{AccessCatalog, AccessNode};
 
     #[test]
     fn normalizes_ids() {
         assert_eq!(normalize(vec![3, 1, 3, 0]), vec![1, 3]);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn role_assignments_replace_normalize_and_clear(pool: PgPool) {
+        sqlx::query(
+            r#"
+            insert into sys_roles (id, code, name, status, sort, data_scope, is_system)
+            values (2, 'batch-role', 'Batch Role', 'enabled', 0, 'self', false)
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into sys_depts (id, name, code, sort, status)
+            values
+                (2, 'Batch Department A', 'batch-dept-a', 0, 'enabled'),
+                (3, 'Batch Department B', 'batch-dept-b', 0, 'enabled')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into sys_users (
+                id, uuid, username, password_hash, nick_name, header_img, home_route,
+                enable, dept_id, is_system
+            ) values
+                (100, 'batch-user-a-uuid', 'batch-user-a', 'hash', 'Batch User A', '', 'dashboard', true, 1, false),
+                (101, 'batch-user-b-uuid', 'batch-user-b', 'hash', 'Batch User B', '', 'dashboard', true, 1, false)
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("insert into sys_role_menus (role_id, menu_id) values (2, 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("insert into sys_role_depts (role_id, dept_id) values (2, 2)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("insert into sys_user_roles (user_id, role_id) values (100, 2)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let catalog = AccessCatalog::from_parts(
+            vec![
+                AccessNode {
+                    id: 10,
+                    parent_id: None,
+                    menu_type: "directory".to_string(),
+                    status: "enabled".to_string(),
+                    permission: None,
+                },
+                AccessNode {
+                    id: 11,
+                    parent_id: Some(10),
+                    menu_type: "page".to_string(),
+                    status: "enabled".to_string(),
+                    permission: Some("system:user:list".to_string()),
+                },
+            ],
+            Vec::new(),
+        )
+        .unwrap();
+        let access = AccessService::with_catalog(pool.clone(), catalog);
+        let service = RoleService::with_access(pool, access);
+        service.set_menu_ids(2, vec![11, 10, 11]).await.unwrap();
+        service.set_dept_ids(2, vec![3, 3, 0]).await.unwrap();
+        service.set_user_ids(2, vec![101, 101, 0]).await.unwrap();
+
+        assert_eq!(service.menu_ids(2).await.unwrap(), vec![10, 11]);
+        assert_eq!(service.dept_ids(2).await.unwrap(), vec![3]);
+        assert_eq!(service.user_ids(2).await.unwrap(), vec![101]);
+
+        service.set_menu_ids(2, Vec::new()).await.unwrap();
+        service.set_dept_ids(2, Vec::new()).await.unwrap();
+        service.set_user_ids(2, Vec::new()).await.unwrap();
+        assert!(service.menu_ids(2).await.unwrap().is_empty());
+        assert!(service.dept_ids(2).await.unwrap().is_empty());
+        assert!(service.user_ids(2).await.unwrap().is_empty());
     }
 }

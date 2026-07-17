@@ -73,6 +73,15 @@ impl AccessService {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_catalog(pool: PgPool, catalog: AccessCatalog) -> Self {
+        Self {
+            pool,
+            catalog: Arc::new(catalog),
+            redis: None,
+        }
+    }
+
     pub async fn load(
         pool: PgPool,
         mut redis: MultiplexedConnection,
