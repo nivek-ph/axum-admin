@@ -1,7 +1,7 @@
 use axum::{Json, extract::State, http::HeaderMap};
 
 use crate::{
-    ApiResponse, AppResult, NoData, mappings::LOGIN_REQUIRED,
+    ApiResponse, AppResult, EmptyData, mappings::LOGIN_REQUIRED,
     middleware::auth::extract_bearer_token, state::AppState,
 };
 
@@ -11,14 +11,14 @@ use crate::{
     tag = "auth",
     security(("bearer_auth" = [])),
     responses(
-        (status = 200, description = "Logout success", body = ApiResponse<NoData>),
+        (status = 200, description = "Logout success", body = ApiResponse<EmptyData>),
         (status = 401, description = "Invalid or revoked session")
     )
 )]
 pub async fn logout(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> AppResult<Json<ApiResponse<NoData>>> {
+) -> AppResult<Json<ApiResponse<EmptyData>>> {
     let token = extract_bearer_token(&headers).ok_or(LOGIN_REQUIRED)?;
     state.tokens.revoke(token).await?;
 

@@ -8,19 +8,15 @@ pub struct ApiResponse<T> {
     pub data: Option<T>,
 }
 
-/// Schema marker for stable envelopes whose contract has no data payload.
+/// Marker type for responses with no data payload (`data: null`).
+///
+/// Used as the `T` in `ApiResponse<T>` when there is nothing to return (errors,
+/// logout, etc.). Callers pass `None` for `data`; this type is only for the type
+/// system and OpenAPI schema.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct NoData {}
+pub struct EmptyData {}
 
 impl<T> ApiResponse<T> {
-    pub fn ok(data: T) -> Self {
-        Self {
-            code: "OK".to_string(),
-            message: "ok".to_string(),
-            data: Some(data),
-        }
-    }
-
     pub fn new(code: impl Into<String>, message: impl Into<String>, data: Option<T>) -> Self {
         Self {
             code: code.into(),
@@ -28,9 +24,17 @@ impl<T> ApiResponse<T> {
             data,
         }
     }
+
+    pub fn ok(data: T) -> Self {
+        Self::new("OK", "ok", Some(data))
+    }
+
+    pub fn ok_message(message: impl Into<String>) -> Self {
+        Self::new("OK", message, None)
+    }
 }
 
-pub type ApiErrorResponse = ApiResponse<NoData>;
+pub type ApiErrorResponse = ApiResponse<EmptyData>;
 
 #[cfg(test)]
 mod tests {
@@ -38,7 +42,7 @@ mod tests {
 
     #[test]
     fn mutation_response_has_the_shared_null_data_contract() {
-        let value = serde_json::to_value(ApiResponse::<NoData>::new("OK", "saved", None))
+        let value = serde_json::to_value(ApiResponse::<EmptyData>::new("OK", "saved", None))
             .expect("mutation response should serialize");
 
         assert_eq!(value["code"], "OK");
