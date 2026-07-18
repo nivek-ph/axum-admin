@@ -13,7 +13,7 @@ describe('ProfileView', () => {
     setActivePinia(createPinia())
     const authStore = useAuthStore()
     const menuStore = useMenuStore()
-    authStore.setSession('token-123', {
+    authStore.setSession('token-123', 'refresh-token', {
       id: 2,
       userName: 'nick',
       nickName: 'nick',

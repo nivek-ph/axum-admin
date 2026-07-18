@@ -52,6 +52,11 @@ export interface AssignUserRolesPayload {
   roleIds: number[]
 }
 
+export interface ChangeOwnPasswordPayload {
+  password: string
+  newPassword: string
+}
+
 export function normalizeUserListResponse(payload: any): UserListResult {
   return {
     list: payload?.data?.list || [],
@@ -96,4 +101,8 @@ export async function deleteUser(id: number) {
 
 export async function resetUserPassword(id: number, password: string) {
   return http.post(`/users/${id}/password/reset`, { id: id, password }, withAuthHeaders())
+}
+
+export async function changeOwnPassword(payload: ChangeOwnPasswordPayload) {
+  return http.put('/users/me/password', payload, withAuthHeaders())
 }

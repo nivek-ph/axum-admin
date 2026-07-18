@@ -13,27 +13,27 @@ export async function bootstrapAuthSession() {
 
   try {
     const [userInfoResponse, menuResponse] = await Promise.all([
-      getUserInfo(authStore.token),
-      getMenu(authStore.token)
+      getUserInfo(authStore.accessToken),
+      getMenu(authStore.accessToken)
     ]);
     if (userInfoResponse.code !== 'OK' || menuResponse.code !== 'OK') {
-      authStore.clearToken();
+      authStore.clearSession();
       menuStore.resetAccess();
       return;
     }
 
     const userInfo = userInfoResponse.data?.userInfo;
     if (!userInfo) {
-      authStore.clearToken();
+      authStore.clearSession();
       menuStore.resetAccess();
       return;
     }
 
-    authStore.setSession(authStore.token, userInfo);
+    authStore.setSession(authStore.accessToken, authStore.refreshToken, userInfo);
     authStore.setPermissions(menuResponse.data?.permissions || []);
     menuStore.setAuthorizedMenus(menuResponse.data?.menus || [], authStore.isSuperAdmin);
   } catch {
-    authStore.clearToken();
+    authStore.clearSession();
     menuStore.resetAccess();
   }
 }

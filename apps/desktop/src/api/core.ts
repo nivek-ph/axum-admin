@@ -17,7 +17,7 @@ export function withAuthHeaders() {
   const authStore = useAuthStore();
   return {
     headers: {
-      Authorization: bearerAuthorization(authStore.token),
+      Authorization: bearerAuthorization(authStore.accessToken),
     },
   };
 }

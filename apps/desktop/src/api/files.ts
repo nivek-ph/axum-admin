@@ -66,33 +66,16 @@ export async function uploadFile(
 ) {
   const formData = new FormData();
   formData.append('file', file);
+  const params: { tag?: string; category?: string } = {};
+  if (metadata.tag) params.tag = metadata.tag;
+  if (metadata.category) params.category = metadata.category;
 
-  const authorization = withAuthHeaders().headers.Authorization;
-  const baseUrl = http.defaults.baseURL || '';
-  const query = new URLSearchParams();
-  if (metadata.tag) query.set('tag', metadata.tag);
-  if (metadata.category) query.set('category', metadata.category);
-  const url = `${baseUrl}/files/upload${query.size ? `?${query.toString()}` : ''}`;
-
-  return new Promise<any>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', url);
-    xhr.responseType = 'json';
-    xhr.setRequestHeader('Authorization', authorization);
-
-    xhr.upload.onprogress = (event) => {
-      if (!onProgress || !event.lengthComputable) return;
+  return http.post('/files/upload', formData, {
+    ...withAuthHeaders(),
+    params,
+    onUploadProgress: (event) => {
+      if (!onProgress || !event.total) return;
       onProgress(Math.round((event.loaded / event.total) * 100));
-    };
-
-    xhr.onload = () => {
-      resolve(xhr.response);
-    };
-
-    xhr.onerror = () => {
-      reject(new Error('upload failed'));
-    };
-
-    xhr.send(formData);
+    },
   });
 }

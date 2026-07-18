@@ -25,7 +25,7 @@ describe('router', () => {
     setActivePinia(createPinia());
     const router = createAppRouter();
     const authStore = useAuthStore();
-    authStore.clearToken();
+    authStore.clearSession();
 
     await router.push('/users');
 
@@ -37,7 +37,7 @@ describe('router', () => {
     const router = createAppRouter();
     const authStore = useAuthStore();
     const menuStore = useMenuStore();
-    authStore.setSession('token-123', {
+    authStore.setSession('token-123', 'refresh-token', {
       id: 1,
       userName: 'operator',
       nickName: 'Operator',
@@ -56,7 +56,7 @@ describe('router', () => {
     const router = createAppRouter();
     const authStore = useAuthStore();
     const menuStore = useMenuStore();
-    authStore.setSession('token-123', {
+    authStore.setSession('token-123', 'refresh-token', {
       id: 1,
       userName: 'operator',
       nickName: 'Operator',
@@ -75,7 +75,7 @@ describe('router', () => {
     const router = createAppRouter();
     const authStore = useAuthStore();
     const menuStore = useMenuStore();
-    authStore.setSession('token-123', {
+    authStore.setSession('token-123', 'refresh-token', {
       id: 1,
       userName: 'operator',
       nickName: 'Operator',
@@ -94,7 +94,7 @@ describe('router', () => {
     const router = createAppRouter();
     const authStore = useAuthStore();
     const menuStore = useMenuStore();
-    authStore.setSession('token-123', {
+    authStore.setSession('token-123', 'refresh-token', {
       id: 1,
       userName: 'operator',
       nickName: 'Operator',

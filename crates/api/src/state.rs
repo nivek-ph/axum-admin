@@ -35,7 +35,7 @@ pub(crate) fn test_state(pool: sqlx::PgPool) -> AppState {
     let menus = MenuService::new(pool.clone());
     let files = FileService::new(pool, "./uploads");
     AppState {
-        tokens: TokenService::without_revocation_store("test-secret"),
+        tokens: TokenService::without_session_store("test-secret"),
         captcha: CaptchaService::without_store(),
         users,
         roles,

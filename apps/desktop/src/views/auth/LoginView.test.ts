@@ -51,7 +51,8 @@ describe('LoginView', () => {
       code: 'OK',
       message: 'ok',
       data: {
-        token: 'token-123',
+        accessToken: 'token-123',
+        refreshToken: 'refresh-token',
         user: {
           id: 1,
           userName: 'operator',
@@ -121,7 +122,8 @@ describe('LoginView', () => {
       code: 'OK',
       message: 'ok',
       data: {
-        token: 'token-123',
+        accessToken: 'token-123',
+        refreshToken: 'refresh-token',
         user: {
           id: 1,
           userName: 'admin',

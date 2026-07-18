@@ -7,7 +7,10 @@ const INTERNAL_SERVER_ERROR: ErrorSpec =
 pub(crate) const LOGIN_REQUIRED: ErrorSpec =
     ErrorSpec::unauthorized("LOGIN_REQUIRED", "login required");
 const TOKEN_INVALID: ErrorSpec = ErrorSpec::unauthorized("TOKEN_INVALID", "session expired");
-const TOKEN_REVOKED: ErrorSpec = ErrorSpec::unauthorized("TOKEN_REVOKED", "session expired");
+const ACCESS_TOKEN_EXPIRED: ErrorSpec =
+    ErrorSpec::unauthorized("ACCESS_TOKEN_EXPIRED", "session expired");
+const REFRESH_TOKEN_INVALID: ErrorSpec =
+    ErrorSpec::unauthorized("REFRESH_TOKEN_INVALID", "session expired");
 const SESSION_INVALID: ErrorSpec = ErrorSpec::unauthorized("SESSION_INVALID", "session expired");
 pub(crate) const PERMISSION_DENIED: ErrorSpec =
     ErrorSpec::forbidden("PERMISSION_DENIED", "permission denied");
@@ -96,7 +99,14 @@ impl From<::auth::captcha::CaptchaError> for AppError {
 
 impl From<::auth::token::TokenIssueError> for AppError {
     fn from(error: ::auth::token::TokenIssueError) -> Self {
-        INTERNAL_SERVER_ERROR.into_error().with_source(error)
+        use ::auth::token::TokenIssueError;
+
+        match error {
+            TokenIssueError::Signing(_) => INTERNAL_SERVER_ERROR.into_error().with_source(error),
+            TokenIssueError::StoreUnavailable | TokenIssueError::Store(_) => {
+                AUTHORIZATION_UNAVAILABLE.into_error().with_source(error)
+            }
+        }
     }
 }
 
@@ -105,10 +115,42 @@ impl From<::auth::token::TokenSessionError> for AppError {
         use ::auth::token::TokenSessionError;
 
         match error {
+            TokenSessionError::Expired(source) => {
+                ACCESS_TOKEN_EXPIRED.into_error().with_source(source)
+            }
             TokenSessionError::Invalid(source) => TOKEN_INVALID.into_error().with_source(source),
-            TokenSessionError::Revoked => TOKEN_REVOKED.into(),
+            TokenSessionError::SessionInvalid => SESSION_INVALID.into(),
             TokenSessionError::StoreUnavailable | TokenSessionError::Store(_) => {
                 AUTHORIZATION_UNAVAILABLE.into_error().with_source(error)
+            }
+        }
+    }
+}
+
+impl From<::auth::token::RefreshError> for AppError {
+    fn from(error: ::auth::token::RefreshError) -> Self {
+        use ::auth::token::RefreshError;
+
+        match error {
+            RefreshError::Invalid => REFRESH_TOKEN_INVALID.into(),
+            RefreshError::SessionInvalid => SESSION_INVALID.into(),
+            RefreshError::Signing(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
+            RefreshError::StoreUnavailable | RefreshError::Store(_) => {
+                AUTHORIZATION_UNAVAILABLE.into_error().with_source(error)
+            }
+        }
+    }
+}
+
+impl From<iam::users::RefreshIdentityError> for AppError {
+    fn from(error: iam::users::RefreshIdentityError) -> Self {
+        use iam::users::RefreshIdentityError;
+
+        match error {
+            RefreshIdentityError::NotFound => SESSION_INVALID.into(),
+            RefreshIdentityError::Disabled => USER_DISABLED.into(),
+            RefreshIdentityError::Database(source) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
             }
         }
     }
@@ -124,6 +166,12 @@ impl From<::auth::token::TokenRevokeError> for AppError {
                 AUTHORIZATION_UNAVAILABLE.into_error().with_source(error)
             }
         }
+    }
+}
+
+impl From<::auth::token::UserSessionRevokeError> for AppError {
+    fn from(error: ::auth::token::UserSessionRevokeError) -> Self {
+        AUTHORIZATION_UNAVAILABLE.into_error().with_source(error)
     }
 }
 
@@ -296,6 +344,33 @@ mod tests {
         assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
         assert_eq!(error.message(), "authorization service is unavailable");
+    }
+
+    #[test]
+    fn token_issue_store_unavailable_is_service_unavailable() {
+        let error = AppError::from(::auth::token::TokenIssueError::StoreUnavailable);
+
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
+        assert_eq!(error.message(), "authorization service is unavailable");
+    }
+
+    #[test]
+    fn user_session_revoke_store_unavailable_is_service_unavailable() {
+        let error = AppError::from(::auth::token::UserSessionRevokeError::StoreUnavailable);
+
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
+        assert_eq!(error.message(), "authorization service is unavailable");
+    }
+
+    #[test]
+    fn missing_login_session_has_a_stable_unauthorized_contract() {
+        let error = AppError::from(::auth::token::TokenSessionError::SessionInvalid);
+
+        assert_eq!(error.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(error.code(), "SESSION_INVALID");
+        assert_eq!(error.message(), "session expired");
     }
 
     #[test]

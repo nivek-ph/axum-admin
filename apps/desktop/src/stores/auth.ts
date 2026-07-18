@@ -22,10 +22,13 @@ export interface AuthUserInfo {
 
 export const useAuthStore = defineStore('auth', () => {
   const persisted = readAuthSession();
-  const token = ref(persisted.token);
+  const accessToken = ref(persisted.accessToken);
+  const refreshToken = ref(persisted.refreshToken);
   const userInfo = ref<AuthUserInfo | null>(persisted.userInfo);
 
-  const isAuthenticated = computed(() => token.value.length > 0);
+  const isAuthenticated = computed(
+    () => accessToken.value.length > 0 && refreshToken.value.length > 0 && userInfo.value !== null
+  );
   const permissionSet = computed(() => new Set(userInfo.value?.permissions || []));
   const roles = computed(() => userInfo.value?.roles || []);
   const roleLabel = computed(() => roles.value.map((role) => role.name).filter(Boolean).join(' / '));
@@ -38,18 +41,25 @@ export const useAuthStore = defineStore('auth', () => {
 
   function persistSession() {
     writeAuthSession({
-      token: token.value,
+      accessToken: accessToken.value,
+      refreshToken: refreshToken.value,
       userInfo: userInfo.value,
     });
   }
 
-  function setToken(value: string) {
-    token.value = value;
+  function setTokenPair(nextAccessToken: string, nextRefreshToken: string) {
+    accessToken.value = nextAccessToken;
+    refreshToken.value = nextRefreshToken;
     persistSession();
   }
 
-  function setSession(nextToken: string, nextUserInfo: AuthUserInfo) {
-    token.value = nextToken;
+  function setSession(
+    nextAccessToken: string,
+    nextRefreshToken: string,
+    nextUserInfo: AuthUserInfo
+  ) {
+    accessToken.value = nextAccessToken;
+    refreshToken.value = nextRefreshToken;
     userInfo.value = nextUserInfo;
     persistSession();
   }
@@ -60,8 +70,9 @@ export const useAuthStore = defineStore('auth', () => {
     persistSession();
   }
 
-  function clearToken() {
-    token.value = '';
+  function clearSession() {
+    accessToken.value = '';
+    refreshToken.value = '';
     userInfo.value = null;
     clearAuthSession();
   }
@@ -72,7 +83,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    token,
+    accessToken,
+    refreshToken,
     userInfo,
     isAuthenticated,
     roles,
@@ -82,9 +94,9 @@ export const useAuthStore = defineStore('auth', () => {
     permissionSet,
     isSuperAdmin,
     can,
-    setToken,
+    setTokenPair,
     setSession,
     setPermissions,
-    clearToken,
+    clearSession,
   };
 });

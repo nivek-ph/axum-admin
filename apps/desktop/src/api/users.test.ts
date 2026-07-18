@@ -1,11 +1,30 @@
-import { describe, expect, it } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { useAuthStore } from '@/stores/auth';
+
+const httpApi = vi.hoisted(() => ({
+  put: vi.fn(),
+}));
+
+vi.mock('./http', () => ({
+  http: {
+    put: httpApi.put,
+  },
+}));
 
 import {
   buildCreateUserPayload,
+  changeOwnPassword,
   normalizeUserListResponse,
 } from './users';
 
 describe('user api adapter', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    httpApi.put.mockReset();
+  });
+
   it('normalizes backend list payload', () => {
     const result = normalizeUserListResponse({
       data: {
@@ -41,6 +60,26 @@ describe('user api adapter', () => {
       enable: 1,
       roleIds: [1],
       deptId: 1,
+    });
+  });
+
+  it('sends the self password change to the protected endpoint', async () => {
+    useAuthStore().setSession('access-token', 'refresh-token', {
+      id: 1,
+      userName: 'admin',
+      nickName: 'Admin',
+    });
+    const payload = {
+      password: 'old-password',
+      newPassword: 'new-password',
+    };
+
+    await changeOwnPassword(payload);
+
+    expect(httpApi.put).toHaveBeenCalledWith('/users/me/password', payload, {
+      headers: {
+        Authorization: 'Bearer access-token',
+      },
     });
   });
 });

@@ -106,29 +106,30 @@ async function handleLogin() {
       ElMessage.error(res.message || t('Sign in failed'))
       return
     }
-    const loginToken = res.data?.token
+    const accessToken = res.data?.accessToken
+    const refreshToken = res.data?.refreshToken
     const loginUser = res.data?.user
-    if (!loginToken || !loginUser) {
-      authStore.clearToken()
+    if (!accessToken || !refreshToken || !loginUser) {
+      authStore.clearSession()
       menuStore.resetAccess()
       ElMessage.error(res.message || t('Sign in failed'))
       return
     }
 
-    authStore.setSession(loginToken, loginUser)
+    authStore.setSession(accessToken, refreshToken, loginUser)
     const [userInfoRes, menuRes] = await Promise.all([
-      getUserInfo(loginToken),
-      getMenu(loginToken)
+      getUserInfo(accessToken),
+      getMenu(accessToken)
     ])
     if (menuRes.code !== 'OK') {
-      authStore.clearToken()
+      authStore.clearSession()
       menuStore.resetAccess()
       ElMessage.error(menuRes.message || t('Failed to load menus'))
       return
     }
 
     const currentUser = userInfoRes.code === 'OK' ? userInfoRes.data?.userInfo || loginUser : loginUser
-    authStore.setSession(loginToken, currentUser)
+    authStore.setSession(accessToken, refreshToken, currentUser)
     menuStore.setAuthorizedMenus(menuRes.data?.menus || [], authStore.isSuperAdmin)
     authStore.setPermissions(menuRes.data?.permissions || [])
     const homeRouteName = authStore.homeRouteName

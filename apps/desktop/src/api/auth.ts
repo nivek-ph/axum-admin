@@ -1,4 +1,4 @@
-import { bearerAuthorization } from './core'
+import { bearerAuthorization, withAuthHeaders } from './core'
 import { http } from './http'
 
 export interface LoginPayload {
@@ -25,6 +25,10 @@ export function fetchCaptcha() {
 
 export function login(payload: LoginPayload) {
   return http.post('/auth/login', payload)
+}
+
+export function logout() {
+  return http.post('/auth/logout', undefined, withAuthHeaders())
 }
 
 export function getUserInfo(token: string) {

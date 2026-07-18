@@ -3,32 +3,54 @@ import type { AuthUserInfo } from './auth';
 const STORAGE_KEY = 'axum-vue-admin.auth';
 
 export interface PersistedAuthSession {
-  token: string;
+  accessToken: string;
+  refreshToken: string;
   userInfo: AuthUserInfo | null;
+}
+
+const emptySession = (): PersistedAuthSession => ({
+  accessToken: '',
+  refreshToken: '',
+  userInfo: null,
+});
+
+function isAuthUserInfo(value: unknown): value is AuthUserInfo {
+  if (typeof value !== 'object' || value === null) return false;
+  const user = value as Record<string, unknown>;
+  return (
+    typeof user.id === 'number'
+    && Number.isFinite(user.id)
+    && typeof user.userName === 'string'
+    && user.userName.trim().length > 0
+    && typeof user.nickName === 'string'
+  );
 }
 
 export function readAuthSession(): PersistedAuthSession {
   if (typeof localStorage === 'undefined') {
-    return { token: '', userInfo: null };
+    return emptySession();
   }
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return { token: '', userInfo: null };
+      return emptySession();
     }
 
     const parsed = JSON.parse(raw) as Partial<PersistedAuthSession>;
-    const token = typeof parsed.token === 'string' ? parsed.token.trim() : '';
-    const userInfo = parsed.userInfo && typeof parsed.userInfo === 'object' ? (parsed.userInfo as AuthUserInfo) : null;
+    const accessToken = typeof parsed.accessToken === 'string' ? parsed.accessToken.trim() : '';
+    const refreshToken = typeof parsed.refreshToken === 'string' ? parsed.refreshToken.trim() : '';
+    const userInfo = isAuthUserInfo(parsed.userInfo) ? parsed.userInfo : null;
 
-    if (!token) {
-      return { token: '', userInfo: null };
+    if (!accessToken || !refreshToken || !userInfo) {
+      localStorage.removeItem(STORAGE_KEY);
+      return emptySession();
     }
 
-    return { token, userInfo };
+    return { accessToken, refreshToken, userInfo };
   } catch {
-    return { token: '', userInfo: null };
+    localStorage.removeItem(STORAGE_KEY);
+    return emptySession();
   }
 }
 
@@ -37,8 +59,9 @@ export function writeAuthSession(session: PersistedAuthSession) {
     return;
   }
 
-  const token = session.token.trim();
-  if (!token) {
+  const accessToken = session.accessToken.trim();
+  const refreshToken = session.refreshToken.trim();
+  if (!accessToken || !refreshToken || !isAuthUserInfo(session.userInfo)) {
     localStorage.removeItem(STORAGE_KEY);
     return;
   }
@@ -46,7 +69,8 @@ export function writeAuthSession(session: PersistedAuthSession) {
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-      token,
+      accessToken,
+      refreshToken,
       userInfo: session.userInfo,
     } satisfies PersistedAuthSession)
   );

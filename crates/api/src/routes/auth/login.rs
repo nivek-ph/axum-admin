@@ -39,7 +39,10 @@ impl LoginInput {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct LoginResponse {
-    pub token: String,
+    #[serde(rename = "accessToken")]
+    pub access_token: String,
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: String,
     pub user: UserResponse,
 }
 
@@ -156,8 +159,12 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginRespo
         }
     };
 
-    let token = match state.tokens.issue(identity.id, &identity.username) {
-        Ok(token) => token,
+    let pair = match state
+        .tokens
+        .create_session(identity.id, &identity.username)
+        .await
+    {
+        Ok(pair) => pair,
         Err(error) => {
             record_login(
                 &state.audits,
@@ -182,7 +189,8 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginRespo
 
     Ok(LoginResponse {
         user: UserResponse::from(identity.user),
-        token,
+        access_token: pair.access_token,
+        refresh_token: pair.refresh_token,
     })
 }
 

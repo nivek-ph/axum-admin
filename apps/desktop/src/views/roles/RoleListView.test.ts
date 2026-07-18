@@ -179,7 +179,7 @@ function mountWithRole(roleId = 1, permissions?: string[]) {
   const pinia = createPinia();
   setActivePinia(pinia);
   const authStore = useAuthStore();
-  authStore.setSession('token-123', {
+  authStore.setSession('token-123', 'refresh-token', {
     id: roleId === 1 ? 1 : 2,
     userName: roleId === 1 ? 'admin' : 'nick',
     nickName: roleId === 1 ? 'admin' : 'nick',

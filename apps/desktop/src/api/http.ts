@@ -1,8 +1,10 @@
-import axios from 'axios';
-import type { AxiosError } from 'axios';
+import axios, { AxiosHeaders } from 'axios';
+import type { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
-import { clearAuthSession } from '@/stores/authStorage';
 import { useAuthStore } from '@/stores/auth';
+import { clearAuthSession, readAuthSession } from '@/stores/authStorage';
+import { useMenuStore } from '@/stores/menu';
+import { ElMessage } from '@/ui/feedback';
 
 const defaultApiBaseUrl = 'http://127.0.0.1:3000/api';
 
@@ -35,6 +37,85 @@ export class ApiHttpError extends Error {
   }
 }
 
+interface TokenPairData {
+  accessToken: string;
+  refreshToken: string;
+}
+
+type RetriableRequestConfig = InternalAxiosRequestConfig & {
+  _authRetried?: boolean;
+};
+
+let refreshInFlight: Promise<TokenPairData> | null = null;
+const terminalAuthenticationCodes = new Set([
+  'ACCESS_TOKEN_EXPIRED',
+  'LOGIN_REQUIRED',
+  'TOKEN_INVALID',
+  'SESSION_INVALID',
+  'REFRESH_TOKEN_INVALID',
+  'USER_DISABLED',
+]);
+
+function asRejectedError(error: AxiosError) {
+  const status = error.response?.status;
+  const data = error.response?.data;
+  if (isApiEnvelope(data)) {
+    const msg = data.message?.trim() ? data.message : 'Request failed';
+    return new ApiHttpError(msg, { status, body: data, cause: error });
+  }
+  return error;
+}
+
+function endLocalSession() {
+  let hadSession = false;
+  try {
+    const authStore = useAuthStore();
+    hadSession = authStore.isAuthenticated;
+    authStore.clearSession();
+    useMenuStore().resetAccess();
+  } catch {
+    const persisted = readAuthSession();
+    hadSession = Boolean(persisted.accessToken && persisted.refreshToken);
+    clearAuthSession();
+  }
+
+  if (hadSession) {
+    ElMessage.warning('Server session may still be active');
+  }
+  if (typeof window !== 'undefined' && !window.location.hash.includes('/login')) {
+    window.location.hash = '#/login';
+  }
+}
+
+async function refreshTokenPair(): Promise<TokenPairData> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const authStore = useAuthStore();
+      const response = await http.post('/auth/refresh', {
+        refreshToken: authStore.refreshToken,
+      }) as ApiEnvelope;
+      const data = response.data as Partial<TokenPairData> | undefined;
+      if (
+        response.code !== 'OK'
+        || typeof data?.accessToken !== 'string'
+        || typeof data?.refreshToken !== 'string'
+        || !data.accessToken
+        || !data.refreshToken
+      ) {
+        throw new ApiHttpError(response.message || 'Request failed', { body: response });
+      }
+      authStore.setTokenPair(data.accessToken, data.refreshToken);
+      return {
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+      };
+    })().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
 /** Prefer backend `{ message }`; otherwise fallback (e.g. network / non-JSON error). */
 export function getApiErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiHttpError) {
@@ -57,28 +138,42 @@ export function getApiErrorMessage(err: unknown, fallback: string): string {
 
 http.interceptors.response.use(
   (response) => response.data,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     const status = error.response?.status;
-    const requestUrl = error.config?.url || '';
-    const isPublicAuthRequest = requestUrl.includes('/auth/login');
-
-    if (status === 401 && !isPublicAuthRequest) {
-      try {
-        useAuthStore().clearToken();
-      } catch {
-        clearAuthSession();
-      }
-
-      if (typeof window !== 'undefined' && !window.location.hash.includes('/login')) {
-        window.location.hash = '#/login';
-      }
-    }
-
     const data = error.response?.data;
-    if (isApiEnvelope(data)) {
-      const msg = data.message?.trim() ? data.message : 'Request failed';
-      return Promise.reject(new ApiHttpError(msg, { status, body: data, cause: error }));
+    const requestUrl = error.config?.url || '';
+    const isLoginRequest = requestUrl.includes('/auth/login');
+    const isRefreshRequest = requestUrl.includes('/auth/refresh');
+    const requestConfig = error.config as RetriableRequestConfig | undefined;
+
+    if (
+      status === 401
+      && isApiEnvelope(data)
+      && data.code === 'ACCESS_TOKEN_EXPIRED'
+      && !isLoginRequest
+      && !isRefreshRequest
+      && requestConfig
+      && !requestConfig._authRetried
+    ) {
+      try {
+        const pair = await refreshTokenPair();
+        requestConfig._authRetried = true;
+        requestConfig.headers = AxiosHeaders.from(requestConfig.headers);
+        requestConfig.headers.set('Authorization', `Bearer ${pair.accessToken}`);
+        return http.request(requestConfig);
+      } catch (refreshError) {
+        return Promise.reject(refreshError);
+      }
     }
-    return Promise.reject(error);
+
+    if (
+      isApiEnvelope(data)
+      && terminalAuthenticationCodes.has(data.code)
+      && !isLoginRequest
+    ) {
+      endLocalSession();
+    }
+
+    return Promise.reject(asRejectedError(error));
   }
 );

@@ -42,10 +42,12 @@ import { LogOut } from '@lucide/vue'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { logout as logoutSession } from '@/api/auth'
 import LanguageSwitch from '@/components/LanguageSwitch.vue'
 import { t } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useMenuStore } from '@/stores/menu'
+import { ElMessage } from '@/ui/feedback'
 
 const authStore = useAuthStore()
 const menuStore = useMenuStore()
@@ -62,10 +64,18 @@ const userInitial = computed(() => {
   return source.slice(0, 1).toUpperCase()
 })
 
-function logout() {
-  authStore.clearToken()
-  menuStore.resetAccess()
-  router.replace('/login')
+async function logout() {
+  try {
+    await logoutSession()
+  } catch {
+    if (authStore.isAuthenticated) {
+      ElMessage.warning('Server session may still be active')
+    }
+  } finally {
+    authStore.clearSession()
+    menuStore.resetAccess()
+    await router.replace('/login')
+  }
 }
 </script>
 

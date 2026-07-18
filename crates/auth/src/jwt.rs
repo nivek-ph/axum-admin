@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct Claims {
     pub user_id: i64,
     pub username: String,
+    pub sid: String,
     pub exp: usize,
 }
 
@@ -26,18 +27,20 @@ impl JwtService {
         &self,
         user_id: i64,
         username: &str,
+        session_id: &str,
     ) -> Result<String, jsonwebtoken::errors::Error> {
         let expiration = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_else(|_| Duration::from_secs(0))
             .as_secs()
-            + 24 * 60 * 60;
+            + 15 * 60;
 
         encode(
             &Header::default(),
             &Claims {
                 user_id,
                 username: username.to_string(),
+                sid: session_id.to_string(),
                 exp: expiration as usize,
             },
             &EncodingKey::from_secret(self.secret.as_bytes()),

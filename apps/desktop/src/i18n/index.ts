@@ -74,6 +74,7 @@ const zh: Record<string, string> = {
   'Basic Info': '基础信息',
   'Menu Authorization': '菜单授权',
   'Permission Authorization': '权限授权',
+  'Server session may still be active': '服务器会话可能仍然有效',
   'Data Scope': '数据范围',
   'Assigned Users': '分配用户',
   'Select a role': '请选择角色',
