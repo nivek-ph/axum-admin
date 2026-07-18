@@ -124,19 +124,26 @@ impl TokenService {
             .redis_connection
             .clone()
             .ok_or(TokenIssueError::StoreUnavailable)?;
-        let _: () = redis::pipe()
-            .atomic()
-            .hset(session_key(&session_id), "user_id", user_id)
-            .hset(
-                session_key(&session_id),
-                "refresh_hash",
-                hash_refresh_secret(&refresh_secret),
-            )
-            .expire(session_key(&session_id), SESSION_TTL_SECONDS as i64)
-            .sadd(user_sessions_key(user_id), &session_id)
-            .expire(user_sessions_key(user_id), SESSION_TTL_SECONDS as i64)
-            .query_async(&mut redis)
-            .await?;
+        let _: i64 = redis::Script::new(
+            r#"
+            local now = tonumber(redis.call('TIME')[1])
+            local expires_at = now + tonumber(ARGV[4])
+            redis.call('HSET', KEYS[1], 'user_id', ARGV[1], 'refresh_hash', ARGV[2])
+            redis.call('EXPIRE', KEYS[1], ARGV[4])
+            redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+            redis.call('ZADD', KEYS[2], expires_at, ARGV[3])
+            redis.call('EXPIRE', KEYS[2], ARGV[4])
+            return 1
+            "#,
+        )
+        .key(session_key(&session_id))
+        .key(user_sessions_key(user_id))
+        .arg(user_id)
+        .arg(hash_refresh_secret(&refresh_secret))
+        .arg(&session_id)
+        .arg(SESSION_TTL_SECONDS)
+        .invoke_async(&mut redis)
+        .await?;
         Ok(TokenPair {
             access_token,
             refresh_token: format!("{session_id}.{refresh_secret}"),
@@ -257,7 +264,7 @@ impl TokenService {
             .ok_or(UserSessionRevokeError::StoreUnavailable)?;
         let _: i64 = redis::Script::new(
             r#"
-            local sessions = redis.call('SMEMBERS', KEYS[1])
+            local sessions = redis.call('ZRANGE', KEYS[1], 0, -1)
             for _, session_id in ipairs(sessions) do
                 redis.call('DEL', ARGV[1] .. session_id)
             end
@@ -280,7 +287,7 @@ impl TokenService {
         let _: () = redis::pipe()
             .atomic()
             .del(session_key(session_id))
-            .srem(user_sessions_key(user_id), session_id)
+            .zrem(user_sessions_key(user_id), session_id)
             .query_async(&mut redis)
             .await?;
         Ok(())
@@ -391,9 +398,13 @@ mod tests {
             .expect("Redis test connection should open");
         let mut inspection = redis.clone();
         let tokens = TokenService::new("test-secret", redis);
+        let _: usize = inspection
+            .zadd(user_sessions_key(101), "expired-session", 0)
+            .await
+            .expect("expired session index should seed");
 
         let pair = tokens
-            .create_session(1, "admin")
+            .create_session(101, "admin")
             .await
             .expect("login session should be issued");
         let claims = tokens
@@ -414,11 +425,21 @@ mod tests {
             .hget(session_key(sid), "refresh_hash")
             .await
             .expect("refresh hash should be stored");
+        let indexed_sessions: Vec<String> = inspection
+            .zrange(user_sessions_key(101), 0, -1)
+            .await
+            .expect("session index should be readable");
 
         assert_eq!(claims.sid, sid);
         assert!((14 * 60..=15 * 60).contains(&(claims.exp - now)));
         assert!((7 * 24 * 60 * 60 - 1..=7 * 24 * 60 * 60).contains(&ttl));
         assert_ne!(stored_hash, secret);
+        assert!(
+            !indexed_sessions
+                .iter()
+                .any(|session| session == "expired-session")
+        );
+        assert!(indexed_sessions.iter().any(|session| session == sid));
 
         tokens
             .revoke(&pair.access_token)

@@ -41,7 +41,13 @@ pub async fn refresh(
             error @ (iam::users::RefreshIdentityError::NotFound
             | iam::users::RefreshIdentityError::Disabled),
         ) => {
-            state.tokens.revoke_refresh_grant(&grant).await?;
+            if let Err(revoke_error) = state.tokens.revoke_refresh_grant(&grant).await {
+                tracing::error!(
+                    error = ?revoke_error,
+                    user_id = grant.user_id(),
+                    "failed to revoke refresh grant after identity check failure"
+                );
+            }
             return Err(error.into());
         }
         Err(error @ iam::users::RefreshIdentityError::Database(_)) => return Err(error.into()),

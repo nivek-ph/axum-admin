@@ -162,7 +162,6 @@ http.interceptors.response.use(
         requestConfig.headers.set('Authorization', `Bearer ${pair.accessToken}`);
         return http.request(requestConfig);
       } catch (refreshError) {
-        endLocalSession();
         return Promise.reject(refreshError);
       }
     }

@@ -1,4 +1,4 @@
-import type { AxiosAdapter } from 'axios'
+import { AxiosError, type AxiosAdapter } from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -123,6 +123,51 @@ describe('auth response interceptor', () => {
     expect(auth.isAuthenticated).toBe(false)
     expect(menu.accessLoaded).toBe(false)
     expect(warning).toHaveBeenCalledOnce()
+  })
+
+  it('keeps local access state when refresh fails transiently', async () => {
+    for (const failure of ['network', 'unavailable'] as const) {
+      const auth = useAuthStore()
+      auth.setSession('access-one', 'refresh-one', {
+        id: 1,
+        userName: 'admin',
+        nickName: 'Admin',
+      })
+      http.defaults.adapter = (async (config) => {
+        if (config.url === '/auth/refresh') {
+          if (failure === 'network') {
+            throw new AxiosError('refresh network failed', 'ERR_NETWORK', config)
+          }
+          return rejectEnvelope(config, 'AUTHORIZATION_UNAVAILABLE', 503)
+        }
+        return rejectEnvelope(config, 'ACCESS_TOKEN_EXPIRED')
+      }) as AxiosAdapter
+
+      await expect(http.get('/protected', withAuthHeaders())).rejects.toBeInstanceOf(Error)
+
+      expect(auth.isAuthenticated).toBe(true)
+      expect(window.location.hash).toBe('#/dashboard')
+    }
+  })
+
+  it('clears local access state when refresh credentials are terminally invalid', async () => {
+    const auth = useAuthStore()
+    auth.setSession('access-one', 'refresh-one', {
+      id: 1,
+      userName: 'admin',
+      nickName: 'Admin',
+    })
+    http.defaults.adapter = (async (config) => {
+      if (config.url === '/auth/refresh') {
+        return rejectEnvelope(config, 'REFRESH_TOKEN_INVALID')
+      }
+      return rejectEnvelope(config, 'ACCESS_TOKEN_EXPIRED')
+    }) as AxiosAdapter
+
+    await expect(http.get('/protected', withAuthHeaders())).rejects.toBeInstanceOf(Error)
+
+    expect(auth.isAuthenticated).toBe(false)
+    expect(window.location.hash).toBe('#/login')
   })
 
   it('does not refresh other authentication failures', async () => {
