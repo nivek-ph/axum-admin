@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::jwt::{Claims, JwtService};
 
 const SESSION_KEY_PREFIX: &str = "auth:login-session:";
+const USER_SESSIONS_KEY_PREFIX: &str = "auth:user-sessions:";
 const SESSION_TTL_SECONDS: u64 = 7 * 24 * 60 * 60;
 const TOKEN_PART_HEX_LENGTH: usize = 64;
 
@@ -42,6 +43,14 @@ pub enum TokenSessionError {
 pub enum TokenRevokeError {
     #[error("token invalid")]
     Invalid(#[source] jsonwebtoken::errors::Error),
+    #[error("token session store is unavailable")]
+    StoreUnavailable,
+    #[error("token session store operation failed")]
+    Store(#[from] redis::RedisError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UserSessionRevokeError {
     #[error("token session store is unavailable")]
     StoreUnavailable,
     #[error("token session store operation failed")]
@@ -124,6 +133,8 @@ impl TokenService {
                 hash_refresh_secret(&refresh_secret),
             )
             .expire(session_key(&session_id), SESSION_TTL_SECONDS as i64)
+            .sadd(user_sessions_key(user_id), &session_id)
+            .expire(user_sessions_key(user_id), SESSION_TTL_SECONDS as i64)
             .query_async(&mut redis)
             .await?;
         Ok(TokenPair {
@@ -228,7 +239,7 @@ impl TokenService {
     }
 
     pub async fn revoke_refresh_grant(&self, grant: &RefreshGrant) -> Result<(), TokenRevokeError> {
-        self.delete_session(&grant.session_id).await
+        self.delete_session(&grant.session_id, grant.user_id).await
     }
 
     pub async fn revoke(&self, token: &str) -> Result<(), TokenRevokeError> {
@@ -236,15 +247,42 @@ impl TokenService {
             .jwt_service
             .decode_token(token)
             .map_err(TokenRevokeError::Invalid)?;
-        self.delete_session(&claims.sid).await
+        self.delete_session(&claims.sid, claims.user_id).await
     }
 
-    async fn delete_session(&self, session_id: &str) -> Result<(), TokenRevokeError> {
+    pub async fn revoke_user_sessions(&self, user_id: i64) -> Result<(), UserSessionRevokeError> {
+        let mut redis = self
+            .redis_connection
+            .clone()
+            .ok_or(UserSessionRevokeError::StoreUnavailable)?;
+        let _: i64 = redis::Script::new(
+            r#"
+            local sessions = redis.call('SMEMBERS', KEYS[1])
+            for _, session_id in ipairs(sessions) do
+                redis.call('DEL', ARGV[1] .. session_id)
+            end
+            redis.call('DEL', KEYS[1])
+            return #sessions
+            "#,
+        )
+        .key(user_sessions_key(user_id))
+        .arg(SESSION_KEY_PREFIX)
+        .invoke_async(&mut redis)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_session(&self, session_id: &str, user_id: i64) -> Result<(), TokenRevokeError> {
         let mut redis = self
             .redis_connection
             .clone()
             .ok_or(TokenRevokeError::StoreUnavailable)?;
-        let _: usize = redis.del(session_key(session_id)).await?;
+        let _: () = redis::pipe()
+            .atomic()
+            .del(session_key(session_id))
+            .srem(user_sessions_key(user_id), session_id)
+            .query_async(&mut redis)
+            .await?;
         Ok(())
     }
 }
@@ -252,6 +290,11 @@ impl TokenService {
 #[inline]
 fn session_key(session_id: &str) -> String {
     format!("{SESSION_KEY_PREFIX}{session_id}")
+}
+
+#[inline]
+fn user_sessions_key(user_id: i64) -> String {
+    format!("{USER_SESSIONS_KEY_PREFIX}{user_id}")
 }
 
 fn random_token_part() -> String {
@@ -515,5 +558,69 @@ mod tests {
             .expect_err("expired token should be rejected before session lookup");
 
         assert!(matches!(error, TokenSessionError::Expired(_)));
+    }
+
+    #[tokio::test]
+    async fn revoking_user_sessions_terminates_every_session_for_only_that_user() {
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+        let redis = redis::Client::open(redis_url)
+            .expect("Redis test client should construct")
+            .get_multiplexed_async_connection()
+            .await
+            .expect("Redis test connection should open");
+        let tokens = TokenService::new("test-secret", redis);
+        let first = tokens
+            .create_session(501, "target")
+            .await
+            .expect("first target session should be issued");
+        let second = tokens
+            .create_session(501, "target")
+            .await
+            .expect("second target session should be issued");
+        let unrelated = tokens
+            .create_session(502, "admin")
+            .await
+            .expect("unrelated admin session should be issued");
+
+        tokens
+            .revoke_user_sessions(501)
+            .await
+            .expect("all target sessions should be revoked");
+
+        for pair in [&first, &second] {
+            assert!(matches!(
+                tokens
+                    .decode_active(&pair.access_token)
+                    .await
+                    .expect_err("target access token should be rejected"),
+                TokenSessionError::SessionInvalid
+            ));
+            assert!(matches!(
+                tokens
+                    .inspect_refresh(&pair.refresh_token)
+                    .await
+                    .expect_err("target refresh token should be rejected"),
+                RefreshError::SessionInvalid
+            ));
+        }
+        tokens
+            .decode_active(&unrelated.access_token)
+            .await
+            .expect("unrelated admin session should remain active");
+        tokens
+            .revoke(&unrelated.access_token)
+            .await
+            .expect("unrelated session should be cleaned up");
+    }
+
+    #[tokio::test]
+    async fn revoking_user_sessions_without_session_store_fails_closed() {
+        let error = TokenService::without_session_store("test-secret")
+            .revoke_user_sessions(501)
+            .await
+            .expect_err("revoking without a session store should fail");
+
+        assert!(matches!(error, UserSessionRevokeError::StoreUnavailable));
     }
 }

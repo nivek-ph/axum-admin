@@ -89,7 +89,15 @@ pub async fn change_password(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<ChangePasswordRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.users.change_password(user.id, payload).await?;
+    let prepared = state
+        .users
+        .prepare_password_change(user.id, payload)
+        .await?;
+    state
+        .tokens
+        .revoke_user_sessions(prepared.user_id())
+        .await?;
+    state.users.persist_password_update(prepared).await?;
 
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -183,10 +191,15 @@ pub async fn reset_password_by_id(
     Path(id): Path<i64>,
     Json(payload): Json<ResetPasswordRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state
+    let prepared = state
         .users
-        .reset_password_by_id(user.id, id, payload.into())
+        .prepare_password_reset(user.id, id, payload.into())
         .await?;
+    state
+        .tokens
+        .revoke_user_sessions(prepared.user_id())
+        .await?;
+    state.users.persist_password_update(prepared).await?;
 
     Ok(Json(ApiResponse::new("OK", "password reset", None)))
 }
@@ -213,4 +226,235 @@ pub async fn set_user_roles_by_id(
         .await?;
 
     Ok(Json(ApiResponse::new("OK", "roles updated", None)))
+}
+
+#[cfg(test)]
+mod tests {
+    use auth::{
+        password::PasswordService,
+        token::{TokenService, TokenSessionError},
+    };
+    use iam::{
+        access::ResolvedDataScope,
+        users::{AuthenticatedUser, ChangePasswordRequest},
+    };
+
+    use super::*;
+
+    async fn seed_password_users(pool: &sqlx::PgPool) -> PasswordService {
+        let passwords = PasswordService::new();
+        let actor_hash = passwords.hash_password("actor-old").unwrap();
+        let target_hash = passwords.hash_password("target-old").unwrap();
+        sqlx::query(
+            r#"
+            insert into sys_users (
+                id, uuid, username, password_hash, nick_name, header_img, home_route,
+                enable, dept_id, is_system
+            ) values
+                (601, 'password-actor', 'password-actor', $1, 'Actor', '', 'dashboard', true, 1, false),
+                (602, 'password-target', 'password-target', $2, 'Target', '', 'dashboard', true, 1, false)
+            "#,
+        )
+        .bind(actor_hash)
+        .bind(target_hash)
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query("insert into sys_user_roles (user_id, role_id) values (601, 1)")
+            .execute(pool)
+            .await
+            .unwrap();
+        passwords
+    }
+
+    async fn redis_tokens() -> TokenService {
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+        let redis = redis::Client::open(redis_url)
+            .expect("Redis test client should construct")
+            .get_multiplexed_async_connection()
+            .await
+            .expect("Redis test connection should open");
+        TokenService::new("test-secret", redis)
+    }
+
+    fn current_user(id: i64) -> CurrentUser {
+        CurrentUser(AuthenticatedUser {
+            id,
+            data_scope: ResolvedDataScope::All,
+        })
+    }
+
+    async fn password_matches(
+        pool: &sqlx::PgPool,
+        passwords: &PasswordService,
+        user_id: i64,
+        password: &str,
+    ) -> bool {
+        let hash =
+            sqlx::query_scalar::<_, String>("select password_hash from sys_users where id = $1")
+                .bind(user_id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        passwords.verify_password(password, &hash).unwrap()
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn self_password_change_validates_before_revoking_then_terminates_all_sessions(
+        pool: sqlx::PgPool,
+    ) {
+        let passwords = seed_password_users(&pool).await;
+        let tokens = redis_tokens().await;
+        let first = tokens.create_session(601, "password-actor").await.unwrap();
+        let second = tokens.create_session(601, "password-actor").await.unwrap();
+        let mut state = crate::state::test_state(pool.clone());
+        state.tokens = tokens.clone();
+
+        let error = change_password(
+            State(state.clone()),
+            current_user(601),
+            Json(ChangePasswordRequest {
+                password: "wrong".to_string(),
+                new_password: "actor-new".to_string(),
+            }),
+        )
+        .await
+        .expect_err("wrong current password should fail");
+        assert_eq!(error.code(), "INVALID_PASSWORD");
+        tokens.decode_active(&first.access_token).await.unwrap();
+        tokens.decode_active(&second.access_token).await.unwrap();
+
+        let _ = change_password(
+            State(state),
+            current_user(601),
+            Json(ChangePasswordRequest {
+                password: "actor-old".to_string(),
+                new_password: "actor-new".to_string(),
+            }),
+        )
+        .await
+        .expect("password change should succeed");
+
+        for access_token in [&first.access_token, &second.access_token] {
+            assert!(matches!(
+                tokens.decode_active(access_token).await,
+                Err(TokenSessionError::SessionInvalid)
+            ));
+        }
+        assert!(password_matches(&pool, &passwords, 601, "actor-new").await);
+        assert!(!password_matches(&pool, &passwords, 601, "actor-old").await);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn self_password_change_keeps_old_password_when_session_store_is_unavailable(
+        pool: sqlx::PgPool,
+    ) {
+        let passwords = seed_password_users(&pool).await;
+        let state = crate::state::test_state(pool.clone());
+
+        let error = change_password(
+            State(state),
+            current_user(601),
+            Json(ChangePasswordRequest {
+                password: "actor-old".to_string(),
+                new_password: "actor-new".to_string(),
+            }),
+        )
+        .await
+        .expect_err("missing session store should fail");
+
+        assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
+        assert!(password_matches(&pool, &passwords, 601, "actor-old").await);
+        assert!(!password_matches(&pool, &passwords, 601, "actor-new").await);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn database_failure_after_revocation_keeps_old_password_and_sessions_terminated(
+        pool: sqlx::PgPool,
+    ) {
+        let passwords = seed_password_users(&pool).await;
+        let tokens = redis_tokens().await;
+        let session = tokens.create_session(601, "password-actor").await.unwrap();
+        let mut state = crate::state::test_state(pool.clone());
+        state.tokens = tokens.clone();
+        sqlx::query(
+            r#"
+            create function fail_password_update() returns trigger language plpgsql as $$
+            begin
+                raise exception 'password update failed';
+            end;
+            $$
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            create trigger fail_password_update
+            before update of password_hash on sys_users
+            for each row execute function fail_password_update()
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let error = change_password(
+            State(state),
+            current_user(601),
+            Json(ChangePasswordRequest {
+                password: "actor-old".to_string(),
+                new_password: "actor-new".to_string(),
+            }),
+        )
+        .await
+        .expect_err("database write should fail");
+
+        assert_eq!(error.code(), "INTERNAL_SERVER_ERROR");
+        assert!(matches!(
+            tokens.decode_active(&session.access_token).await,
+            Err(TokenSessionError::SessionInvalid)
+        ));
+        assert!(password_matches(&pool, &passwords, 601, "actor-old").await);
+        assert!(!password_matches(&pool, &passwords, 601, "actor-new").await);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn admin_password_reset_terminates_only_the_target_users_sessions(pool: sqlx::PgPool) {
+        let passwords = seed_password_users(&pool).await;
+        let tokens = redis_tokens().await;
+        let admin = tokens.create_session(601, "password-actor").await.unwrap();
+        let first_target = tokens.create_session(602, "password-target").await.unwrap();
+        let second_target = tokens.create_session(602, "password-target").await.unwrap();
+        let mut state = crate::state::test_state(pool.clone());
+        state.tokens = tokens.clone();
+
+        let _ = reset_password_by_id(
+            State(state),
+            current_user(601),
+            Path(602),
+            Json(ResetPasswordRequest {
+                id: 602,
+                password: "target-new".to_string(),
+            }),
+        )
+        .await
+        .expect("admin password reset should succeed");
+
+        tokens
+            .decode_active(&admin.access_token)
+            .await
+            .expect("admin session should remain active");
+        for access_token in [&first_target.access_token, &second_target.access_token] {
+            assert!(matches!(
+                tokens.decode_active(access_token).await,
+                Err(TokenSessionError::SessionInvalid)
+            ));
+        }
+        assert!(password_matches(&pool, &passwords, 602, "target-new").await);
+        assert!(!password_matches(&pool, &passwords, 602, "target-old").await);
+        tokens.revoke(&admin.access_token).await.unwrap();
+    }
 }

@@ -9,9 +9,9 @@ use uuid::Uuid;
 
 use super::{
     AuthenticateError, ChangePasswordRequest, DeleteUserRequest, GetUserListRequest, LoginIdentity,
-    LoginRequest, RefreshIdentity, RefreshIdentityError, RegisterRequest, ResetPasswordInput,
-    SetSelfInfoRequest, SetSelfSettingRequest, SetUserRolesRequest, UpdateUserInput, UserError,
-    UserInfoView, UserRecord,
+    LoginRequest, PreparedPasswordUpdate, RefreshIdentity, RefreshIdentityError, RegisterRequest,
+    ResetPasswordInput, SetSelfInfoRequest, SetSelfSettingRequest, SetUserRolesRequest,
+    UpdateUserInput, UserError, UserInfoView, UserRecord,
 };
 use crate::{
     access::{AccessService, ResolvedDataScope},
@@ -110,12 +110,12 @@ impl UserService {
         })
     }
 
-    pub async fn change_password(
+    pub async fn prepare_password_change(
         &self,
         user_id: i64,
         payload: ChangePasswordRequest,
-    ) -> Result<(), UserError> {
-        change_password(&self.pool, &self.passwords, user_id, payload).await
+    ) -> Result<PreparedPasswordUpdate, UserError> {
+        prepare_password_change(&self.pool, &self.passwords, user_id, payload).await
     }
 
     pub async fn update(
@@ -151,14 +151,21 @@ impl UserService {
         self.bump_access_version().await
     }
 
-    pub async fn reset_password_by_id(
+    pub async fn prepare_password_reset(
         &self,
         actor_user_id: i64,
         target_user_id: i64,
         payload: ResetPasswordInput,
-    ) -> Result<(), UserError> {
+    ) -> Result<PreparedPasswordUpdate, UserError> {
         ensure_user_in_scope(&self.pool, actor_user_id, target_user_id).await?;
-        reset_password(&self.pool, &self.passwords, target_user_id, payload).await
+        prepare_password_reset(&self.passwords, target_user_id, payload)
+    }
+
+    pub async fn persist_password_update(
+        &self,
+        prepared: PreparedPasswordUpdate,
+    ) -> Result<(), UserError> {
+        persist_password_update(&self.pool, prepared).await
     }
 
     pub async fn set_user_roles_by_id(
@@ -620,13 +627,20 @@ pub(crate) async fn delete_user(
     Ok(())
 }
 
-pub(crate) async fn reset_password(
-    pool: &sqlx::PgPool,
+fn prepare_password_reset(
     password_service: &PasswordService,
     user_id: i64,
     payload: ResetPasswordInput,
-) -> Result<(), UserError> {
+) -> Result<PreparedPasswordUpdate, UserError> {
     let password_hash = password_service.hash_password(&payload.password)?;
+    Ok(PreparedPasswordUpdate::new(user_id, password_hash))
+}
+
+pub(crate) async fn persist_password_update(
+    pool: &sqlx::PgPool,
+    prepared: PreparedPasswordUpdate,
+) -> Result<(), UserError> {
+    let (user_id, password_hash) = prepared.into_parts();
     sqlx::query(
         r#"
         update sys_users
@@ -697,12 +711,12 @@ async fn set_user_roles_with_audit(
     Ok(())
 }
 
-pub(crate) async fn change_password(
+pub(crate) async fn prepare_password_change(
     pool: &sqlx::PgPool,
     password_service: &PasswordService,
     user_id: i64,
     payload: ChangePasswordRequest,
-) -> Result<(), UserError> {
+) -> Result<PreparedPasswordUpdate, UserError> {
     let record = find_by_id(pool, user_id)
         .await?
         .ok_or(UserError::NotFound)?;
@@ -712,20 +726,7 @@ pub(crate) async fn change_password(
     }
 
     let password_hash = password_service.hash_password(&payload.new_password)?;
-    sqlx::query(
-        r#"
-        update sys_users
-        set password_hash = $1,
-            updated_at = now()
-        where id = $2
-        "#,
-    )
-    .bind(password_hash)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
-
-    Ok(())
+    Ok(PreparedPasswordUpdate::new(user_id, password_hash))
 }
 
 pub(crate) async fn set_self_info(

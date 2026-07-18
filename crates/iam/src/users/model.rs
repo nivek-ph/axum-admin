@@ -54,3 +54,26 @@ pub struct LoginIdentity {
 pub struct RefreshIdentity {
     pub username: String,
 }
+
+#[derive(Debug)]
+pub struct PreparedPasswordUpdate {
+    user_id: i64,
+    password_hash: String,
+}
+
+impl PreparedPasswordUpdate {
+    pub fn user_id(&self) -> i64 {
+        self.user_id
+    }
+
+    pub(crate) fn new(user_id: i64, password_hash: String) -> Self {
+        Self {
+            user_id,
+            password_hash,
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (i64, String) {
+        (self.user_id, self.password_hash)
+    }
+}

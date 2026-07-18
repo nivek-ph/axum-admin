@@ -169,6 +169,12 @@ impl From<::auth::token::TokenRevokeError> for AppError {
     }
 }
 
+impl From<::auth::token::UserSessionRevokeError> for AppError {
+    fn from(error: ::auth::token::UserSessionRevokeError) -> Self {
+        AUTHORIZATION_UNAVAILABLE.into_error().with_source(error)
+    }
+}
+
 impl From<iam::users::UserError> for AppError {
     fn from(error: iam::users::UserError) -> Self {
         use iam::users::UserError;
@@ -343,6 +349,15 @@ mod tests {
     #[test]
     fn token_issue_store_unavailable_is_service_unavailable() {
         let error = AppError::from(::auth::token::TokenIssueError::StoreUnavailable);
+
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
+        assert_eq!(error.message(), "authorization service is unavailable");
+    }
+
+    #[test]
+    fn user_session_revoke_store_unavailable_is_service_unavailable() {
+        let error = AppError::from(::auth::token::UserSessionRevokeError::StoreUnavailable);
 
         assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
