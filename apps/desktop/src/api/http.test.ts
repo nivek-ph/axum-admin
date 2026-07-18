@@ -1,4 +1,4 @@
-import axios, { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from 'axios'
+import type { AxiosAdapter } from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -8,29 +8,7 @@ import { ElMessage } from '@/ui/feedback'
 
 import { withAuthHeaders } from './core'
 import { http } from './http'
-
-function response(config: InternalAxiosRequestConfig, data: unknown, status = 200) {
-  return Promise.resolve({
-    data,
-    status,
-    statusText: status === 200 ? 'OK' : 'Unauthorized',
-    headers: {},
-    config,
-  })
-}
-
-function rejectEnvelope(config: InternalAxiosRequestConfig, code: string, status = 401) {
-  const envelope = { code, message: 'session expired', data: null }
-  return Promise.reject(
-    new AxiosError('request failed', 'ERR_BAD_REQUEST', config, undefined, {
-      data: envelope,
-      status,
-      statusText: 'Unauthorized',
-      headers: {},
-      config,
-    })
-  )
-}
+import { adapterResponse, rejectEnvelope } from './httpTestUtils'
 
 describe('auth response interceptor', () => {
   beforeEach(() => {
@@ -57,7 +35,7 @@ describe('auth response interceptor', () => {
       if (config.url === '/auth/refresh') {
         refreshCalls += 1
         await refreshBarrier
-        return response(config, {
+        return adapterResponse(config, {
           code: 'OK',
           message: 'ok',
           data: { accessToken: 'access-two', refreshToken: 'refresh-two' },
@@ -67,7 +45,7 @@ describe('auth response interceptor', () => {
       attempts.set(config.url || '', attempt)
       if (attempt === 1) return rejectEnvelope(config, 'ACCESS_TOKEN_EXPIRED')
       retryHeaders.push(String(config.headers.get('Authorization')))
-      return response(config, { code: 'OK', message: 'ok', data: config.url })
+      return adapterResponse(config, { code: 'OK', message: 'ok', data: config.url })
     }) as AxiosAdapter
 
     const requests = [
@@ -95,7 +73,7 @@ describe('auth response interceptor', () => {
     http.defaults.adapter = (async (config) => {
       if (config.url === '/auth/refresh') {
         refreshCalls += 1
-        return response(config, {
+        return adapterResponse(config, {
           code: 'OK',
           message: 'ok',
           data: { accessToken: 'access-two', refreshToken: 'refresh-two' },
@@ -104,7 +82,7 @@ describe('auth response interceptor', () => {
       logoutCalls += 1
       if (logoutCalls === 1) return rejectEnvelope(config, 'ACCESS_TOKEN_EXPIRED')
       expect(config.headers.get('Authorization')).toBe('Bearer access-two')
-      return response(config, { code: 'OK', message: 'ok', data: null })
+      return adapterResponse(config, { code: 'OK', message: 'ok', data: null })
     }) as AxiosAdapter
 
     await http.post('/auth/logout', undefined, withAuthHeaders())
@@ -128,7 +106,7 @@ describe('auth response interceptor', () => {
     http.defaults.adapter = (async (config) => {
       if (config.url === '/auth/refresh') {
         refreshCalls += 1
-        return response(config, {
+        return adapterResponse(config, {
           code: 'OK',
           message: 'ok',
           data: { accessToken: 'access-two', refreshToken: 'refresh-two' },

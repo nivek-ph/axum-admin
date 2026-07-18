@@ -1,8 +1,7 @@
-import axios, {
+import {
   AxiosError,
   type AxiosAdapter,
   type AxiosProgressEvent,
-  type InternalAxiosRequestConfig,
 } from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -10,30 +9,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useAuthStore } from '@/stores/auth'
 
 import { http } from './http'
+import { adapterResponse, rejectEnvelope } from './httpTestUtils'
 import { normalizeFileListResponse, uploadFile } from './files'
-
-function response(config: InternalAxiosRequestConfig, data: unknown, status = 200) {
-  return Promise.resolve({
-    data,
-    status,
-    statusText: status === 200 ? 'OK' : 'Unauthorized',
-    headers: {},
-    config,
-  })
-}
-
-function rejectEnvelope(config: InternalAxiosRequestConfig, code: string, status = 401) {
-  const envelope = { code, message: 'session expired', data: null }
-  return Promise.reject(
-    new AxiosError('request failed', 'ERR_BAD_REQUEST', config, undefined, {
-      data: envelope,
-      status,
-      statusText: 'Unauthorized',
-      headers: {},
-      config,
-    }),
-  )
-}
 
 describe('files api adapter', () => {
   const originalAdapter = http.defaults.adapter
@@ -90,7 +67,7 @@ describe('files api adapter', () => {
       expect(config.data).toBeInstanceOf(FormData)
       expect((config.data as FormData).get('file')).toBe(file)
       config.onUploadProgress?.({ loaded: 5, total: 8 } as AxiosProgressEvent)
-      return response(config, { code: 'OK', message: 'uploaded', data: { id: 1 } })
+      return adapterResponse(config, { code: 'OK', message: 'uploaded', data: { id: 1 } })
     }) as AxiosAdapter
 
     const result = await uploadFile(
@@ -111,7 +88,7 @@ describe('files api adapter', () => {
     http.defaults.adapter = (async (config) => {
       if (config.url === '/auth/refresh') {
         refreshCalls += 1
-        return response(config, {
+        return adapterResponse(config, {
           code: 'OK',
           message: 'ok',
           data: { accessToken: 'access-new', refreshToken: 'refresh-new' },
@@ -121,7 +98,7 @@ describe('files api adapter', () => {
       if (uploadCalls === 1) return rejectEnvelope(config, 'ACCESS_TOKEN_EXPIRED')
       expect(config.headers.get('Authorization')).toBe('Bearer access-new')
       expect((config.data as FormData).get('file')).toBe(file)
-      return response(config, { code: 'OK', message: 'uploaded', data: { id: 2 } })
+      return adapterResponse(config, { code: 'OK', message: 'uploaded', data: { id: 2 } })
     }) as AxiosAdapter
 
     await uploadFile(file)
@@ -137,7 +114,7 @@ describe('files api adapter', () => {
     http.defaults.adapter = (async (config) => {
       if (config.url === '/auth/refresh') {
         refreshCalls += 1
-        return response(config, {
+        return adapterResponse(config, {
           code: 'OK',
           message: 'ok',
           data: { accessToken: 'access-new', refreshToken: 'refresh-new' },
