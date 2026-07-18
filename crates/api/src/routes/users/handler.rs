@@ -93,11 +93,7 @@ pub async fn change_password(
         .users
         .prepare_password_change(user.id, payload)
         .await?;
-    state
-        .tokens
-        .revoke_user_sessions(prepared.user_id())
-        .await?;
-    state.users.persist_password_update(prepared).await?;
+    revoke_sessions_and_persist_password(&state, prepared).await?;
 
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -195,13 +191,21 @@ pub async fn reset_password_by_id(
         .users
         .prepare_password_reset(user.id, id, payload.into())
         .await?;
+    revoke_sessions_and_persist_password(&state, prepared).await?;
+
+    Ok(Json(ApiResponse::new("OK", "password reset", None)))
+}
+
+async fn revoke_sessions_and_persist_password(
+    state: &AppState,
+    prepared: iam::users::PreparedPasswordUpdate,
+) -> AppResult<()> {
     state
         .tokens
         .revoke_user_sessions(prepared.user_id())
         .await?;
     state.users.persist_password_update(prepared).await?;
-
-    Ok(Json(ApiResponse::new("OK", "password reset", None)))
+    Ok(())
 }
 
 #[utoipa::path(
