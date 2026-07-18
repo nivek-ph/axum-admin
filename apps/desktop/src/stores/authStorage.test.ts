@@ -7,9 +7,10 @@ describe('authStorage', () => {
     clearAuthSession();
   });
 
-  it('persists and restores token with user info', () => {
+  it('persists and restores the token pair with user info', () => {
     writeAuthSession({
-      token: 'token-123',
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
       userInfo: {
         id: 1,
         userName: 'admin',
@@ -18,7 +19,8 @@ describe('authStorage', () => {
     });
 
     expect(readAuthSession()).toEqual({
-      token: 'token-123',
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
       userInfo: {
         id: 1,
         userName: 'admin',
@@ -27,11 +29,16 @@ describe('authStorage', () => {
     });
   });
 
-  it('clears invalid or empty sessions', () => {
+  it('clears invalid, legacy, and incomplete sessions', () => {
     localStorage.setItem('axum-vue-admin.auth', '{not-json');
-    expect(readAuthSession()).toEqual({ token: '', userInfo: null });
+    expect(readAuthSession()).toEqual({ accessToken: '', refreshToken: '', userInfo: null });
+    expect(localStorage.getItem('axum-vue-admin.auth')).toBeNull();
 
-    writeAuthSession({ token: '   ', userInfo: null });
+    localStorage.setItem('axum-vue-admin.auth', JSON.stringify({ token: 'legacy-token' }));
+    expect(readAuthSession()).toEqual({ accessToken: '', refreshToken: '', userInfo: null });
+    expect(localStorage.getItem('axum-vue-admin.auth')).toBeNull();
+
+    writeAuthSession({ accessToken: 'access-token', refreshToken: '   ', userInfo: null });
     expect(localStorage.getItem('axum-vue-admin.auth')).toBeNull();
   });
 });

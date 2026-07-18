@@ -5,6 +5,7 @@ use axum::{
 use iam::{
     access::AccessService, departments::DepartmentService, roles::RoleService, users::UserService,
 };
+use jsonwebtoken::{EncodingKey, Header, encode};
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -131,6 +132,44 @@ async fn protected_route_with_invalid_bearer_returns_token_invalid_envelope() {
 }
 
 #[tokio::test]
+async fn protected_route_with_expired_bearer_returns_access_token_expired_envelope() {
+    let token = encode(
+        &Header::default(),
+        &auth::jwt::Claims {
+            user_id: 1,
+            username: "admin".to_string(),
+            sid: "expired-session".to_string(),
+            exp: 1,
+        },
+        &EncodingKey::from_secret(b"test-secret"),
+    )
+    .expect("expired token should encode");
+    let response = api::router(test_state())
+        .oneshot(
+            Request::builder()
+                .uri("/api/users/me")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("router should produce a response");
+
+    assert_eq!(response.status(), 401);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).expect("body should be json"),
+        json!({
+            "code": "ACCESS_TOKEN_EXPIRED",
+            "message": "session expired",
+            "data": null
+        })
+    );
+}
+
+#[tokio::test]
 async fn protected_route_with_missing_login_session_returns_session_invalid_envelope() {
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
@@ -140,10 +179,11 @@ async fn protected_route_with_missing_login_session_returns_session_invalid_enve
         .await
         .expect("Redis test connection should open");
     let tokens = auth::token::TokenService::new("test-secret", redis);
-    let token = tokens
-        .issue(1, "admin")
+    let pair = tokens
+        .create_session(1, "admin")
         .await
         .expect("login session should be issued");
+    let token = pair.access_token;
     tokens
         .revoke(&token)
         .await
@@ -202,6 +242,105 @@ async fn protected_route_without_session_store_returns_authorization_unavailable
         json!({
             "code": "AUTHORIZATION_UNAVAILABLE",
             "message": "service unavailable",
+            "data": null
+        })
+    );
+}
+
+#[tokio::test]
+async fn malformed_refresh_token_returns_refresh_token_invalid_envelope() {
+    let response = api::router(test_state())
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/auth/refresh")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"refreshToken":"malformed"}"#))
+                .expect("request should build"),
+        )
+        .await
+        .expect("router should produce a response");
+
+    assert_eq!(response.status(), 401);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).expect("body should be json"),
+        json!({
+            "code": "REFRESH_TOKEN_INVALID",
+            "message": "session expired",
+            "data": null
+        })
+    );
+}
+
+#[tokio::test]
+async fn valid_refresh_shape_without_session_store_returns_authorization_unavailable_envelope() {
+    let refresh_token = format!("{}.{}", "a".repeat(64), "b".repeat(64));
+    let response = api::router(test_state())
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/auth/refresh")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "refreshToken": refresh_token }).to_string(),
+                ))
+                .expect("request should build"),
+        )
+        .await
+        .expect("router should produce a response");
+
+    assert_eq!(response.status(), 503);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).expect("body should be json"),
+        json!({
+            "code": "AUTHORIZATION_UNAVAILABLE",
+            "message": "service unavailable",
+            "data": null
+        })
+    );
+}
+
+#[tokio::test]
+async fn refresh_for_missing_session_returns_session_invalid_envelope() {
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+    let redis = redis::Client::open(redis_url)
+        .expect("Redis test client should construct")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("Redis test connection should open");
+    let mut state = test_state();
+    state.tokens = auth::token::TokenService::new("test-secret", redis);
+    let refresh_token = format!("{}.{}", "c".repeat(64), "d".repeat(64));
+    let response = api::router(state)
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/auth/refresh")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "refreshToken": refresh_token }).to_string(),
+                ))
+                .expect("request should build"),
+        )
+        .await
+        .expect("router should produce a response");
+
+    assert_eq!(response.status(), 401);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).expect("body should be json"),
+        json!({
+            "code": "SESSION_INVALID",
+            "message": "session expired",
             "data": null
         })
     );

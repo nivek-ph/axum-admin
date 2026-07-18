@@ -23,7 +23,11 @@ describe('auth api adapter', () => {
   })
 
   it('sends logout with the current access token', async () => {
-    useAuthStore().setToken('access-token')
+    useAuthStore().setSession('access-token', 'refresh-token', {
+      id: 1,
+      userName: 'admin',
+      nickName: 'Admin',
+    })
 
     await logout()
 

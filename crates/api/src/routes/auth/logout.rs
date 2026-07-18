@@ -48,18 +48,18 @@ mod tests {
 
         let first = state
             .tokens
-            .issue(1, "admin")
+            .create_session(1, "admin")
             .await
             .expect("first login session should be issued");
         let second = state
             .tokens
-            .issue(1, "admin")
+            .create_session(1, "admin")
             .await
             .expect("second login session should be issued");
         let mut headers = HeaderMap::new();
         headers.insert(
             AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {first}"))
+            HeaderValue::from_str(&format!("Bearer {}", first.access_token))
                 .expect("authorization header should be valid"),
         );
 
@@ -69,7 +69,7 @@ mod tests {
 
         let error = state
             .tokens
-            .decode_active(&first)
+            .decode_active(&first.access_token)
             .await
             .expect_err("logged-out session should be rejected");
         assert!(matches!(
@@ -78,12 +78,12 @@ mod tests {
         ));
         state
             .tokens
-            .decode_active(&second)
+            .decode_active(&second.access_token)
             .await
             .expect("other login session should remain active");
         state
             .tokens
-            .revoke(&second)
+            .revoke(&second.access_token)
             .await
             .expect("other login session should be cleaned up");
     }

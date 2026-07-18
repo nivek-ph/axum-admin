@@ -68,9 +68,11 @@ async function logout() {
   try {
     await logoutSession()
   } catch {
-    ElMessage.warning('Server session may still be active')
+    if (authStore.isAuthenticated) {
+      ElMessage.warning('Server session may still be active')
+    }
   } finally {
-    authStore.clearToken()
+    authStore.clearSession()
     menuStore.resetAccess()
     await router.replace('/login')
   }

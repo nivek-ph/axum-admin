@@ -9,8 +9,9 @@ use uuid::Uuid;
 
 use super::{
     AuthenticateError, ChangePasswordRequest, DeleteUserRequest, GetUserListRequest, LoginIdentity,
-    LoginRequest, RegisterRequest, ResetPasswordInput, SetSelfInfoRequest, SetSelfSettingRequest,
-    SetUserRolesRequest, UpdateUserInput, UserError, UserInfoView, UserRecord,
+    LoginRequest, RefreshIdentity, RefreshIdentityError, RegisterRequest, ResetPasswordInput,
+    SetSelfInfoRequest, SetSelfSettingRequest, SetUserRolesRequest, UpdateUserInput, UserError,
+    UserInfoView, UserRecord,
 };
 use crate::{
     access::{AccessService, ResolvedDataScope},
@@ -88,6 +89,25 @@ impl UserService {
         payload: LoginRequest,
     ) -> Result<LoginIdentity, AuthenticateError> {
         login(&self.pool, &self.passwords, payload).await
+    }
+
+    pub async fn refresh_identity(
+        &self,
+        user_id: i64,
+    ) -> Result<RefreshIdentity, RefreshIdentityError> {
+        let identity = sqlx::query_as::<_, (String, bool)>(
+            "SELECT username, enable FROM sys_users WHERE id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(RefreshIdentityError::NotFound)?;
+        if !identity.1 {
+            return Err(RefreshIdentityError::Disabled);
+        }
+        Ok(RefreshIdentity {
+            username: identity.0,
+        })
     }
 
     pub async fn change_password(
@@ -1207,5 +1227,45 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(role_ids, vec![1]);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn refresh_identity_distinguishes_enabled_disabled_and_missing_users(pool: sqlx::PgPool) {
+        sqlx::query(
+            r#"
+            insert into sys_users (
+                id, uuid, username, password_hash, nick_name, header_img, home_route,
+                enable, dept_id, is_system
+            ) values
+                (301, 'refresh-enabled', 'enabled-user', 'hash', 'Enabled', '', 'dashboard', true, 1, false),
+                (302, 'refresh-disabled', 'disabled-user', 'hash', 'Disabled', '', 'dashboard', false, 1, false)
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let access = AccessService::new(pool.clone());
+        let audit = AuditService::new(pool.clone());
+        let service = UserService::new(pool, access, audit, PasswordService::new());
+
+        let identity = service
+            .refresh_identity(301)
+            .await
+            .expect("enabled user should refresh");
+        assert_eq!(identity.username, "enabled-user");
+        assert!(matches!(
+            service
+                .refresh_identity(302)
+                .await
+                .expect_err("disabled user should fail"),
+            RefreshIdentityError::Disabled
+        ));
+        assert!(matches!(
+            service
+                .refresh_identity(999)
+                .await
+                .expect_err("missing user should fail"),
+            RefreshIdentityError::NotFound
+        ));
     }
 }

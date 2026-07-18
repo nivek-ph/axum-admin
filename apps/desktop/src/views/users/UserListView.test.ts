@@ -61,7 +61,7 @@ function mountView(permissions = ['system:user:create', 'system:user:assign-role
   const pinia = createPinia();
   setActivePinia(pinia);
   const authStore = useAuthStore();
-  authStore.setSession('test-token', {
+  authStore.setSession('test-token', 'refresh-token', {
     id: 1,
     userName: 'tester',
     nickName: 'tester',

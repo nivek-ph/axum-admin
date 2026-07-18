@@ -12,7 +12,8 @@ describe('auth store', () => {
     setActivePinia(createPinia())
     const store = useAuthStore()
 
-    expect(store.token).toBe('')
+    expect(store.accessToken).toBe('')
+    expect(store.refreshToken).toBe('')
     expect(store.isAuthenticated).toBe(false)
   })
 
@@ -20,38 +21,41 @@ describe('auth store', () => {
     setActivePinia(createPinia())
     const store = useAuthStore()
 
-    store.setSession('token-123', {
+    store.setSession('access-token', 'refresh-token', {
       id: 1,
       userName: 'admin',
       nickName: 'System Administrator'
     })
 
-    expect(store.token).toBe('token-123')
+    expect(store.accessToken).toBe('access-token')
+    expect(store.refreshToken).toBe('refresh-token')
     expect(store.isAuthenticated).toBe(true)
     expect(store.userInfo?.userName).toBe('admin')
-    expect(readAuthSession().token).toBe('token-123')
+    expect(readAuthSession().accessToken).toBe('access-token')
+    expect(readAuthSession().refreshToken).toBe('refresh-token')
   })
 
   it('clears persisted session on logout', () => {
     setActivePinia(createPinia())
     const store = useAuthStore()
 
-    store.setSession('token-123', {
+    store.setSession('access-token', 'refresh-token', {
       id: 1,
       userName: 'admin',
       nickName: 'System Administrator'
     })
-    store.clearToken()
+    store.clearSession()
 
     expect(store.isAuthenticated).toBe(false)
-    expect(readAuthSession().token).toBe('')
+    expect(readAuthSession().accessToken).toBe('')
+    expect(readAuthSession().refreshToken).toBe('')
   })
 
   it('checks permission codes through one helper', () => {
     setActivePinia(createPinia())
     const store = useAuthStore()
 
-    store.setSession('token-123', {
+    store.setSession('access-token', 'refresh-token', {
       id: 2,
       userName: 'operator',
       nickName: 'Operator',
@@ -68,7 +72,7 @@ describe('auth store', () => {
     setActivePinia(createPinia())
     const store = useAuthStore()
 
-    store.setSession('token-123', {
+    store.setSession('access-token', 'refresh-token', {
       id: 1,
       userName: 'admin',
       nickName: 'Admin',
@@ -85,7 +89,7 @@ describe('auth store', () => {
     setActivePinia(createPinia())
     const store = useAuthStore()
 
-    store.setSession('token-123', {
+    store.setSession('access-token', 'refresh-token', {
       id: 1,
       userName: 'admin',
       nickName: 'Admin',
@@ -96,5 +100,22 @@ describe('auth store', () => {
 
     expect(store.isSuperAdmin).toBe(true)
     expect(store.can('system:anything:anything')).toBe(true)
+  })
+
+  it('rotates the token pair without replacing user info', () => {
+    setActivePinia(createPinia())
+    const store = useAuthStore()
+    store.setSession('access-one', 'refresh-one', {
+      id: 1,
+      userName: 'admin',
+      nickName: 'Admin'
+    })
+
+    store.setTokenPair('access-two', 'refresh-two')
+
+    expect(store.accessToken).toBe('access-two')
+    expect(store.refreshToken).toBe('refresh-two')
+    expect(store.userInfo?.userName).toBe('admin')
+    expect(readAuthSession().refreshToken).toBe('refresh-two')
   })
 })

@@ -13,7 +13,7 @@ describe('DashboardView', () => {
     setActivePinia(createPinia())
     const authStore = useAuthStore()
     const menuStore = useMenuStore()
-    authStore.setSession('token-123', {
+    authStore.setSession('token-123', 'refresh-token', {
       id: 1,
       userName: 'admin',
       nickName: 'admin',

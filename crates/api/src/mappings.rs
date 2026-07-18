@@ -7,6 +7,10 @@ const INTERNAL_SERVER_ERROR: ErrorSpec =
 pub(crate) const LOGIN_REQUIRED: ErrorSpec =
     ErrorSpec::unauthorized("LOGIN_REQUIRED", "login required");
 const TOKEN_INVALID: ErrorSpec = ErrorSpec::unauthorized("TOKEN_INVALID", "session expired");
+const ACCESS_TOKEN_EXPIRED: ErrorSpec =
+    ErrorSpec::unauthorized("ACCESS_TOKEN_EXPIRED", "session expired");
+const REFRESH_TOKEN_INVALID: ErrorSpec =
+    ErrorSpec::unauthorized("REFRESH_TOKEN_INVALID", "session expired");
 const SESSION_INVALID: ErrorSpec = ErrorSpec::unauthorized("SESSION_INVALID", "session expired");
 pub(crate) const PERMISSION_DENIED: ErrorSpec =
     ErrorSpec::forbidden("PERMISSION_DENIED", "permission denied");
@@ -111,10 +115,42 @@ impl From<::auth::token::TokenSessionError> for AppError {
         use ::auth::token::TokenSessionError;
 
         match error {
+            TokenSessionError::Expired(source) => {
+                ACCESS_TOKEN_EXPIRED.into_error().with_source(source)
+            }
             TokenSessionError::Invalid(source) => TOKEN_INVALID.into_error().with_source(source),
             TokenSessionError::SessionInvalid => SESSION_INVALID.into(),
             TokenSessionError::StoreUnavailable | TokenSessionError::Store(_) => {
                 AUTHORIZATION_UNAVAILABLE.into_error().with_source(error)
+            }
+        }
+    }
+}
+
+impl From<::auth::token::RefreshError> for AppError {
+    fn from(error: ::auth::token::RefreshError) -> Self {
+        use ::auth::token::RefreshError;
+
+        match error {
+            RefreshError::Invalid => REFRESH_TOKEN_INVALID.into(),
+            RefreshError::SessionInvalid => SESSION_INVALID.into(),
+            RefreshError::Signing(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
+            RefreshError::StoreUnavailable | RefreshError::Store(_) => {
+                AUTHORIZATION_UNAVAILABLE.into_error().with_source(error)
+            }
+        }
+    }
+}
+
+impl From<iam::users::RefreshIdentityError> for AppError {
+    fn from(error: iam::users::RefreshIdentityError) -> Self {
+        use iam::users::RefreshIdentityError;
+
+        match error {
+            RefreshIdentityError::NotFound => SESSION_INVALID.into(),
+            RefreshIdentityError::Disabled => USER_DISABLED.into(),
+            RefreshIdentityError::Database(source) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
             }
         }
     }

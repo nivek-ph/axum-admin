@@ -3,32 +3,42 @@ import type { AuthUserInfo } from './auth';
 const STORAGE_KEY = 'axum-vue-admin.auth';
 
 export interface PersistedAuthSession {
-  token: string;
+  accessToken: string;
+  refreshToken: string;
   userInfo: AuthUserInfo | null;
 }
 
+const emptySession = (): PersistedAuthSession => ({
+  accessToken: '',
+  refreshToken: '',
+  userInfo: null,
+});
+
 export function readAuthSession(): PersistedAuthSession {
   if (typeof localStorage === 'undefined') {
-    return { token: '', userInfo: null };
+    return emptySession();
   }
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return { token: '', userInfo: null };
+      return emptySession();
     }
 
     const parsed = JSON.parse(raw) as Partial<PersistedAuthSession>;
-    const token = typeof parsed.token === 'string' ? parsed.token.trim() : '';
+    const accessToken = typeof parsed.accessToken === 'string' ? parsed.accessToken.trim() : '';
+    const refreshToken = typeof parsed.refreshToken === 'string' ? parsed.refreshToken.trim() : '';
     const userInfo = parsed.userInfo && typeof parsed.userInfo === 'object' ? (parsed.userInfo as AuthUserInfo) : null;
 
-    if (!token) {
-      return { token: '', userInfo: null };
+    if (!accessToken || !refreshToken) {
+      localStorage.removeItem(STORAGE_KEY);
+      return emptySession();
     }
 
-    return { token, userInfo };
+    return { accessToken, refreshToken, userInfo };
   } catch {
-    return { token: '', userInfo: null };
+    localStorage.removeItem(STORAGE_KEY);
+    return emptySession();
   }
 }
 
@@ -37,8 +47,9 @@ export function writeAuthSession(session: PersistedAuthSession) {
     return;
   }
 
-  const token = session.token.trim();
-  if (!token) {
+  const accessToken = session.accessToken.trim();
+  const refreshToken = session.refreshToken.trim();
+  if (!accessToken || !refreshToken) {
     localStorage.removeItem(STORAGE_KEY);
     return;
   }
@@ -46,7 +57,8 @@ export function writeAuthSession(session: PersistedAuthSession) {
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-      token,
+      accessToken,
+      refreshToken,
       userInfo: session.userInfo,
     } satisfies PersistedAuthSession)
   );

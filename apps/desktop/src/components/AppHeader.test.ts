@@ -41,7 +41,7 @@ describe('AppHeader', () => {
 
     const authStore = useAuthStore();
     const menuStore = useMenuStore();
-    authStore.setSession('token-123', {
+    authStore.setSession('token-123', 'refresh-token', {
       id: 1,
       userName: 'admin',
       nickName: 'admin',
@@ -61,7 +61,7 @@ describe('AppHeader', () => {
     await flushPromises();
 
     expect(authApi.logout).toHaveBeenCalledOnce();
-    expect(authStore.token).toBe('');
+    expect(authStore.accessToken).toBe('');
     expect(authStore.userInfo).toBeNull();
     expect(menuStore.accessLoaded).toBe(false);
     expect(router.currentRoute.value.name).toBe('login');
@@ -78,7 +78,7 @@ describe('AppHeader', () => {
 
     const authStore = useAuthStore();
     const menuStore = useMenuStore();
-    authStore.setSession('token-123', {
+    authStore.setSession('token-123', 'refresh-token', {
       id: 1,
       userName: 'admin',
       nickName: 'admin',
@@ -95,7 +95,7 @@ describe('AppHeader', () => {
 
     expect(authApi.logout).toHaveBeenCalledOnce();
     expect(warning).toHaveBeenCalledWith('Server session may still be active');
-    expect(authStore.token).toBe('');
+    expect(authStore.accessToken).toBe('');
     expect(menuStore.accessLoaded).toBe(false);
     expect(router.currentRoute.value.name).toBe('login');
   });

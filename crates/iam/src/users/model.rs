@@ -49,3 +49,8 @@ pub struct LoginIdentity {
     pub username: String,
     pub user: UserInfoView,
 }
+
+#[derive(Debug, Clone)]
+pub struct RefreshIdentity {
+    pub username: String,
+}

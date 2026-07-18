@@ -33,7 +33,7 @@ impl JwtService {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_else(|_| Duration::from_secs(0))
             .as_secs()
-            + 24 * 60 * 60;
+            + 15 * 60;
 
         encode(
             &Header::default(),

@@ -29,6 +29,7 @@ impl Modify for SecurityAddon {
         crate::routes::health::health,
         crate::routes::auth::captcha::captcha,
         crate::routes::auth::login::login,
+        crate::routes::auth::refresh::refresh,
         crate::routes::auth::logout::logout,
         crate::routes::users::get_user_info,
         crate::routes::users::get_user_list_by_query,

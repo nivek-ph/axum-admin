@@ -39,7 +39,8 @@ describe('bootstrapAuthSession', () => {
       }
     })
     writeAuthSession({
-      token: 'token-123',
+      accessToken: 'token-123',
+      refreshToken: 'refresh-token',
       userInfo: {
         id: 1,
         userName: 'operator',
@@ -77,7 +78,8 @@ describe('bootstrapAuthSession', () => {
       }
     })
     writeAuthSession({
-      token: 'token-123',
+      accessToken: 'token-123',
+      refreshToken: 'refresh-token',
       userInfo: {
         id: 1,
         userName: 'admin',
@@ -106,7 +108,8 @@ describe('bootstrapAuthSession', () => {
       }
     })
     writeAuthSession({
-      token: 'token-123',
+      accessToken: 'token-123',
+      refreshToken: 'refresh-token',
       userInfo: {
         id: 1,
         userName: 'operator',
