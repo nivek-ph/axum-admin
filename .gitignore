@@ -32,3 +32,4 @@ target
 dist/
 node_modules/
 uploads/
+output/playwright/

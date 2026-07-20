@@ -1,7 +1,10 @@
 mod dto;
 mod handler;
 
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 pub use handler::*;
 
 use crate::state::AppState;
@@ -9,6 +12,7 @@ use crate::state::AppState;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(get_audit_events))
+        .route("/analyze", post(analyze_audit_events))
         .route("/{id}", get(find_audit_event))
 }
 
@@ -96,5 +100,30 @@ mod tests {
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["code"], "INVALID_AUDIT_TIME_RANGE");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn analyze_route_returns_a_low_risk_result_when_no_events_match(pool: sqlx::PgPool) {
+        let app = routes().with_state(crate::state::test_state(pool));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/analyze")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"action":"does.not.exist"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["data"]["riskLevel"], "low");
+        assert_eq!(body["data"]["findings"], serde_json::json!([]));
     }
 }

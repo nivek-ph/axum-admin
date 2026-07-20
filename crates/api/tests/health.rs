@@ -21,6 +21,7 @@ fn test_state() -> api::AppState {
     let roles = RoleService::new(pool.clone(), access.clone());
     let departments = DepartmentService::new(pool.clone(), access.clone());
     api::AppState {
+        public_base_url: "http://127.0.0.1:3000".to_string(),
         tokens,
         captcha,
         users,
@@ -31,6 +32,7 @@ fn test_state() -> api::AppState {
         parameters: metadata::parameters::ParameterService::new(pool.clone()),
         menus: iam::menus::MenuService::new(pool.clone()),
         audits,
+        audit_analyzer: audit::AuditAnalyzer::new("http://127.0.0.1:9/v1", "test"),
         files: file_storage::files::FileService::new(pool, "./uploads"),
     }
 }

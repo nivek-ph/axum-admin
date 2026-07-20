@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use audit::AuditService;
+use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
 use file_storage::files::FileService;
 use iam::{
@@ -12,6 +12,7 @@ use tracing::info;
 use crate::config::ServeConfig;
 
 pub async fn run(config: ServeConfig) -> Result<()> {
+    let server_config = config.api_server();
     let pool = db::connect(&config.database_url)
         .await
         .context("database pool should connect")?;
@@ -44,6 +45,7 @@ pub async fn run(config: ServeConfig) -> Result<()> {
         password_service,
     );
     let state = api::AppState {
+        public_base_url: config.public_base_url.clone(),
         tokens,
         captcha,
         users,
@@ -54,10 +56,11 @@ pub async fn run(config: ServeConfig) -> Result<()> {
         parameters: ParameterService::new(pool.clone()),
         menus: MenuService::new(pool.clone()),
         audits: audit,
+        audit_analyzer: AuditAnalyzer::new(config.ollama_base_url, config.ollama_model),
         files: FileService::new(pool, "./uploads"),
     };
 
-    api::serve(config.api_server(), state)
+    api::serve(server_config, state)
         .await
         .context("api server should run")
 }

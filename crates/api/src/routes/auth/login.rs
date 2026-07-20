@@ -3,12 +3,17 @@ use audit::{
     AuditSource,
 };
 use auth::{captcha::CaptchaError, token::TokenIssueError};
-use axum::{Json, extract::State, http::HeaderMap};
+use axum::{Json, extract::State};
 use iam::users;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{ApiResponse, AppResult, routes::users::dto::UserResponse, state::AppState};
+use crate::{
+    ApiResponse, AppResult,
+    extractors::{client_ip::ClientIp, user_agent::UserAgent},
+    routes::users::dto::UserResponse,
+    state::AppState,
+};
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct LoginRequest {
@@ -72,7 +77,8 @@ pub(super) enum LoginError {
 )]
 pub async fn login(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ClientIp(ip): ClientIp,
+    UserAgent(agent): UserAgent,
     Json(payload): Json<LoginRequest>,
 ) -> AppResult<Json<ApiResponse<LoginResponse>>> {
     let result = execute_login(
@@ -82,8 +88,8 @@ pub async fn login(
             password: payload.password,
             captcha: payload.captcha,
             captcha_id: payload.captcha_id,
-            ip: header_value(&headers, "x-forwarded-for"),
-            agent: header_value(&headers, "user-agent"),
+            ip,
+            agent,
         },
     )
     .await?;
@@ -218,14 +224,6 @@ async fn record_login(
             changes: Vec::new(),
         })
         .await;
-}
-
-fn header_value(headers: &HeaderMap, key: &str) -> String {
-    headers
-        .get(key)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .to_string()
 }
 
 #[cfg(test)]

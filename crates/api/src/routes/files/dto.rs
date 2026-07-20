@@ -84,16 +84,49 @@ pub struct UploadFileData {
     pub url: Option<String>,
 }
 
-impl From<file_storage::files::StoredFile> for FileResponse {
-    fn from(v: file_storage::files::StoredFile) -> Self {
+impl FileResponse {
+    pub fn from_stored(public_base_url: &str, v: file_storage::files::StoredFile) -> Self {
         Self {
             id: v.id,
             name: v.name,
-            url: v.url,
+            url: public_file_url(public_base_url, &v.url),
             ext: v.ext,
             tag: v.tag,
             category: v.category,
             updated_at: v.updated_at,
         }
+    }
+}
+
+/// External URLs are stored as is; API responses expose them under `PUBLIC_BASE_URL`.
+pub fn public_file_url(public_base_url: &str, url: &str) -> String {
+    if !url.starts_with("/uploads/") {
+        return url.to_string();
+    }
+    format!("{}{url}", public_base_url.trim_end_matches('/'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::public_file_url;
+
+    #[test]
+    fn public_file_url_prefixes_local_upload_paths() {
+        assert_eq!(
+            public_file_url("http://127.0.0.1:3000", "/uploads/demo.pdf"),
+            "http://127.0.0.1:3000/uploads/demo.pdf"
+        );
+        assert_eq!(
+            public_file_url("http://127.0.0.1:3000/", "/uploads/demo.pdf"),
+            "http://127.0.0.1:3000/uploads/demo.pdf"
+        );
+    }
+
+    #[test]
+    fn public_file_url_keeps_external_urls() {
+        assert_eq!(
+            public_file_url("http://127.0.0.1:3000", "https://cdn.example.com/a.pdf"),
+            "https://cdn.example.com/a.pdf"
+        );
     }
 }

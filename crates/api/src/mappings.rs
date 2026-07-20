@@ -40,6 +40,16 @@ const INVALID_AUDIT_TIME_RANGE: ErrorSpec = ErrorSpec::validation(
     "INVALID_AUDIT_TIME_RANGE",
     "audit time range must use RFC 3339 timestamps",
 );
+const AI_PROVIDER_UNAVAILABLE: ErrorSpec = ErrorSpec::new(
+    StatusCode::SERVICE_UNAVAILABLE,
+    "AI_PROVIDER_UNAVAILABLE",
+    "local AI provider is unavailable",
+);
+const AI_RESPONSE_INVALID: ErrorSpec = ErrorSpec::new(
+    StatusCode::BAD_GATEWAY,
+    "AI_RESPONSE_INVALID",
+    "local AI provider returned an invalid response",
+);
 const MULTIPART_FIELD_FAILED: ErrorSpec =
     ErrorSpec::bad_request("MULTIPART_FIELD_FAILED", "failed to read upload content");
 pub(crate) const MULTIPLE_FILES_NOT_SUPPORTED: ErrorSpec = ErrorSpec::bad_request(
@@ -314,6 +324,19 @@ impl From<audit::AuditError> for AppError {
             audit::AuditError::Database(_) | audit::AuditError::Serialization(_) => {
                 INTERNAL_SERVER_ERROR.into_error().with_source(error)
             }
+        }
+    }
+}
+
+impl From<audit::AuditAnalysisError> for AppError {
+    fn from(error: audit::AuditAnalysisError) -> Self {
+        match error {
+            audit::AuditAnalysisError::Provider(source) => {
+                AI_PROVIDER_UNAVAILABLE.into_error().with_source(source)
+            }
+            audit::AuditAnalysisError::InvalidResponse(source) => AI_RESPONSE_INVALID
+                .into_error()
+                .with_source(anyhow::anyhow!(source)),
         }
     }
 }

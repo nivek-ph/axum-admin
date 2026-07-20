@@ -131,6 +131,7 @@ mod tests {
         let url = body["data"]["url"]
             .as_str()
             .expect("upload response should contain a URL");
+        assert!(url.starts_with("http://127.0.0.1:3000/uploads/"));
         assert!(!url.contains("Quarterly"));
         assert!(!url.contains(".."));
         let stored_name = Path::new(url)
@@ -267,6 +268,10 @@ mod tests {
         assert_eq!(body["data"]["total"], 1);
         assert_eq!(body["data"]["pageSize"], 10);
         assert_eq!(body["data"]["list"][0]["name"], "Remote report");
+        assert_eq!(
+            body["data"]["list"][0]["url"],
+            "https://example.test/report.pdf"
+        );
         let id = body["data"]["list"][0]["id"]
             .as_i64()
             .expect("imported file should have an ID");

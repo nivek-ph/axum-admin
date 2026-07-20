@@ -3,7 +3,10 @@ use axum::{
     extract::{Path, Query, State},
 };
 
-use super::dto::{AuditEventListData, AuditEventListRequest, AuditEventResponse};
+use super::dto::{
+    AuditAnalysisRequest, AuditAnalysisResponse, AuditEventListData, AuditEventListRequest,
+    AuditEventResponse,
+};
 use crate::{ApiResponse, AppResult, state::AppState};
 
 #[utoipa::path(
@@ -46,4 +49,22 @@ pub async fn find_audit_event(
 ) -> AppResult<Json<ApiResponse<Option<AuditEventResponse>>>> {
     let event = state.audits.find(id).await?.map(AuditEventResponse::from);
     Ok(Json(ApiResponse::ok(event)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/audit/events/analyze",
+    tag = "audit",
+    security(("bearer_auth" = [])),
+    request_body = AuditAnalysisRequest,
+    responses((status = 200, description = "AI-assisted audit analysis", body = ApiResponse<AuditAnalysisResponse>))
+)]
+pub async fn analyze_audit_events(
+    State(state): State<AppState>,
+    Json(request): Json<AuditAnalysisRequest>,
+) -> AppResult<Json<ApiResponse<AuditAnalysisResponse>>> {
+    let (events, _, _, _) = state.audits.list(request.into()).await?;
+    let analysis = state.audit_analyzer.analyze(&events).await?;
+
+    Ok(Json(ApiResponse::ok(analysis.into())))
 }

@@ -1,7 +1,35 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub type AuditEventListRequest = audit::AuditQuery;
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditAnalysisRequest {
+    pub actor: Option<String>,
+    pub action: Option<String>,
+    pub resource_type: Option<String>,
+    pub resource_id: Option<String>,
+    pub result: Option<String>,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+}
+
+impl From<AuditAnalysisRequest> for audit::AuditQuery {
+    fn from(value: AuditAnalysisRequest) -> Self {
+        Self {
+            page: 1,
+            page_size: 50,
+            actor: value.actor,
+            action: value.action,
+            resource_type: value.resource_type,
+            resource_id: value.resource_id,
+            result: value.result,
+            started_at: value.started_at,
+            ended_at: value.ended_at,
+        }
+    }
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +73,24 @@ impl From<audit::AuditEventView> for AuditEventResponse {
             user_agent: value.user_agent,
             changes: value.changes,
             created_at: value.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditAnalysisResponse {
+    pub summary: String,
+    pub risk_level: audit::AuditRiskLevel,
+    pub findings: Vec<audit::AuditFinding>,
+}
+
+impl From<audit::AuditAnalysis> for AuditAnalysisResponse {
+    fn from(value: audit::AuditAnalysis) -> Self {
+        Self {
+            summary: value.summary,
+            risk_level: value.risk_level,
+            findings: value.findings,
         }
     }
 }

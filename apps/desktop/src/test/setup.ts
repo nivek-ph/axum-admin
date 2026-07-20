@@ -1,37 +1,22 @@
-import { config } from '@vue/test-utils'
-import { beforeAll, beforeEach } from 'vitest'
+import '@testing-library/jest-dom/vitest'
+import { afterEach } from 'vitest'
 
-const storage = new Map<string, string>()
-
-const localStorageMock = {
-  getItem(key: string) {
-    return storage.has(key) ? storage.get(key)! : null
-  },
-  setItem(key: string, value: string) {
-    storage.set(key, value)
-  },
-  removeItem(key: string) {
-    storage.delete(key)
-  },
-  clear() {
-    storage.clear()
+if (!window.localStorage) {
+  const values = new Map<string, string>()
+  const storage: Storage = {
+    get length() {
+      return values.size
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => values.delete(key),
+    setItem: (key, value) => values.set(key, String(value)),
   }
+  Object.defineProperty(window, 'localStorage', { configurable: true, value: storage })
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage })
 }
 
-Object.defineProperty(globalThis, 'localStorage', {
-  configurable: true,
-  value: localStorageMock
-})
-
-let setTestLocale: ((locale: 'zh-CN' | 'en-US') => void) | undefined
-
-beforeAll(async () => {
-  const { I18nPlugin, setLocale } = await import('@/i18n')
-  setTestLocale = setLocale
-  config.global.plugins = [...(config.global.plugins || []), I18nPlugin]
-})
-
-beforeEach(() => {
-  storage.clear()
-  setTestLocale?.('en-US')
+afterEach(() => {
+  window.localStorage.clear()
 })

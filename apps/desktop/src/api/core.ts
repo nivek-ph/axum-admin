@@ -1,23 +1,17 @@
-import { useAuthStore } from '@/stores/auth';
+import { useAuthStore } from '@/stores/auth'
 
-export interface ApiResponse<T = any> {
-  code: string;
-  data: T | null;
-  message: string;
+export const API_OK = 'OK'
+
+export interface ApiEnvelope<T = unknown> {
+  code: string
+  message: string
+  data?: T
 }
 
-export const API_OK = 'OK';
-
 export function bearerAuthorization(token: string) {
-  const trimmed = token.trim();
-  return trimmed ? `Bearer ${trimmed}` : '';
+  return token.trim() ? `Bearer ${token.trim()}` : ''
 }
 
 export function withAuthHeaders() {
-  const authStore = useAuthStore();
-  return {
-    headers: {
-      Authorization: bearerAuthorization(authStore.accessToken),
-    },
-  };
+  return { headers: { Authorization: bearerAuthorization(useAuthStore.getState().accessToken) } }
 }

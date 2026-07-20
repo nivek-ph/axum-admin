@@ -1,5 +1,9 @@
-import { bearerAuthorization, withAuthHeaders } from './core'
+import type { ApiEnvelope } from './core'
+import { bearerAuthorization } from './core'
 import { http } from './http'
+import type { AuthUserInfo } from '@/stores/auth'
+import { useAuthStore } from '@/stores/auth'
+import type { RemoteMenuItem } from '@/stores/menu'
 
 export interface LoginPayload {
   username: string
@@ -15,34 +19,34 @@ export interface CaptchaData {
   openCaptcha: boolean
 }
 
+export interface LoginData {
+  accessToken: string
+  refreshToken: string
+  user: AuthUserInfo
+}
+
 export function fetchCaptcha() {
-  return http.post('/auth/captcha') as Promise<{
-    code: string
-    message: string
-    data?: CaptchaData
-  }>
+  return http.post<never, ApiEnvelope<CaptchaData>>('/auth/captcha')
 }
 
 export function login(payload: LoginPayload) {
-  return http.post('/auth/login', payload)
+  return http.post<never, ApiEnvelope<LoginData>>('/auth/login', payload)
 }
 
 export function logout() {
-  return http.post('/auth/logout', undefined, withAuthHeaders())
-}
-
-export function getUserInfo(token: string) {
-  return http.get('/users/me', {
-    headers: {
-      Authorization: bearerAuthorization(token)
-    }
+  return http.post<never, ApiEnvelope<null>>('/auth/logout', undefined, {
+    headers: { Authorization: bearerAuthorization(useAuthStore.getState().accessToken) },
   })
 }
 
-export function getMenu(token: string) {
-  return http.get('/menus/current', {
-    headers: {
-      Authorization: bearerAuthorization(token)
-    }
+export function getUserInfo(token: string) {
+  return http.get<never, ApiEnvelope<{ userInfo?: AuthUserInfo }>>('/users/me', {
+    headers: { Authorization: bearerAuthorization(token) },
+  })
+}
+
+export function getCurrentMenu(token: string) {
+  return http.get<never, ApiEnvelope<{ menus?: RemoteMenuItem[]; permissions?: string[] }>>('/menus/current', {
+    headers: { Authorization: bearerAuthorization(token) },
   })
 }

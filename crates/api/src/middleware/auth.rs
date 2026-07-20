@@ -11,12 +11,10 @@ use axum::{
 
 use crate::{
     AppResult,
-    extractors::current_access::CurrentAccess,
+    extractors::{client_ip::ClientIp, current_access::CurrentAccess, user_agent::UserAgent},
     mappings::{LOGIN_REQUIRED, PERMISSION_DENIED},
     state::AppState,
 };
-const X_FORWARDED_FOR: &str = "x-forwarded-for";
-const USER_AGENT: &str = "user-agent";
 
 pub(crate) fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
     let value = headers.get(AUTHORIZATION)?.to_str().ok()?;
@@ -29,22 +27,14 @@ pub(crate) fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
 
 pub async fn require_auth(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
+    UserAgent(agent): UserAgent,
     mut request: Request,
     next: Next,
 ) -> AppResult<Response> {
     let method = request.method().as_str().to_uppercase();
     let path = permission_registry_path(request.uri().path());
     let headers = request.headers();
-    let ip = headers
-        .get(X_FORWARDED_FOR)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
-        .to_string();
-    let agent = headers
-        .get(USER_AGENT)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
-        .to_string();
     let token = extract_bearer_token(headers).ok_or(LOGIN_REQUIRED)?;
     let claims = state.tokens.decode_active(token).await?;
     let audit_context = AuditContext {

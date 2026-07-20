@@ -1,11 +1,12 @@
-# axum-vue-admin
+# axum-admin
 
 This file gives repo-specific guidance for agents working in this project.
 
 ## Project Shape
 
 - Backend process entry points live in `apps/ava`; the Axum HTTP capability crates live under `crates/`.
-- Frontend code lives in `apps/desktop`.
+- The React Admin Console lives in `apps/desktop` and runs as a browser SPA.
+- The previous Vue application and its Tauri wrapper are preserved only in the `v1.1.0` tag.
 - Database migrations live in `migrations/`.
 - Uploaded local files are served from `uploads/`; do not commit generated upload data.
 
@@ -47,7 +48,7 @@ This file gives repo-specific guidance for agents working in this project.
 
 ## Frontend
 
-- The desktop app is Vue 3 + Vite + Pinia + Vue Router + Axios + Nuxt UI.
+- The Admin Console is React + Vite + React Router + Zustand + TanStack Query + Axios + Radix UI.
 - API wrappers live in `apps/desktop/src/api`; keep endpoint paths aligned with `crates/api/src/routes`.
 - Keep the default API base URL as `http://127.0.0.1:3000/api` unless changing the runtime contract intentionally.
 - Use the shared HTTP client in `apps/desktop/src/api/http.ts` so backend envelope errors surface through the same path.
@@ -82,15 +83,15 @@ Frontend:
 
 ```bash
 cd apps/desktop
-npm test
-npm run build
+pnpm test
+pnpm build
 ```
 
 For frontend/backend integration changes, run both servers and verify the real UI path:
 
 ```bash
 cargo run -p ava -- serve
-cd apps/desktop && npm run dev
+cd apps/desktop && pnpm dev
 ```
 
 Bootstrap login:
@@ -100,23 +101,3 @@ ADMIN_USERNAME / ADMIN_PASSWORD from the environment
 ```
 
 Before claiming a change is complete, report the exact verification commands that were run and whether they passed.
-
-## Git
-
-- Do not commit or push unless the user explicitly asks for it.
-- Do not revert user changes. If unrelated dirty files exist, leave them alone.
-- Keep generated build artifacts, local uploads, and temporary browser screenshots out of commits.
-
-## Agent skills
-
-### Issue tracker
-
-Issues and PRDs are tracked in GitHub Issues. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Triage uses the five canonical labels with their default names. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Domain documentation uses the single-context layout. See `docs/agents/domain.md`.

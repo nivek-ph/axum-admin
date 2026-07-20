@@ -25,7 +25,10 @@ pub async fn get_file_list_by_query(
     Query(payload): Query<FileListRequest>,
 ) -> AppResult<Json<ApiResponse<FileListData>>> {
     let (list, total, page, page_size) = state.files.list(payload).await?;
-    let list = list.into_iter().map(FileResponse::from).collect::<Vec<_>>();
+    let list = list
+        .into_iter()
+        .map(|file| FileResponse::from_stored(&state.public_base_url, file))
+        .collect::<Vec<_>>();
     Ok(Json(ApiResponse::ok(FileListData {
         list,
         total,
@@ -144,7 +147,10 @@ pub async fn upload_file(
     }
 
     let uploaded = match pending_upload {
-        Some(upload) => Some(FileResponse::from(upload.finish().await?)),
+        Some(upload) => Some(FileResponse::from_stored(
+            &state.public_base_url,
+            upload.finish().await?,
+        )),
         None => None,
     };
     let file_url = uploaded.as_ref().map(|file| file.url.clone());

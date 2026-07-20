@@ -1,102 +1,125 @@
-import { computed, ref } from 'vue';
-import { defineStore } from 'pinia';
+import { create } from 'zustand'
 
-import { clearAuthSession, readAuthSession, writeAuthSession } from './authStorage';
+export const AUTH_STORAGE_KEY = 'axum-vue-admin.auth'
 
-export interface AuthUserInfo {
-  id: number;
-  userName: string;
-  nickName: string;
-  headerImg?: string;
-  homeRoute?: string;
-  deptId?: number | null;
-  deptName?: string;
-  roles?: Array<{
-    id: number;
-    code: string;
-    name: string;
-  }>;
-  roleIds?: number[];
-  permissions?: string[];
+export interface AuthRole {
+  id: number
+  code: string
+  name: string
 }
 
-export const useAuthStore = defineStore('auth', () => {
-  const persisted = readAuthSession();
-  const accessToken = ref(persisted.accessToken);
-  const refreshToken = ref(persisted.refreshToken);
-  const userInfo = ref<AuthUserInfo | null>(persisted.userInfo);
+export interface AuthUserInfo {
+  id: number
+  userName: string
+  nickName: string
+  headerImg?: string
+  homeRoute?: string
+  phone?: string
+  email?: string
+  deptId?: number | null
+  deptName?: string
+  roles?: AuthRole[]
+  roleIds?: number[]
+  permissions?: string[]
+}
 
-  const isAuthenticated = computed(
-    () => accessToken.value.length > 0 && refreshToken.value.length > 0 && userInfo.value !== null
-  );
-  const permissionSet = computed(() => new Set(userInfo.value?.permissions || []));
-  const roles = computed(() => userInfo.value?.roles || []);
-  const roleLabel = computed(() => roles.value.map((role) => role.name).filter(Boolean).join(' / '));
-  const permissions = computed(() => userInfo.value?.permissions || []);
-  const homeRouteName = computed(() => userInfo.value?.homeRoute?.replace(/^\/+/, '') || 'dashboard');
-  const isSuperAdmin = computed(
-    () =>
-      roles.value.some((role) => role.code === 'super_admin')
-  );
+export interface AuthSession {
+  accessToken: string
+  refreshToken: string
+  userInfo: AuthUserInfo | null
+}
 
-  function persistSession() {
-    writeAuthSession({
-      accessToken: accessToken.value,
-      refreshToken: refreshToken.value,
-      userInfo: userInfo.value,
-    });
+function emptySession(): AuthSession {
+  return { accessToken: '', refreshToken: '', userInfo: null }
+}
+
+function isUserInfo(value: unknown): value is AuthUserInfo {
+  if (!value || typeof value !== 'object') return false
+  const user = value as Record<string, unknown>
+  return (
+    Number.isFinite(user.id) &&
+    typeof user.userName === 'string' &&
+    user.userName.trim().length > 0 &&
+    typeof user.nickName === 'string'
+  )
+}
+
+export function readAuthSession(): AuthSession {
+  if (typeof localStorage === 'undefined') return emptySession()
+  try {
+    const value = localStorage.getItem(AUTH_STORAGE_KEY)
+    if (!value) return emptySession()
+    const parsed = JSON.parse(value) as Partial<AuthSession>
+    const accessToken = typeof parsed.accessToken === 'string' ? parsed.accessToken.trim() : ''
+    const refreshToken = typeof parsed.refreshToken === 'string' ? parsed.refreshToken.trim() : ''
+    const userInfo = isUserInfo(parsed.userInfo) ? parsed.userInfo : null
+    if (!accessToken || !refreshToken || !userInfo) {
+      localStorage.removeItem(AUTH_STORAGE_KEY)
+      return emptySession()
+    }
+    return { accessToken, refreshToken, userInfo }
+  } catch {
+    localStorage.removeItem(AUTH_STORAGE_KEY)
+    return emptySession()
   }
+}
 
-  function setTokenPair(nextAccessToken: string, nextRefreshToken: string) {
-    accessToken.value = nextAccessToken;
-    refreshToken.value = nextRefreshToken;
-    persistSession();
+function persistSession(session: AuthSession) {
+  if (!session.accessToken || !session.refreshToken || !session.userInfo) {
+    localStorage.removeItem(AUTH_STORAGE_KEY)
+    return
   }
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session))
+}
 
-  function setSession(
-    nextAccessToken: string,
-    nextRefreshToken: string,
-    nextUserInfo: AuthUserInfo
-  ) {
-    accessToken.value = nextAccessToken;
-    refreshToken.value = nextRefreshToken;
-    userInfo.value = nextUserInfo;
-    persistSession();
-  }
+interface AuthState extends AuthSession {
+  permissions: string[]
+  setSession: (session: AuthSession) => void
+  setTokenPair: (accessToken: string, refreshToken: string) => void
+  setUserAndPermissions: (userInfo: AuthUserInfo, permissions: string[]) => void
+  clearSession: () => void
+  can: (permission: string) => boolean
+}
 
-  function setPermissions(nextPermissions: string[]) {
-    if (!userInfo.value) return;
-    userInfo.value = { ...userInfo.value, permissions: nextPermissions };
-    persistSession();
-  }
+const initialSession = readAuthSession()
 
-  function clearSession() {
-    accessToken.value = '';
-    refreshToken.value = '';
-    userInfo.value = null;
-    clearAuthSession();
-  }
+export const useAuthStore = create<AuthState>((set, get) => ({
+  ...initialSession,
+  permissions: initialSession.userInfo?.permissions ?? [],
+  setSession: (session) => {
+    persistSession(session)
+    set({ ...session, permissions: session.userInfo?.permissions ?? [] })
+  },
+  setTokenPair: (accessToken, refreshToken) => {
+    const session = { accessToken, refreshToken, userInfo: get().userInfo }
+    persistSession(session)
+    set({ accessToken, refreshToken })
+  },
+  setUserAndPermissions: (userInfo, permissions) => {
+    const nextUser = { ...userInfo, permissions }
+    const session = {
+      accessToken: get().accessToken,
+      refreshToken: get().refreshToken,
+      userInfo: nextUser,
+    }
+    persistSession(session)
+    set({ userInfo: nextUser, permissions })
+  },
+  clearSession: () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY)
+    set({ ...emptySession(), permissions: [] })
+  },
+  can: (permission) => {
+    const state = get()
+    if (state.userInfo?.roles?.some((role) => role.code === 'super_admin')) return true
+    return state.permissions.includes(permission)
+  },
+}))
 
-  function can(permission: string) {
-    if (isSuperAdmin.value) return true;
-    return permissionSet.value.has(permission);
-  }
+export function isAuthenticated(state: AuthSession) {
+  return Boolean(state.accessToken && state.refreshToken && state.userInfo)
+}
 
-  return {
-    accessToken,
-    refreshToken,
-    userInfo,
-    isAuthenticated,
-    roles,
-    roleLabel,
-    permissions,
-    homeRouteName,
-    permissionSet,
-    isSuperAdmin,
-    can,
-    setTokenPair,
-    setSession,
-    setPermissions,
-    clearSession,
-  };
-});
+export function isSuperAdmin(userInfo: AuthUserInfo | null) {
+  return Boolean(userInfo?.roles?.some((role) => role.code === 'super_admin'))
+}

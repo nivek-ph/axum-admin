@@ -1,7 +1,10 @@
-# axum-vue-admin
+# axum-admin
 
-Rust + Vue admin system. The backend exposes REST APIs with Axum, and the
-frontend is a Vue 3 + Vite app styled with Nuxt UI.
+Rust + React admin system. The backend exposes REST APIs with Axum, and the
+default Admin Console is a React + Vite single-page application.
+
+The previous Vue 3 + Tauri implementation is available in the
+[`v1.1.0`](../../tree/v1.1.0) tag.
 
 ## Acknowledgements
 
@@ -10,21 +13,14 @@ Product layout and navigation patterns borrow ideas from **[gin-vue-admin](https
 ## Stack
 
 - Backend: Rust 2024, Axum, SQLx, PostgreSQL, Utoipa Swagger UI
-- Frontend: Vue 3, Vite, Pinia, Vue Router, Axios, Nuxt UI, Tailwind CSS
-- Desktop shell: Tauri 2
+- Frontend: React, Vite, React Router, Zustand, TanStack Query, Axios, Radix UI, Tailwind CSS
 - Auth: JWT returned by login and sent with the `Authorization: Bearer <token>` header
-
-## Screenshots
-
-![Dashboard screen](docs/screenshots/dashboard.png)
-
-More screens: [Login](docs/screenshots/login.png) · [User Management](docs/screenshots/users.png) · [API Registry](docs/screenshots/apis.png)
 
 ## Workspace layout:
 
 ```text
 apps/ava           Ava CLI and backend composition root
-apps/desktop       Vue/Vite/Tauri desktop frontend
+apps/desktop       React/Vite Admin Console
 crates/api         Axum HTTP adapter
 crates/audit       structured business and security audit events
 crates/auth        password, token, and captcha helpers
@@ -48,6 +44,7 @@ Required:
 
 Optional:
 
+- `PUBLIC_BASE_URL`
 - `ADMIN_USERNAME`, default `admin`
 - `ADMIN_NICKNAME`, default `Administrator`
 
@@ -94,8 +91,8 @@ Start the frontend:
 
 ```bash
 cd apps/desktop
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 The frontend defaults to:
@@ -113,7 +110,7 @@ http://127.0.0.1:3000/api
 Override it with:
 
 ```bash
-VITE_API_BASE_URL=http://127.0.0.1:3000/api npm run dev
+VITE_API_BASE_URL=http://127.0.0.1:3000/api pnpm dev
 ```
 
 Login after running `ava init`:
@@ -168,62 +165,62 @@ Authenticated requests send the JWT in the `Authorization: Bearer <token>` heade
 
 Public routes:
 
-| Method | Path                 |
-| ------ | -------------------- |
-| GET    | `/api/health`        |
-| POST   | `/api/auth/login`    |
-| POST   | `/api/auth/captcha`  |
-| POST   | `/api/init/check-db` |
-| POST   | `/api/init/database` |
+| Method | Path                |
+| ------ | ------------------- |
+| GET    | `/api/health`       |
+| POST   | `/api/auth/login`   |
+| POST   | `/api/auth/refresh` |
+| POST   | `/api/auth/captcha` |
 
-Protected route groups:
+Authenticated route groups:
 
-| Area                  | Routes                                                                                                                                                                                                                                            |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Users                 | `GET/POST /api/users`, `PUT/DELETE /api/users/{id}`, `GET/PUT /api/users/me`, `PUT /api/users/me/password`, `PUT /api/users/me/settings`, `PUT /api/users/me/authority`, `POST /api/users/{id}/password/reset`, `PUT /api/users/{id}/authorities` |
-| Roles                 | `GET/POST /api/roles`, `PUT/DELETE /api/roles/{authority_id}`, `GET/PUT /api/roles/{authority_id}/users`, `PUT /api/roles/data-authority`                                                                                                         |
-| Menus                 | `GET/POST /api/menus`, `GET /api/menus/current`, `GET /api/menus/tree`, `GET/PUT/DELETE /api/menus/{id}`, `GET/PUT /api/menus/{id}/roles`, `GET/POST /api/menus/authority`                                                                        |
-| API routes            | `GET/POST /api/routes`, `GET /api/routes/all`, `GET /api/routes/groups`, `GET/PUT/DELETE /api/routes/{id}`, `GET/PUT /api/routes/roles`, `DELETE /api/routes/batch`, `POST /api/routes/casbin/refresh`                                            |
-| Params                | `GET/POST /api/params`, `GET /api/params/by-key`, `GET/PUT/DELETE /api/params/{id}`, `DELETE /api/params/batch`                                                                                                                                   |
-| Dictionaries          | `GET/POST /api/dictionaries`, `POST /api/dictionaries/import`, `GET/PUT/DELETE /api/dictionaries/{id}`, `GET /api/dictionaries/{id}/export`, `GET/POST /api/dictionaries/{id}/tree`, `GET/PUT/DELETE /api/dictionaries/{id}/tree/{node_id}` |
-| Files                 | `GET /api/files`, `POST /api/files/upload`, `POST /api/files/import-url`, `DELETE /api/files/{id}`, `PATCH /api/files/{id}/name`                                                                                                                  |
-| Attachment categories | `GET/POST /api/attachment-categories`, `DELETE /api/attachment-categories/{id}`                                                                                                                                                                   |
-| Audit events          | `GET /api/audit/events`, `GET /api/audit/events/{id}`                                                                                                                                                                                             |
-| System                | `GET/PUT /api/system/config`, `GET /api/system/server-info`, `POST /api/system/reload`                                                                                                                                                            |
-| Auth sessions         | `POST /api/auth/logout`                                                                                                                                                                                                                           |
+| Area         | Prefix or route      |
+| ------------ | -------------------- |
+| Users        | `/api/users`         |
+| Roles        | `/api/roles`         |
+| Departments  | `/api/depts`         |
+| Menus        | `/api/menus`         |
+| Params       | `/api/params`        |
+| Dictionaries | `/api/dictionaries`  |
+| Files        | `/api/files`         |
+| Audit events | `/api/audit/events`  |
+| Logout       | `/api/auth/logout`   |
+
+See Swagger UI for the current method-level contract.
 
 ## Features
 
-Main modules:
+Main Admin Console modules:
 
 - Dashboard
 - Users
 - Roles
 - Menus
-- API routes
+- Departments
 - Params
 - Dictionaries and dictionary details
-- Files and attachment categories
+- Files
 - Structured audit events
 - Profile
-- System config
-- System state
 
 Main workflows:
 
 - Login and current-menu loading
 - User list, delete, reset password
 - Role CRUD and role-user assignment
-- Menu CRUD and menu-role assignment
-- API route CRUD and route-role assignment
+- Read-only menu and permission catalog
+- Department hierarchy CRUD
 - Param CRUD
 - Dictionary CRUD
 - Dictionary detail CRUD, including child nodes
-- File category CRUD
 - File URL import
-- File multipart upload with preview and progress
-- File rename, delete, and preview
+- File multipart upload with current loading feedback
+- File rename and delete
 - Audit event filtering and detail inspection
+- Profile settings and password change
+
+Percentage upload progress and expanded action-level ACL are future enhancements and do not block
+the React parity gate.
 
 ## Verification
 
@@ -237,14 +234,14 @@ Frontend tests:
 
 ```bash
 cd apps/desktop
-npm test
+pnpm test
 ```
 
 Frontend production build:
 
 ```bash
 cd apps/desktop
-npm run build
+pnpm build
 ```
 
 Recommended manual integration sweep:
@@ -252,7 +249,10 @@ Recommended manual integration sweep:
 1. Start PostgreSQL for the configured `DATABASE_URL`.
 2. Start Redis 8 or newer for the configured `REDIS_URL`.
 3. Start the backend with `cargo run -p ava -- serve`.
-4. Start the frontend with `cd apps/desktop && npm run dev`.
-5. Log in with `admin / 123456`.
-6. Smoke test user, role, menu, API route, param, dictionary, file, audit, and
-   system pages.
+4. Start the frontend with `cd apps/desktop && pnpm dev`.
+5. Log in with `ADMIN_USERNAME / ADMIN_PASSWORD` from the environment.
+6. Complete the fixed parity path: login, a Users workflow, save a non-system
+   role's permissions, upload a file, and open an audit-event detail.
+
+React Router uses browser history. Production static hosting must serve `apps/desktop/dist/index.html`
+for unknown non-API paths so direct navigation and reloads such as `/roles` continue to work.

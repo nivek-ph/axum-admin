@@ -10,9 +10,12 @@ pub struct LoggerConfig {
 #[derive(Debug, Clone)]
 pub struct ServeConfig {
     pub http_port: u16,
+    pub public_base_url: String,
     pub database_url: String,
     pub redis_url: String,
     pub jwt_secret: String,
+    pub ollama_base_url: String,
+    pub ollama_model: String,
 }
 
 #[derive(Debug, Clone)]
@@ -50,20 +53,30 @@ impl LoggerConfig {
 impl ServeConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
         let http_port = require_env("HTTP_PORT")?;
+        let http_port: u16 = http_port
+            .parse()
+            .map_err(|_| ConfigError::InvalidHttpPort(http_port))?;
+        let default_public_base_url = format!("http://127.0.0.1:{http_port}");
         Ok(Self {
-            http_port: http_port
-                .parse()
-                .map_err(|_| ConfigError::InvalidHttpPort(http_port))?,
+            http_port,
+            public_base_url: env::var("PUBLIC_BASE_URL")
+                .ok()
+                .map(|value| value.trim().trim_end_matches('/').to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or(default_public_base_url),
             database_url: require_env("DATABASE_URL")?,
             redis_url: require_env("REDIS_URL")?,
             jwt_secret: require_env("JWT_SECRET")?,
+            ollama_base_url: env::var("OLLAMA_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:11434/v1".to_string()),
+            ollama_model: env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen3.5:4b".to_string()),
         })
     }
 
     pub fn api_server(&self) -> api::ServerConfig {
         api::ServerConfig {
             listen_addr: format!("0.0.0.0:{}", self.http_port),
-            public_url: format!("http://127.0.0.1:{}", self.http_port),
+            public_url: self.public_base_url.clone(),
         }
     }
 }

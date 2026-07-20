@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use tracing::info;
 
 use crate::AppState;
@@ -16,5 +18,9 @@ pub async fn serve(config: ServerConfig, state: AppState) -> std::io::Result<()>
         swagger_url = %format!("{}/swagger-ui/", config.public_url.trim_end_matches('/')),
         "api server listening"
     );
-    axum::serve(listener, crate::router(state)).await
+    axum::serve(
+        listener,
+        crate::router(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
 }

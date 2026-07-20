@@ -87,6 +87,7 @@ impl Modify for SecurityAddon {
         crate::routes::parameters::delete_sys_params_by_ids,
         crate::routes::audit::events::get_audit_events,
         crate::routes::audit::events::find_audit_event,
+        crate::routes::audit::events::analyze_audit_events,
     ),
     tags(
         (name = "auth", description = "Auth"),

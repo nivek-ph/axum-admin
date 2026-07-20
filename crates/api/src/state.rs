@@ -1,4 +1,4 @@
-use audit::AuditService;
+use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, token::TokenService};
 use file_storage::files::FileService;
 use iam::{
@@ -9,6 +9,7 @@ use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
 
 #[derive(Clone)]
 pub struct AppState {
+    pub public_base_url: String,
     pub tokens: TokenService,
     pub captcha: CaptchaService,
     pub users: UserService,
@@ -19,6 +20,7 @@ pub struct AppState {
     pub parameters: ParameterService,
     pub menus: MenuService,
     pub audits: AuditService,
+    pub audit_analyzer: AuditAnalyzer,
     pub files: FileService,
 }
 
@@ -35,6 +37,7 @@ pub(crate) fn test_state(pool: sqlx::PgPool) -> AppState {
     let menus = MenuService::new(pool.clone());
     let files = FileService::new(pool, "./uploads");
     AppState {
+        public_base_url: "http://127.0.0.1:3000".to_string(),
         tokens: TokenService::without_session_store("test-secret"),
         captcha: CaptchaService::without_store(),
         users,
@@ -45,6 +48,7 @@ pub(crate) fn test_state(pool: sqlx::PgPool) -> AppState {
         parameters,
         menus,
         audits,
+        audit_analyzer: AuditAnalyzer::new("http://127.0.0.1:9/v1", "test"),
         files,
     }
 }
