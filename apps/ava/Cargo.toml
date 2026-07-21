@@ -22,4 +22,4 @@ redis.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-tracing-otel-extra.workspace = true
+tracing-otel.workspace = true

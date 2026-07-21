@@ -1,8 +1,8 @@
 [workspace]
 members = [
   "apps/ava",
-  "crates/audit",
   "crates/api",
+  "crates/audit",
   "crates/auth",
   "crates/db",
   "crates/file-storage",
@@ -30,7 +30,7 @@ metadata = { path = "crates/metadata" }
 anyhow = "1"
 argon2 = { version = "0.6.0-rc.8", features = ["getrandom", "password-hash"] }
 axum = { version = "0.8", features = ["json", "multipart"] }
-axum-otel = "0.32.0"
+axum-otel = "0.33.1"
 captcha-rs = "0.5"
 clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
@@ -69,7 +69,7 @@ tower-http = { version = "0.6.11", features = [
 ] }
 tracing = "0.1"
 tracing-error = "0.2"
-tracing-otel-extra = { version = "0.32.0", features = ["env"] }
+tracing-otel = { version = "0.33.1", features = ["env"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 utoipa = "5"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }

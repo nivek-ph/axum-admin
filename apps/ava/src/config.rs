@@ -1,12 +1,5 @@
 use std::env;
 
-use tracing::Level;
-
-#[derive(Debug, Clone)]
-pub struct LoggerConfig {
-    pub log_level: Level,
-}
-
 #[derive(Debug, Clone)]
 pub struct ServeConfig {
     pub http_port: u16,
@@ -32,22 +25,10 @@ pub enum ConfigError {
     Missing(String),
     #[error("environment variable HTTP_PORT must be a valid port, got {0}")]
     InvalidHttpPort(String),
-    #[error("environment variable LOG_LEVEL must be a valid tracing level, got {0}")]
-    InvalidLogLevel(String),
 }
 
 pub fn load_env_file() {
     dotenvy::dotenv().ok();
-}
-
-impl LoggerConfig {
-    pub fn from_env() -> Result<Self, ConfigError> {
-        let value = env::var("LOG_LEVEL").unwrap_or_else(|_| "INFO".to_string());
-        let log_level = value
-            .parse()
-            .map_err(|_| ConfigError::InvalidLogLevel(value))?;
-        Ok(Self { log_level })
-    }
 }
 
 impl ServeConfig {

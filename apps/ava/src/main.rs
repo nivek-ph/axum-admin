@@ -5,16 +5,13 @@ mod config;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Command};
-use tracing_otel_extra::Logger;
+use tracing_otel::Logger;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     config::load_env_file();
-    let logger_config = config::LoggerConfig::from_env()?;
 
-    let logger = Logger::new("ava")
-        .with_level(logger_config.log_level)
-        .with_ansi(true);
+    let logger = Logger::from_env(Some("LOG"))?.with_ansi(true);
     let _guard = logger.init()?;
 
     let cli = Cli::parse();
