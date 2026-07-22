@@ -9,6 +9,7 @@
 .github
 .vercel
 .vscode
+apps/desktop
 docs
 output
 target
