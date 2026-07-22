@@ -126,6 +126,50 @@ Bootstrap default system data when setting up a database:
 cargo run -p ava -- init
 ```
 
+## Deployment
+
+The backend and Admin Console are deployed as two independent Vercel projects from this monorepo.
+
+| Component | Vercel CLI working directory | Project configuration |
+| --------- | ---------------------------- | --------------------- |
+| Backend   | Repository root              | `vercel.json` and `api/axum.rs` |
+| Frontend  | `apps/desktop`               | `apps/desktop/vercel.json` |
+
+For the frontend Vercel project, leave **Settings → Build and Deployment → Root Directory** empty.
+The GitHub Actions job already runs Vercel CLI from `apps/desktop`; configuring the same directory in
+Vercel would resolve it twice as `apps/desktop/apps/desktop`.
+
+Deployments are manual through the **Deploy to Vercel** workflow in
+`.github/workflows/vercel.yml`. Running the workflow requires three choices:
+
+1. Select the Git branch to deploy.
+2. Select `both`, `backend`, or `frontend` as the deployment target.
+3. Select `preview` or `production` as the Vercel environment.
+
+The workflow does not deploy on pushes or pull requests. `preview` creates a non-production
+deployment; `production` updates the production deployment and its configured domains.
+
+Configure these GitHub Actions repository secrets before running the workflow:
+
+| Secret | Purpose |
+| ------ | ------- |
+| `VERCEL_ORG_ID` | Vercel account or team ID shared by both projects |
+| `VERCEL_BACKEND_PROJECT_ID` | Backend Vercel project ID |
+| `VERCEL_FRONTEND_PROJECT_ID` | Frontend Vercel project ID |
+| `VERCEL_TOKEN` | Vercel access token used by CI |
+| `VITE_API_BASE_URL` | Public backend API base URL used by the frontend build, including `/api` |
+
+Vercel project names and production domains are managed separately. Renaming a project does not
+replace an existing production domain; update the project's **Domains** settings when a different
+domain is required.
+
+Deployment uploads are isolated with two ignore files:
+
+- `.vercelignore` applies to the backend deployment from the repository root and excludes
+  `apps/desktop`.
+- `apps/desktop/.vercelignore` applies to the frontend deployment and excludes local environment,
+  dependency, and build-output directories.
+
 ## API Contract
 
 Successful responses use a stable envelope:
