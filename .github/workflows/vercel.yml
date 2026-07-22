@@ -170,6 +170,7 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -191,7 +192,7 @@ jobs:
 
       - name: Deploy frontend
         run: |
-          args=(--yes --build-env VITE_API_BASE_URL=https://axum-demo.vercel.app/api --token="${VERCEL_TOKEN}")
+          args=(--yes --build-env VITE_API_BASE_URL="${VITE_API_BASE_URL}" --token="${VERCEL_TOKEN}")
           if [[ "${DEPLOY_ENV}" == "production" ]]; then
             args+=(--prod)
           fi
