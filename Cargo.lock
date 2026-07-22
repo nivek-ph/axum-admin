@@ -338,17 +338,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ava-monorepo"
-version = "0.1.0"
-dependencies = [
- "api",
- "ava",
- "tokio",
- "tower",
- "vercel_runtime",
-]
-
-[[package]]
 name = "avif-serialize"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -412,6 +401,17 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-admin"
+version = "0.1.0"
+dependencies = [
+ "api",
+ "ava",
+ "tokio",
+ "tower",
+ "vercel_runtime",
 ]
 
 [[package]]

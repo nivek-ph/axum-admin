@@ -1,5 +1,5 @@
 [package]
-name = "ava-monorepo"
+name = "axum-admin"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -96,5 +96,5 @@ tower.workspace = true
 vercel_runtime.workspace = true
 
 [[bin]]
-name = "axum"
+name = "axum-admin"
 path = "api/axum.rs"
