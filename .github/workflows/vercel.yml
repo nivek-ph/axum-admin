@@ -103,13 +103,6 @@ jobs:
 name: Deploy to Vercel
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-  workflow_run:
-    workflows: [Rust]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
@@ -125,16 +118,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: vercel-${{ github.event_name }}-${{ github.ref || github.event.workflow_run.head_branch }}
+  group: vercel-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   backend:
     name: Deploy backend
-    if: >-
-      github.event_name == 'pull_request' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -143,8 +132,6 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -157,13 +144,7 @@ jobs:
         env:
           REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
-            echo "DEPLOY_ENV=production" >> "${GITHUB_ENV}"
-          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            echo "DEPLOY_ENV=preview" >> "${GITHUB_ENV}"
-          else
-            echo "DEPLOY_ENV=${REQUESTED_ENVIRONMENT}" >> "${GITHUB_ENV}"
-          fi
+          echo "DEPLOY_ENV=${REQUESTED_ENVIRONMENT}" >> "${GITHUB_ENV}"
 
       - name: Pull Vercel settings
         run: vercel pull --yes --environment="${DEPLOY_ENV}" --token="${VERCEL_TOKEN}"
@@ -180,10 +161,6 @@ jobs:
 
   frontend:
     name: Deploy frontend
-    if: >-
-      github.event_name == 'pull_request' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -195,8 +172,6 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -209,13 +184,7 @@ jobs:
         env:
           REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
-            echo "DEPLOY_ENV=production" >> "${GITHUB_ENV}"
-          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            echo "DEPLOY_ENV=preview" >> "${GITHUB_ENV}"
-          else
-            echo "DEPLOY_ENV=${REQUESTED_ENVIRONMENT}" >> "${GITHUB_ENV}"
-          fi
+          echo "DEPLOY_ENV=${REQUESTED_ENVIRONMENT}" >> "${GITHUB_ENV}"
 
       - name: Pull Vercel settings
         run: vercel pull --yes --environment="${DEPLOY_ENV}" --token="${VERCEL_TOKEN}"
