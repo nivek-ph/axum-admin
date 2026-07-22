@@ -130,10 +130,10 @@ cargo run -p ava -- init
 
 The backend and Admin Console are deployed as two independent Vercel projects from this monorepo.
 
-| Component | Vercel CLI working directory | Project configuration |
-| --------- | ---------------------------- | --------------------- |
-| Backend   | Repository root              | `vercel.json` and `api/axum.rs` |
-| Frontend  | `apps/desktop`               | `apps/desktop/vercel.json` |
+| Component | Vercel project | Vercel CLI working directory | Project configuration |
+| --------- | -------------- | ---------------------------- | --------------------- |
+| Backend   | `axum-admin`   | Repository root              | `vercel.json` and `api/axum.rs` |
+| Frontend  | `ava-web`      | `apps/desktop`               | `apps/desktop/vercel.json` |
 
 For the frontend Vercel project, leave **Settings → Build and Deployment → Root Directory** empty.
 The GitHub Actions job already runs Vercel CLI from `apps/desktop`; configuring the same directory in
