@@ -3,6 +3,15 @@ name: Deploy to Vercel
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: Component to deploy
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - backend
+          - frontend
       environment:
         description: Vercel deployment environment
         required: true
@@ -22,6 +31,7 @@ concurrency:
 jobs:
   backend:
     name: Deploy backend
+    if: inputs.target == 'both' || inputs.target == 'backend'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -59,6 +69,7 @@ jobs:
 
   frontend:
     name: Deploy frontend
+    if: inputs.target == 'both' || inputs.target == 'frontend'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
