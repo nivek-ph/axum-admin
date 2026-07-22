@@ -70,11 +70,12 @@ jobs:
             echo "Backend deployment did not return a URL" >&2
             exit 1
           fi
+          api_base_url="${deployment_url%/}/api"
           if [[ "${DEPLOY_ENV}" == "preview" ]]; then
-            echo "api_base_url=${deployment_url%/}/api" >> "${GITHUB_OUTPUT}"
+            echo "api_base_url=${api_base_url}" >> "${GITHUB_OUTPUT}"
           fi
           echo "### Backend" >> "${GITHUB_STEP_SUMMARY}"
-          echo "${deployment_url}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "${api_base_url}" >> "${GITHUB_STEP_SUMMARY}"
 
   frontend:
     name: Deploy frontend
