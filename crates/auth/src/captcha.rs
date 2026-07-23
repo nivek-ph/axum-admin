@@ -9,6 +9,7 @@ const CAPTCHA_CHARACTERS: [char; 31] = [
     'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
 ];
 
+// get a captcha with the given text or a random text
 fn get_captcha(text: Option<&str>) -> Captcha {
     let mut builder = CaptchaBuilder::new()
         .length(4)
