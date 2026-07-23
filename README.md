@@ -174,7 +174,7 @@ Backend:
 
 Frontend:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin&root-directory=apps%2Fdesktop&env=VITE_API_BASE_URL&envDescription=Enter%20the%20public%20backend%20API%20base%20URL%2C%20including%20%2Fapi.&envLink=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin%23deployment&project-name=ava-web&repository-name=axum-admin-web)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin&root-directory=apps%2Fdesktop&env=VITE_API_BASE_URL&envDescription=Enter%20the%20public%20backend%20API%20base%20URL%2C%20including%20%2Fapi.&envLink=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin%23deployment&project-name=axum-admin-web&repository-name=axum-admin-web)
 
 The frontend Deploy Button configures Root Directory as `apps/desktop` for Vercel's native Git
 deployment. Keep that setting for projects created with the button. Clear it only when reusing this
@@ -184,10 +184,10 @@ repository's GitHub Actions workflow, which already runs Vercel CLI from `apps/d
 | Component | Vercel project | Vercel CLI working directory | Project configuration           |
 | --------- | -------------- | ---------------------------- | ------------------------------- |
 | Backend   | `axum-admin`   | Repository root              | `vercel.json` and `api/axum.rs` |
-| Frontend  | `ava-web`      | `apps/desktop`               | `apps/desktop/vercel.json`      |
+| Frontend  | `axum-admin-web`      | `apps/desktop`               | `apps/desktop/vercel.json`      |
 
 
-For the existing `ava-web` project deployed through GitHub Actions, leave
+For the existing `axum-admin-web` project deployed through GitHub Actions, leave
 **Settings → Build and Deployment → Root Directory** empty. The GitHub Actions job already runs
 Vercel CLI from `apps/desktop`; configuring the same directory in Vercel would resolve it twice as
 `apps/desktop/apps/desktop`.
