@@ -90,7 +90,7 @@ pnpm build
 For frontend/backend integration changes, run both servers and verify the real UI path:
 
 ```bash
-cargo run -p ava -- serve
+cargo run -p ava serve
 cd apps/desktop && pnpm dev
 ```
 

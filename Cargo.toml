@@ -40,7 +40,7 @@ argon2 = { version = "0.6.0-rc.8", features = ["getrandom", "password-hash"] }
 axum = { version = "0.8", features = ["json", "multipart"] }
 axum-otel = "0.33.1"
 captcha-rs = "0.5"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 dotenvy = "0.15"
 hex = "0.4"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
