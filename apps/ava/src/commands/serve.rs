@@ -23,7 +23,7 @@ pub struct ServeConfig {
         default_value = "",
         hide_env_values = true
     )]
-    pub public_base_url: String,
+    public_base_url: String,
 
     /// Database URL
     #[arg(
@@ -32,7 +32,7 @@ pub struct ServeConfig {
         value_parser = NonEmptyStringValueParser::new(),
         hide_env_values = true
     )]
-    pub database_url: String,
+    pub(crate) database_url: String,
 
     /// Redis URL
     #[arg(
@@ -41,7 +41,7 @@ pub struct ServeConfig {
         value_parser = NonEmptyStringValueParser::new(),
         hide_env_values = true
     )]
-    pub redis_url: String,
+    pub(crate) redis_url: String,
 
     /// JWT signing secret
     #[arg(
@@ -50,7 +50,7 @@ pub struct ServeConfig {
         value_parser = NonEmptyStringValueParser::new(),
         hide_env_values = true
     )]
-    pub jwt_secret: String,
+    pub(crate) jwt_secret: String,
 
     /// Ollama OpenAI-compatible base URL
     #[arg(
@@ -59,35 +59,33 @@ pub struct ServeConfig {
         default_value = "",
         hide_env_values = true
     )]
-    pub ollama_base_url: String,
+    pub(crate) ollama_base_url: String,
 
     /// Ollama model name
     #[arg(long, env = "OLLAMA_MODEL", default_value = "", hide_env_values = true)]
-    pub ollama_model: String,
+    pub(crate) ollama_model: String,
 }
 
 impl ServeConfig {
     /// Parse from environment variables (and clap defaults).
-    pub fn from_env() -> Result<Self> {
-        Ok(Self::parse())
+    pub fn from_env() -> Self {
+        dotenvy::dotenv().ok();
+        Self::parse()
     }
 
     /// Public base URL, falling back to `http://127.0.0.1:<port>` when unset.
-    pub fn public_base_url(&self) -> String {
-        let mut trimmed = self
-            .public_base_url
-            .trim()
-            .trim_end_matches('/')
-            .to_string();
+    pub(crate) fn public_base_url(&self) -> String {
+        let trimmed = self.public_base_url.trim().trim_end_matches('/');
         if trimmed.is_empty() {
-            trimmed = format!("http://127.0.0.1:{}", self.http_port);
+            format!("http://127.0.0.1:{}", self.http_port)
+        } else {
+            trimmed.to_string()
         }
-        trimmed
     }
 }
 
 /// Execute the `serve` command.
-pub async fn execute(config: ServeConfig) -> Result<()> {
+pub(crate) async fn execute(config: ServeConfig) -> Result<()> {
     let server_config = api::ServerConfig {
         listen_addr: format!("0.0.0.0:{}", config.http_port),
         public_url: config.public_base_url(),

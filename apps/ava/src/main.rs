@@ -5,7 +5,7 @@ use tracing_otel::Logger;
 #[tokio::main]
 async fn main() -> Result<()> {
     ava::install_crypto_provider();
-    ava::load_env();
+    dotenvy::dotenv().ok();
 
     let logger = Logger::from_env(Some("LOG"))?.with_ansi(true);
     let _guard = logger.init()?;

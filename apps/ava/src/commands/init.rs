@@ -46,7 +46,7 @@ pub struct InitConfig {
 }
 
 /// Execute the `init` command.
-pub async fn execute(config: InitConfig) -> Result<()> {
+pub(crate) async fn execute(config: InitConfig) -> Result<()> {
     info!("connecting to database");
     let pool = db::connect(&config.database_url)
         .await

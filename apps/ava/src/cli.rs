@@ -23,16 +23,6 @@ pub enum Command {
     Init(init::InitConfig),
 }
 
-// install the crypto provider for the application
-pub fn install_crypto_provider() {
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-}
-
-// load the environment variables from the .env file
-pub fn load_env() {
-    dotenvy::dotenv().ok();
-}
-
 /// Parse CLI options and run the chosen command.
 pub async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();

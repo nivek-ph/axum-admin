@@ -53,8 +53,6 @@ async fn build_state(
     pool: db::DbPool,
     redis_connection: redis::aio::MultiplexedConnection,
 ) -> Result<api::AppState> {
-    let public_base_url = config.public_base_url();
-
     // 1. standalone services (no cross-service deps)
     let password_service = PasswordService::new();
     let tokens = TokenService::new(&config.jwt_secret, redis_connection.clone());
@@ -82,7 +80,7 @@ async fn build_state(
     let departments = DepartmentService::new(pool, access.clone());
 
     Ok(api::AppState {
-        public_base_url,
+        public_base_url: config.public_base_url(),
         tokens,
         captcha,
         users,

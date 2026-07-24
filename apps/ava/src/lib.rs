@@ -1,8 +1,9 @@
 pub mod app;
 pub mod cli;
-pub mod commands;
+pub(crate) mod commands;
 
-pub use crate::{
-    cli::{install_crypto_provider, load_env},
-    commands::{init::InitConfig, serve::ServeConfig},
-};
+pub use crate::commands::serve::ServeConfig;
+
+pub fn install_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
