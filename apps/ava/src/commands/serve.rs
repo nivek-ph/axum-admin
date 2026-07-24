@@ -1,93 +1,97 @@
-use std::time::Duration;
-
 use anyhow::{Context, Result};
-use audit::{AuditAnalyzer, AuditService};
-use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
-use file_storage::files::FileService;
-use iam::{
-    access::AccessService, departments::DepartmentService, menus::MenuService, roles::RoleService,
-    users::UserService,
-};
-use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
-use tracing::info;
+use clap::{Parser, builder::NonEmptyStringValueParser};
 
-use crate::config::ServeConfig;
+use crate::app;
 
-pub async fn run(config: ServeConfig) -> Result<()> {
-    let server_config = config.api_server();
-    let (pool, redis_connection) = connect_resources(&config).await?;
+#[derive(Debug, Clone, Parser)]
+#[command(about = "Start the API server")]
+pub struct ServeConfig {
+    /// HTTP listen port
+    #[arg(
+        short = 'p',
+        long = "port",
+        env = "HTTP_PORT",
+        default_value_t = 3000,
+        hide_env_values = true
+    )]
+    pub http_port: u16,
 
-    info!("running database migrations");
-    db::migrate(&pool)
-        .await
-        .context("database migrations should run")?;
-    info!("database migrations complete");
+    /// Public base URL for links and Swagger (defaults to http://127.0.0.1:<port>)
+    #[arg(
+        long,
+        env = "PUBLIC_BASE_URL",
+        default_value = "",
+        hide_env_values = true
+    )]
+    public_base_url: String,
 
-    let state = build_state(&config, pool, redis_connection).await?;
+    /// Database URL
+    #[arg(
+        long,
+        env = "DATABASE_URL",
+        value_parser = NonEmptyStringValueParser::new(),
+        hide_env_values = true
+    )]
+    pub(crate) database_url: String,
+
+    /// Redis URL
+    #[arg(
+        long,
+        env = "REDIS_URL",
+        value_parser = NonEmptyStringValueParser::new(),
+        hide_env_values = true
+    )]
+    pub(crate) redis_url: String,
+
+    /// JWT signing secret
+    #[arg(
+        long,
+        env = "JWT_SECRET",
+        value_parser = NonEmptyStringValueParser::new(),
+        hide_env_values = true
+    )]
+    pub(crate) jwt_secret: String,
+
+    /// Ollama OpenAI-compatible base URL
+    #[arg(
+        long,
+        env = "OLLAMA_BASE_URL",
+        default_value = "",
+        hide_env_values = true
+    )]
+    pub(crate) ollama_base_url: String,
+
+    /// Ollama model name
+    #[arg(long, env = "OLLAMA_MODEL", default_value = "", hide_env_values = true)]
+    pub(crate) ollama_model: String,
+}
+
+impl ServeConfig {
+    /// Parse from environment variables (and clap defaults).
+    pub fn from_env() -> Self {
+        dotenvy::dotenv().ok();
+        Self::parse()
+    }
+
+    /// Public base URL, falling back to `http://127.0.0.1:<port>` when unset.
+    pub(crate) fn public_base_url(&self) -> String {
+        let trimmed = self.public_base_url.trim().trim_end_matches('/');
+        if trimmed.is_empty() {
+            format!("http://127.0.0.1:{}", self.http_port)
+        } else {
+            trimmed.to_string()
+        }
+    }
+}
+
+/// Execute the `serve` command.
+pub(crate) async fn execute(config: ServeConfig) -> Result<()> {
+    let server_config = api::ServerConfig {
+        listen_addr: format!("0.0.0.0:{}", config.http_port),
+        public_url: config.public_base_url(),
+    };
+    let state = app::boot(&config).await?;
     api::serve(server_config, state)
         .await
         .context("api server should run")
-}
-
-pub async fn serverless_state(config: &ServeConfig) -> Result<api::AppState> {
-    let (pool, redis_connection) = connect_resources(config).await?;
-    build_state(config, pool, redis_connection).await
-}
-
-async fn connect_resources(
-    config: &ServeConfig,
-) -> Result<(db::DbPool, redis::aio::MultiplexedConnection)> {
-    let pool = db::connect(&config.database_url)
-        .await
-        .context("database pool should connect")?;
-    info!("database connected");
-
-    let redis_client =
-        redis::Client::open(config.redis_url.clone()).context("redis client should construct")?;
-    let redis_config = redis::AsyncConnectionConfig::new()
-        .set_connection_timeout(Some(Duration::from_secs(10)))
-        .set_response_timeout(Some(Duration::from_secs(5)));
-    let redis_connection = redis_client
-        .get_multiplexed_async_connection_with_config(&redis_config)
-        .await
-        .context("redis connection should connect")?;
-    Ok((pool, redis_connection))
-}
-
-async fn build_state(
-    config: &ServeConfig,
-    pool: db::DbPool,
-    redis_connection: redis::aio::MultiplexedConnection,
-) -> Result<api::AppState> {
-    let password_service = PasswordService::new();
-    let tokens = TokenService::new(&config.jwt_secret, redis_connection.clone());
-    let captcha = CaptchaService::new(redis_connection.clone());
-    let access = AccessService::load(pool.clone(), redis_connection)
-        .await
-        .context("authorization catalog and cache should initialize")?;
-    let audit = AuditService::new(pool.clone());
-    let users = UserService::new(
-        pool.clone(),
-        access.clone(),
-        audit.clone(),
-        password_service,
-    );
-    Ok(api::AppState {
-        public_base_url: config.public_base_url.clone(),
-        tokens,
-        captcha,
-        users,
-        roles: RoleService::new(pool.clone(), access.clone()),
-        departments: DepartmentService::new(pool.clone(), access.clone()),
-        access,
-        dictionaries: DictionaryService::new(pool.clone()),
-        parameters: ParameterService::new(pool.clone()),
-        menus: MenuService::new(pool.clone()),
-        audits: audit,
-        audit_analyzer: AuditAnalyzer::new(
-            config.ollama_base_url.clone(),
-            config.ollama_model.clone(),
-        ),
-        files: FileService::new(pool, "./uploads"),
-    })
 }

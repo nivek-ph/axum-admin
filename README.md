@@ -84,7 +84,7 @@ registry, and admin user data are initialized by the Ava CLI.
 Start the backend:
 
 ```bash
-cargo run -p ava -- serve
+cargo run -p ava serve
 ```
 
 The API listens on:
@@ -135,7 +135,7 @@ password: value of ADMIN_PASSWORD
 Bootstrap default system data when setting up a database:
 
 ```bash
-cargo run -p ava -- init
+cargo run -p ava init
 ```
 
 Optionally load the fictional 50-person company data for local development:
@@ -355,7 +355,7 @@ Recommended manual integration sweep:
 
 1. Start PostgreSQL for the configured `DATABASE_URL`.
 2. Start Redis 8 or newer for the configured `REDIS_URL`.
-3. Start the backend with `cargo run -p ava -- serve`.
+3. Start the backend with `cargo run -p ava serve`.
 4. Start the frontend with `cd apps/desktop && pnpm dev`.
 5. Log in with `ADMIN_USERNAME / ADMIN_PASSWORD` from the environment.
 6. Complete the fixed parity path: login, a Users workflow, save a non-system

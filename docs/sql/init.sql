@@ -1,7 +1,7 @@
 -- Optional demo data for a fictional 50-person company.
 --
 -- Run after the required bootstrap command:
---   cargo run -p ava -- init
+--   cargo run -p ava init
 --   set -a; source .env; set +a
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f docs/sql/init.sql
 --

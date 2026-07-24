@@ -103,6 +103,13 @@ impl AuditAnalyzer {
         &self,
         events: &[crate::AuditEventView],
     ) -> Result<AuditAnalysis, AuditAnalysisError> {
+        if self.base_url.is_empty() || self.model.is_empty() {
+            return Err(AuditAnalysisError::InvalidResponse(format!(
+                "base URL and model are required: base_url={}, model={}",
+                self.base_url, self.model
+            )));
+        }
+
         if events.is_empty() {
             return Ok(AuditAnalysis {
                 summary: "No audit events matched the current filters.".to_owned(),
