@@ -1,11 +1,14 @@
+import { useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   IconActivity,
   IconBookmarks,
   IconBuilding,
-  IconStack2,
+  IconLogin2,
+  IconNetwork,
   IconSettings,
   IconShield,
+  IconStack2,
   IconUsers,
   type Icon,
 } from '@tabler/icons-react'
@@ -21,36 +24,12 @@ import { fetchParams } from '@/api/params'
 import { listRoles } from '@/api/roles'
 import { fetchUsers } from '@/api/users'
 import { PageHeader } from '@/components/PageHeader'
+import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuthStore } from '@/stores/auth'
-import { flattenMenuItems, type MenuItem, useMenuStore } from '@/stores/menu'
+import { useMenuStore } from '@/stores/menu'
 
-const TOP_N = 10
-const TOP_BAR_ROW_HEIGHT = 36
-
-function countDepartments(nodes: DeptRecord[]): number {
-  return nodes.reduce((sum, node) => sum + 1 + countDepartments(node.children ?? []), 0)
-}
-
-function actionLabel(action: string) {
-  switch (action) {
-    case 'auth.login':
-      return 'Login'
-    case 'auth.access_denied':
-      return 'Access denied'
-    case 'user.assign_roles':
-      return 'Assign roles'
-    default:
-      return action
-  }
-}
-
-type NamedCount = { name: string; count: number }
-
-function padTopN(items: NamedCount[], n = TOP_N): NamedCount[] {
-  if (items.length >= n) return items.slice(0, n)
-  return [...items, ...Array.from({ length: n - items.length }, () => ({ name: '—', count: 0 }))]
-}
+import { createLoginSeries, securitySeries, type LoginChartMode } from './dashboardChartConfig'
 
 const chartTooltip = {
   background: 'var(--popover)',
@@ -75,18 +54,49 @@ const RESOURCE_CARDS: Array<{
   { key: 'audit-events', label: 'Audit events', path: '/audit-events', icon: IconActivity },
 ]
 
+function countDepartments(nodes: DeptRecord[]): number {
+  return nodes.reduce((sum, node) => sum + 1 + countDepartments(node.children ?? []), 0)
+}
+
+function MetricCard({ icon: Icon, label, value }: { icon: Icon; label: string; value: string }) {
+  return (
+    <section aria-label={label}>
+      <Card className="h-full">
+        <CardContent className="flex items-center gap-3 py-2">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Icon className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm text-muted-foreground">{label}</p>
+            <strong className="text-2xl font-semibold">{value}</strong>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+  )
+}
+
+function ChartLegend({ label, items }: { label: string; items: Array<{ color: string; label: string }> }) {
+  return (
+    <div aria-label={label} className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" role="group">
+      {items.map((item) => (
+        <span className="inline-flex items-center gap-1.5" key={item.label}>
+          <span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: item.color }} />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export function DashboardPage() {
   const { t } = useTranslation()
+  const [loginChartMode, setLoginChartMode] = useState<LoginChartMode>('area')
   const user = useAuthStore((state) => state.userInfo)
   const canAccess = useMenuStore((state) => state.canAccess)
-  const menuItems = useMenuStore((state) => state.items)
 
   const visibleCards = RESOURCE_CARDS.filter((card) => canAccess(card.key))
   const canAudit = canAccess('audit-events')
-  const quickLinks = flattenMenuItems(menuItems).filter(
-    (item): item is MenuItem & { path: string } =>
-      Boolean(item.path) && item.key !== 'dashboard' && item.key !== 'profile',
-  )
 
   const resourceQueries = useQueries({
     queries: [
@@ -124,7 +134,6 @@ export function DashboardPage() {
   })
 
   const [usersQ, rolesQ, deptsQ, filesQ, paramsQ, dictsQ] = resourceQueries
-
   const stats = useQuery({
     queryKey: ['dashboard', 'audit-stats', 14],
     queryFn: () => fetchAuditStats(14),
@@ -140,7 +149,6 @@ export function DashboardPage() {
     dictionaries: dictsQ.data?.length,
     'audit-events': stats.data?.eventCount,
   }
-
   const loadingByKey: Record<string, boolean> = {
     users: usersQ.isLoading,
     roles: rolesQ.isLoading,
@@ -150,37 +158,18 @@ export function DashboardPage() {
     dictionaries: dictsQ.isLoading,
     'audit-events': stats.isLoading,
   }
-
+  const metricValue = (value: number | undefined) =>
+    stats.isLoading ? '…' : stats.isError || value === undefined ? '—' : value.toLocaleString()
   const dailyData =
     stats.data?.daily.map((row) => ({
       label: row.date.slice(5),
-      logins: row.logins,
+      successfulLogins: row.successfulLogins,
       uniqueIps: row.uniqueIps,
+      loginFailures: row.loginFailures,
+      accessDenials: row.accessDenials,
     })) ?? []
-
-  const hourlyData =
-    stats.data?.byHour.map((row) => ({
-      label: `${String(row.hour).padStart(2, '0')}:00`,
-      logins: row.logins,
-    })) ?? []
-
-  const moduleData = padTopN(
-    stats.data?.topActions.map((row) => ({
-      name: t(actionLabel(row.name)),
-      count: row.count,
-    })) ?? [],
-  )
-
-  const ipData = padTopN(
-    stats.data?.topIps.map((row) => ({
-      name: row.name,
-      count: row.count,
-    })) ?? [],
-  )
-
-  const hasModuleData = (stats.data?.topActions.length ?? 0) > 0
-  const hasIpData = (stats.data?.topIps.length ?? 0) > 0
-  const topChartHeight = TOP_N * TOP_BAR_ROW_HEIGHT
+  const chartWindowLabel = stats.data ? t('Last {{days}} days · UTC', { days: stats.data.days }) : ''
+  const loginSeries = createLoginSeries(loginChartMode)
 
   return (
     <div className="space-y-5 xl:space-y-6">
@@ -191,6 +180,157 @@ export function DashboardPage() {
           </h1>
         }
       />
+
+      {canAudit && (
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:gap-4">
+            <MetricCard
+              icon={IconLogin2}
+              label={t('Successful logins today (UTC)')}
+              value={metricValue(stats.data?.todaySuccessfulLogins)}
+            />
+            <MetricCard
+              icon={IconNetwork}
+              label={t('Unique IPs today (UTC)')}
+              value={metricValue(stats.data?.todayUniqueIps)}
+            />
+          </div>
+
+          {stats.isLoading ? (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:gap-5">
+              {[0, 1].map((slot) => (
+                <Card key={slot}>
+                  <CardContent className="flex min-h-[300px] items-center justify-center text-sm text-muted-foreground">
+                    {t('Loading statistics…')}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : stats.isError ? (
+            <Card>
+              <CardContent className="flex min-h-32 items-center justify-center text-sm text-muted-foreground">
+                {t('Failed to load statistics')}
+              </CardContent>
+            </Card>
+          ) : stats.data ? (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:gap-5">
+              <Card>
+                <CardHeader className="flex-row items-start justify-between gap-3">
+                  <div>
+                    <CardTitle>{t('Login trend')}</CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">{chartWindowLabel}</p>
+                  </div>
+                  <div aria-label={t('Login chart display')} className="flex gap-1" role="group">
+                    <Button
+                      aria-pressed={loginChartMode === 'area'}
+                      onClick={() => setLoginChartMode('area')}
+                      size="xs"
+                      variant={loginChartMode === 'area' ? 'default' : 'outline'}
+                    >
+                      {t('Area')}
+                    </Button>
+                    <Button
+                      aria-pressed={loginChartMode === 'line'}
+                      onClick={() => setLoginChartMode('line')}
+                      size="xs"
+                      variant={loginChartMode === 'line' ? 'default' : 'outline'}
+                    >
+                      {t('Line')}
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <ChartLegend
+                    items={[
+                      { color: 'var(--chart-1)', label: t('Successful logins') },
+                      { color: 'var(--chart-2)', label: t('Unique IPs') },
+                    ]}
+                    label={t('Login trend series')}
+                  />
+                  <div
+                    aria-label={t('Login trend dates: {{dates}}', {
+                      dates: dailyData.map((row) => row.label).join(', '),
+                    })}
+                  >
+                    <ResponsiveContainer className="min-h-[240px] xl:min-h-[280px]" height={240} width="100%">
+                      <AreaChart data={dailyData}>
+                        <defs>
+                          <linearGradient id="dashboardSuccessfulLoginsFill" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.28} />
+                            <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
+                          </linearGradient>
+                          <linearGradient id="dashboardUniqueIpsFill" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.2} />
+                            <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.02} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke="var(--border)" strokeDasharray="3 6" vertical={false} />
+                        <XAxis axisLine={false} dataKey="label" tick={chartTickStyle} tickLine={false} />
+                        <YAxis
+                          allowDecimals={false}
+                          axisLine={false}
+                          tick={chartTickStyle}
+                          tickLine={false}
+                          width={28}
+                        />
+                        <Tooltip contentStyle={chartTooltip} />
+                        {loginSeries.map((series) => (
+                          <Area
+                            dataKey={series.dataKey}
+                            fill={series.fill}
+                            fillOpacity={series.fillOpacity}
+                            isAnimationActive={false}
+                            key={series.dataKey}
+                            name={t(series.dataKey === 'successfulLogins' ? 'Successful logins' : 'Unique IPs')}
+                            stroke={series.color}
+                            strokeWidth={2}
+                            type="monotone"
+                          />
+                        ))}
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t('Security event trend')}</CardTitle>
+                  <p className="text-xs text-muted-foreground">{chartWindowLabel}</p>
+                </CardHeader>
+                <CardContent>
+                  <ChartLegend
+                    items={[
+                      { color: 'var(--chart-1)', label: t('Login failures') },
+                      { color: 'var(--chart-2)', label: t('Access denials') },
+                    ]}
+                    label={t('Security event trend series')}
+                  />
+                  <ResponsiveContainer className="min-h-[240px] xl:min-h-[280px]" height={240} width="100%">
+                    <BarChart data={dailyData}>
+                      <CartesianGrid stroke="var(--border)" strokeDasharray="3 6" vertical={false} />
+                      <XAxis axisLine={false} dataKey="label" tick={chartTickStyle} tickLine={false} />
+                      <YAxis allowDecimals={false} axisLine={false} tick={chartTickStyle} tickLine={false} width={28} />
+                      <Tooltip contentStyle={chartTooltip} />
+                      {securitySeries.map((series, index) => (
+                        <Bar
+                          dataKey={series.dataKey}
+                          fill={series.color}
+                          isAnimationActive={false}
+                          key={series.dataKey}
+                          name={t(series.dataKey === 'loginFailures' ? 'Login failures' : 'Access denials')}
+                          radius={index === securitySeries.length - 1 ? [4, 4, 0, 0] : undefined}
+                          stackId={series.stackId}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+          ) : null}
+        </>
+      )}
 
       {visibleCards.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-7 xl:gap-4">
@@ -216,184 +356,6 @@ export function DashboardPage() {
             )
           })}
         </div>
-      )}
-
-      {canAudit && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:gap-5">
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('Daily access')}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {dailyData.length > 0 ? (
-                <ResponsiveContainer className="min-h-[240px] xl:min-h-[280px]" height={240} width="100%">
-                  <AreaChart data={dailyData}>
-                    <defs>
-                      <linearGradient id="dashboardDailyFill" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.28} />
-                        <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 6" vertical={false} />
-                    <XAxis axisLine={false} dataKey="label" tick={chartTickStyle} tickLine={false} />
-                    <YAxis allowDecimals={false} axisLine={false} tick={chartTickStyle} tickLine={false} width={28} />
-                    <Tooltip contentStyle={chartTooltip} />
-                    <Area
-                      dataKey="logins"
-                      fill="url(#dashboardDailyFill)"
-                      isAnimationActive={false}
-                      name={t('Logins')}
-                      stroke="var(--chart-1)"
-                      strokeWidth={2}
-                      type="monotone"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="py-8 text-center text-sm text-muted-foreground">{t('No audit events')}</p>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('Access time analysis')}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {hourlyData.length > 0 ? (
-                <ResponsiveContainer className="min-h-[240px] xl:min-h-[280px]" height={240} width="100%">
-                  <AreaChart data={hourlyData}>
-                    <defs>
-                      <linearGradient id="dashboardHourlyFill" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.28} />
-                        <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 6" vertical={false} />
-                    <XAxis axisLine={false} dataKey="label" interval={2} tick={chartTickStyle} tickLine={false} />
-                    <YAxis allowDecimals={false} axisLine={false} tick={chartTickStyle} tickLine={false} width={28} />
-                    <Tooltip contentStyle={chartTooltip} />
-                    <Area
-                      dataKey="logins"
-                      fill="url(#dashboardHourlyFill)"
-                      isAnimationActive={false}
-                      name={t('Logins')}
-                      stroke="var(--chart-1)"
-                      strokeWidth={2}
-                      type="monotone"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="py-8 text-center text-sm text-muted-foreground">{t('No audit events')}</p>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('Popular modules (Top 10)')}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {hasModuleData ? (
-                <ResponsiveContainer height={topChartHeight} width="100%">
-                  <BarChart data={moduleData} layout="vertical" margin={{ left: 8, right: 12 }}>
-                    <CartesianGrid horizontal={false} stroke="var(--border)" strokeDasharray="3 6" />
-                    <XAxis
-                      allowDecimals={false}
-                      axisLine={false}
-                      tick={chartTickStyle}
-                      tickLine={false}
-                      type="number"
-                    />
-                    <YAxis
-                      axisLine={false}
-                      dataKey="name"
-                      tick={chartTickStyle}
-                      tickLine={false}
-                      type="category"
-                      width={72}
-                    />
-                    <Tooltip contentStyle={chartTooltip} />
-                    <Bar
-                      barSize={18}
-                      dataKey="count"
-                      fill="var(--chart-1)"
-                      isAnimationActive={false}
-                      name={t('Logins')}
-                      radius={[0, 4, 4, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="py-8 text-center text-sm text-muted-foreground">{t('No audit events')}</p>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('Top source IPs (Top 10)')}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {hasIpData ? (
-                <ResponsiveContainer height={topChartHeight} width="100%">
-                  <BarChart data={ipData} layout="vertical" margin={{ left: 8, right: 12 }}>
-                    <CartesianGrid horizontal={false} stroke="var(--border)" strokeDasharray="3 6" />
-                    <XAxis
-                      allowDecimals={false}
-                      axisLine={false}
-                      tick={chartTickStyle}
-                      tickLine={false}
-                      type="number"
-                    />
-                    <YAxis
-                      axisLine={false}
-                      dataKey="name"
-                      tick={chartTickStyle}
-                      tickLine={false}
-                      type="category"
-                      width={96}
-                    />
-                    <Tooltip contentStyle={chartTooltip} />
-                    <Bar
-                      barSize={18}
-                      dataKey="count"
-                      fill="var(--chart-1)"
-                      isAnimationActive={false}
-                      name={t('Logins')}
-                      radius={[0, 4, 4, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="py-8 text-center text-sm text-muted-foreground">{t('No audit events')}</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {quickLinks.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('Quick functions')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-              {quickLinks.map((item) => {
-                const Icon = RESOURCE_CARDS.find((card) => card.key === item.key)?.icon ?? IconActivity
-                return (
-                  <Link
-                    className="flex items-center gap-2 rounded-lg border p-2.5 text-sm transition-colors hover:bg-muted"
-                    key={item.key}
-                    to={item.path}
-                  >
-                    <Icon size={16} />
-                    <span className="truncate">{t(item.label)}</span>
-                  </Link>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
       )}
     </div>
   )
