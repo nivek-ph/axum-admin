@@ -53,7 +53,7 @@ export function LoginPage() {
       if (response.code === 'OK') setCaptcha(response.data ?? null)
       else toast.error(response.message)
     } catch (error) {
-      toast.error(getApiErrorMessage(error, t('Sign in failed')))
+      toast.error(t(getApiErrorMessage(error, 'Sign in failed')))
     }
   }, [t])
 
@@ -85,7 +85,7 @@ export function LoginPage() {
     } catch (error) {
       useAuthStore.getState().clearSession()
       useMenuStore.getState().resetAccess()
-      toast.error(getApiErrorMessage(error, t('Sign in failed')))
+      toast.error(t(getApiErrorMessage(error, 'Sign in failed')))
       await loadCaptcha()
     } finally {
       setSubmitting(false)

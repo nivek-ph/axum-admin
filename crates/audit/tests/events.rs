@@ -23,25 +23,6 @@ fn login_event(result: AuditResult, ip: &str) -> AuditEvent {
     }
 }
 
-fn assign_roles_event(ip: &str) -> AuditEvent {
-    AuditEvent {
-        req_id: "req-assign-roles-1".to_string(),
-        actor: AuditActor {
-            id: Some(7),
-            label: "admin".to_string(),
-        },
-        action: AuditAction::AssignUserRoles,
-        resource: AuditResource::User(9),
-        result: AuditResult::Succeeded,
-        reason_code: None,
-        source: AuditSource {
-            ip: ip.to_string(),
-            user_agent: "audit-test".to_string(),
-        },
-        changes: Vec::new(),
-    }
-}
-
 #[sqlx::test(migrations = "../../migrations")]
 async fn fresh_schema_records_and_filters_structured_audit_events(pool: PgPool) {
     let service = AuditService::new(pool.clone());
@@ -98,7 +79,7 @@ async fn fresh_schema_records_and_filters_structured_audit_events(pool: PgPool) 
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn stats_aggregates_logins_ips_hours_and_top_actions(pool: PgPool) {
+async fn stats_aggregates_login_and_security_events_by_utc_day(pool: PgPool) {
     let service = AuditService::new(pool.clone());
     service
         .record(login_event(AuditResult::Succeeded, "10.0.0.1"))
@@ -108,19 +89,14 @@ async fn stats_aggregates_logins_ips_hours_and_top_actions(pool: PgPool) {
         .record(login_event(AuditResult::Failed, "10.0.0.2"))
         .await
         .unwrap();
-    service
-        .record(assign_roles_event("10.0.0.1"))
-        .await
-        .unwrap();
-
     sqlx::query(
         r#"
-        update sys_audit_events
-        set created_at = case id % 3
-            when 1 then now() - interval '2 days' + interval '10 hours'
-            when 2 then now() - interval '1 day' + interval '15 hours'
-            else now() - interval '3 hours'
-        end
+        insert into sys_audit_events (
+            req_id, actor_label, action, resource_type, result, source_ip, user_agent, created_at
+        ) values
+            ('access-denied', 'admin', 'auth.access_denied', 'route', 'denied', '10.0.0.3', 'audit-test', now()),
+            ('old-event', 'admin', 'user.assign_roles', 'user', 'failed', '10.0.0.4', 'audit-test',
+                (date_trunc('day', now() at time zone 'UTC') at time zone 'UTC') - interval '100 days')
         "#,
     )
     .execute(&pool)
@@ -129,15 +105,17 @@ async fn stats_aggregates_logins_ips_hours_and_top_actions(pool: PgPool) {
 
     let stats = service.stats(14).await.expect("stats should succeed");
     assert_eq!(stats.days, 14);
-    assert_eq!(stats.login_count, 2);
-    assert_eq!(stats.event_count, 3);
-    assert_eq!(stats.unique_ips, 2);
+    assert_eq!(stats.event_count, 4);
+    assert_eq!(stats.today_logins, 1);
+    assert_eq!(stats.today_ips, 1);
     assert_eq!(stats.daily.len(), 14);
-    assert_eq!(stats.by_hour.len(), 24);
-    assert!(stats.by_hour.iter().map(|row| row.logins).sum::<i64>() >= 2);
-    assert_eq!(stats.top_actions.len(), 2);
-    assert_eq!(stats.top_actions[0].name, "auth.login");
-    assert_eq!(stats.top_actions[0].count, 2);
-    assert_eq!(stats.top_ips[0].name, "10.0.0.1");
-    assert_eq!(stats.top_ips[0].count, 2);
+    let today = stats.daily.last().unwrap();
+    assert_eq!(today.logins, 1);
+    assert_eq!(today.ips, 1);
+    assert_eq!(today.login_failures, 1);
+    assert_eq!(today.access_denials, 1);
+
+    let clamped = service.stats(0).await.expect("days should be clamped");
+    assert_eq!(clamped.days, 1);
+    assert_eq!(clamped.daily.len(), 1);
 }

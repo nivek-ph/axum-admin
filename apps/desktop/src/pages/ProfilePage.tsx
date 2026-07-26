@@ -103,7 +103,7 @@ export function ProfilePage() {
       useMenuStore.getState().resetAccess()
       navigate('/login', { replace: true })
     } catch (error) {
-      toast.error(getApiErrorMessage(error, t('Failed to change password')))
+      toast.error(t(getApiErrorMessage(error, 'Failed to change password')))
     } finally {
       setPasswordSubmitting(false)
     }
@@ -130,7 +130,7 @@ export function ProfilePage() {
       setEditing(false)
       toast.success(t('Profile updated'))
     } catch (error) {
-      toast.error(getApiErrorMessage(error, t('Failed to update profile')))
+      toast.error(t(getApiErrorMessage(error, 'Failed to update profile')))
     } finally {
       setProfileSubmitting(false)
     }

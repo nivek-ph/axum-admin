@@ -81,7 +81,8 @@ function rejectedError(error: AxiosError) {
 }
 
 export function getApiErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error) && !error.response) return fallback
+  // No HTTP response: connection refused, DNS failure, timeout, offline, etc.
+  if (axios.isAxiosError(error) && !error.response) return 'Network unavailable'
   if (error instanceof Error && error.message.trim()) return error.message
   return fallback
 }

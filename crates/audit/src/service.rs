@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde::Serialize;
-use sqlx::{FromRow, PgConnection, PgPool, Row};
+use sqlx::{FromRow, PgConnection, PgPool};
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{AuditError, AuditEvent, AuditEventView, AuditQuery};
@@ -10,31 +10,18 @@ use crate::{AuditError, AuditEvent, AuditEventView, AuditQuery};
 pub struct AuditDailyStat {
     pub date: String,
     pub logins: i64,
-    pub unique_ips: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct AuditHourlyStat {
-    pub hour: i16,
-    pub logins: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct AuditNamedCount {
-    pub name: String,
-    pub count: i64,
+    pub ips: i64,
+    pub login_failures: i64,
+    pub access_denials: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuditStats {
     pub days: i64,
-    pub login_count: i64,
-    pub unique_ips: i64,
     pub event_count: i64,
+    pub today_logins: i64,
+    pub today_ips: i64,
     pub daily: Vec<AuditDailyStat>,
-    pub by_hour: Vec<AuditHourlyStat>,
-    pub top_actions: Vec<AuditNamedCount>,
-    pub top_ips: Vec<AuditNamedCount>,
 }
 
 #[derive(Clone)]
@@ -174,163 +161,88 @@ impl AuditService {
 
     pub async fn stats(&self, days: i64) -> Result<AuditStats, AuditError> {
         let days = days.clamp(1, 90);
-        let started_at = OffsetDateTime::now_utc() - Duration::days(days);
+        let today = OffsetDateTime::now_utc().date();
+        let start_date = today - Duration::days(days - 1);
+        let end_date = today + Duration::days(1);
+        let started_at = start_date
+            .with_hms(0, 0, 0)
+            .expect("UTC midnight is a valid time")
+            .assume_utc();
+        let ended_at = end_date
+            .with_hms(0, 0, 0)
+            .expect("UTC midnight is a valid time")
+            .assume_utc();
 
         #[derive(FromRow)]
-        struct SummaryRow {
-            login_count: i64,
-            unique_ips: i64,
-            event_count: i64,
+        struct DailyRow {
+            day: String,
+            logins: i64,
+            ips: i64,
+            login_failures: i64,
+            access_denials: i64,
         }
 
-        let summary = sqlx::query_as::<_, SummaryRow>(
+        let event_count = sqlx::query_scalar::<_, i64>("select count(*) from sys_audit_events")
+            .fetch_one(&self.pool)
+            .await?;
+
+        let rows = sqlx::query_as::<_, DailyRow>(
             r#"
             select
-                count(*) filter (where action = 'auth.login') as login_count,
-                count(distinct nullif(source_ip, '')) as unique_ips,
-                count(*) as event_count
+                to_char((created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as day,
+                count(*) filter (
+                    where action = 'auth.login' and result = 'succeeded'
+                )::bigint as logins,
+                count(distinct nullif(source_ip, '')) filter (
+                    where action = 'auth.login' and result = 'succeeded'
+                )::bigint as ips,
+                count(*) filter (
+                    where action = 'auth.login' and result in ('failed', 'denied')
+                )::bigint as login_failures,
+                count(*) filter (
+                    where action = 'auth.access_denied' and result = 'denied'
+                )::bigint as access_denials
             from sys_audit_events
-            where created_at >= $1
-            "#,
-        )
-        .bind(started_at)
-        .fetch_one(&self.pool)
-        .await?;
-
-        let daily_login_rows = sqlx::query(
-            r#"
-            select to_char((created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as day,
-                   count(*)::bigint as logins
-            from sys_audit_events
-            where created_at >= $1
-              and action = 'auth.login'
+            where created_at >= $1 and created_at < $2
             group by 1
             order by 1
             "#,
         )
         .bind(started_at)
+        .bind(ended_at)
         .fetch_all(&self.pool)
         .await?;
 
-        let daily_ip_rows = sqlx::query(
-            r#"
-            select to_char((created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as day,
-                   count(distinct nullif(source_ip, ''))::bigint as unique_ips
-            from sys_audit_events
-            where created_at >= $1
-            group by 1
-            order by 1
-            "#,
-        )
-        .bind(started_at)
-        .fetch_all(&self.pool)
-        .await?;
+        let by_day = rows
+            .into_iter()
+            .map(|row| (row.day.clone(), row))
+            .collect::<BTreeMap<_, _>>();
 
-        let hourly_rows = sqlx::query(
-            r#"
-            select extract(hour from created_at at time zone 'UTC')::smallint as hour,
-                   count(*)::bigint as logins
-            from sys_audit_events
-            where created_at >= $1
-              and action = 'auth.login'
-            group by 1
-            order by 1
-            "#,
-        )
-        .bind(started_at)
-        .fetch_all(&self.pool)
-        .await?;
-
-        let top_action_rows = sqlx::query(
-            r#"
-            select action as name, count(*)::bigint as count
-            from sys_audit_events
-            where created_at >= $1
-            group by action
-            order by count desc, action asc
-            limit 10
-            "#,
-        )
-        .bind(started_at)
-        .fetch_all(&self.pool)
-        .await?;
-
-        let top_ip_rows = sqlx::query(
-            r#"
-            select source_ip as name, count(*)::bigint as count
-            from sys_audit_events
-            where created_at >= $1
-              and source_ip <> ''
-            group by source_ip
-            order by count desc, source_ip asc
-            limit 10
-            "#,
-        )
-        .bind(started_at)
-        .fetch_all(&self.pool)
-        .await?;
-
-        let mut login_by_day = BTreeMap::<String, i64>::new();
-        for row in &daily_login_rows {
-            login_by_day.insert(row.try_get("day")?, row.try_get("logins")?);
-        }
-        let mut ips_by_day = BTreeMap::<String, i64>::new();
-        for row in &daily_ip_rows {
-            ips_by_day.insert(row.try_get("day")?, row.try_get("unique_ips")?);
-        }
-
-        let today = OffsetDateTime::now_utc().date();
         let mut daily = Vec::with_capacity(days as usize);
         for offset in (0..days).rev() {
             let date = today - Duration::days(offset);
             let key = date.to_string();
+            let row = by_day.get(&key);
             daily.push(AuditDailyStat {
-                date: key.clone(),
-                logins: login_by_day.get(&key).copied().unwrap_or(0),
-                unique_ips: ips_by_day.get(&key).copied().unwrap_or(0),
+                date: key,
+                logins: row.map_or(0, |row| row.logins),
+                ips: row.map_or(0, |row| row.ips),
+                login_failures: row.map_or(0, |row| row.login_failures),
+                access_denials: row.map_or(0, |row| row.access_denials),
             });
         }
 
-        let mut logins_by_hour = [0_i64; 24];
-        for row in &hourly_rows {
-            let hour: i16 = row.try_get("hour")?;
-            let logins: i64 = row.try_get("logins")?;
-            if (0..24).contains(&hour) {
-                logins_by_hour[hour as usize] = logins;
-            }
-        }
-        let by_hour = (0_i16..24)
-            .map(|hour| AuditHourlyStat {
-                hour,
-                logins: logins_by_hour[hour as usize],
-            })
-            .collect();
-
-        let top_actions = named_counts(top_action_rows)?;
-        let top_ips = named_counts(top_ip_rows)?;
+        let today_logins = daily.last().map_or(0, |row| row.logins);
+        let today_ips = daily.last().map_or(0, |row| row.ips);
 
         Ok(AuditStats {
             days,
-            login_count: summary.login_count,
-            unique_ips: summary.unique_ips,
-            event_count: summary.event_count,
+            event_count,
+            today_logins,
+            today_ips,
             daily,
-            by_hour,
-            top_actions,
-            top_ips,
         })
     }
-}
-
-fn named_counts(rows: Vec<sqlx::postgres::PgRow>) -> Result<Vec<AuditNamedCount>, AuditError> {
-    rows.into_iter()
-        .map(|row| {
-            Ok(AuditNamedCount {
-                name: row.try_get("name")?,
-                count: row.try_get("count")?,
-            })
-        })
-        .collect()
 }
 
 fn parse_time(value: Option<&str>) -> Result<Option<OffsetDateTime>, AuditError> {
