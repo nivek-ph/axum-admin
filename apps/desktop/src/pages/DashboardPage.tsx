@@ -163,8 +163,8 @@ export function DashboardPage() {
   const dailyData =
     stats.data?.daily.map((row) => ({
       label: row.date.slice(5),
-      successfulLogins: row.successfulLogins,
-      uniqueIps: row.uniqueIps,
+      logins: row.logins,
+      ips: row.ips,
       loginFailures: row.loginFailures,
       accessDenials: row.accessDenials,
     })) ?? []
@@ -186,13 +186,13 @@ export function DashboardPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:gap-4">
             <MetricCard
               icon={IconLogin2}
-              label={t('Successful logins today (UTC)')}
-              value={metricValue(stats.data?.todaySuccessfulLogins)}
+              label={t('Logins today (UTC)')}
+              value={metricValue(stats.data?.todayLogins)}
             />
             <MetricCard
               icon={IconNetwork}
-              label={t('Unique IPs today (UTC)')}
-              value={metricValue(stats.data?.todayUniqueIps)}
+              label={t('IPs today (UTC)')}
+              value={metricValue(stats.data?.todayIps)}
             />
           </div>
 
@@ -242,8 +242,8 @@ export function DashboardPage() {
                 <CardContent>
                   <ChartLegend
                     items={[
-                      { color: 'var(--chart-1)', label: t('Successful logins') },
-                      { color: 'var(--chart-2)', label: t('Unique IPs') },
+                      { color: 'var(--chart-1)', label: t('Logins') },
+                      { color: 'var(--chart-2)', label: t('IPs') },
                     ]}
                     label={t('Login trend series')}
                   />
@@ -255,11 +255,11 @@ export function DashboardPage() {
                     <ResponsiveContainer className="min-h-[240px] xl:min-h-[280px]" height={240} width="100%">
                       <AreaChart data={dailyData}>
                         <defs>
-                          <linearGradient id="dashboardSuccessfulLoginsFill" x1="0" x2="0" y1="0" y2="1">
+                          <linearGradient id="dashboardLoginsFill" x1="0" x2="0" y1="0" y2="1">
                             <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.28} />
                             <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
                           </linearGradient>
-                          <linearGradient id="dashboardUniqueIpsFill" x1="0" x2="0" y1="0" y2="1">
+                          <linearGradient id="dashboardIpsFill" x1="0" x2="0" y1="0" y2="1">
                             <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.2} />
                             <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.02} />
                           </linearGradient>
@@ -281,7 +281,7 @@ export function DashboardPage() {
                             fillOpacity={series.fillOpacity}
                             isAnimationActive={false}
                             key={series.dataKey}
-                            name={t(series.dataKey === 'successfulLogins' ? 'Successful logins' : 'Unique IPs')}
+                            name={t(series.dataKey === 'logins' ? 'Logins' : 'IPs')}
                             stroke={series.color}
                             strokeWidth={2}
                             type="monotone"

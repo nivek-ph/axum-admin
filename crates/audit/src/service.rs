@@ -9,8 +9,8 @@ use crate::{AuditError, AuditEvent, AuditEventView, AuditQuery};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuditDailyStat {
     pub date: String,
-    pub successful_logins: i64,
-    pub unique_ips: i64,
+    pub logins: i64,
+    pub ips: i64,
     pub login_failures: i64,
     pub access_denials: i64,
 }
@@ -19,8 +19,8 @@ pub struct AuditDailyStat {
 pub struct AuditStats {
     pub days: i64,
     pub event_count: i64,
-    pub today_successful_logins: i64,
-    pub today_unique_ips: i64,
+    pub today_logins: i64,
+    pub today_ips: i64,
     pub daily: Vec<AuditDailyStat>,
 }
 
@@ -176,8 +176,8 @@ impl AuditService {
         #[derive(FromRow)]
         struct DailyRow {
             day: String,
-            successful_logins: i64,
-            unique_ips: i64,
+            logins: i64,
+            ips: i64,
             login_failures: i64,
             access_denials: i64,
         }
@@ -192,10 +192,10 @@ impl AuditService {
                 to_char((created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as day,
                 count(*) filter (
                     where action = 'auth.login' and result = 'succeeded'
-                )::bigint as successful_logins,
+                )::bigint as logins,
                 count(distinct nullif(source_ip, '')) filter (
                     where action = 'auth.login' and result = 'succeeded'
-                )::bigint as unique_ips,
+                )::bigint as ips,
                 count(*) filter (
                     where action = 'auth.login' and result in ('failed', 'denied')
                 )::bigint as login_failures,
@@ -225,21 +225,21 @@ impl AuditService {
             let row = by_day.get(&key);
             daily.push(AuditDailyStat {
                 date: key,
-                successful_logins: row.map_or(0, |row| row.successful_logins),
-                unique_ips: row.map_or(0, |row| row.unique_ips),
+                logins: row.map_or(0, |row| row.logins),
+                ips: row.map_or(0, |row| row.ips),
                 login_failures: row.map_or(0, |row| row.login_failures),
                 access_denials: row.map_or(0, |row| row.access_denials),
             });
         }
 
-        let today_successful_logins = daily.last().map_or(0, |row| row.successful_logins);
-        let today_unique_ips = daily.last().map_or(0, |row| row.unique_ips);
+        let today_logins = daily.last().map_or(0, |row| row.logins);
+        let today_ips = daily.last().map_or(0, |row| row.ips);
 
         Ok(AuditStats {
             days,
             event_count,
-            today_successful_logins,
-            today_unique_ips,
+            today_logins,
+            today_ips,
             daily,
         })
     }

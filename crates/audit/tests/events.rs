@@ -106,12 +106,12 @@ async fn stats_aggregates_login_and_security_events_by_utc_day(pool: PgPool) {
     let stats = service.stats(14).await.expect("stats should succeed");
     assert_eq!(stats.days, 14);
     assert_eq!(stats.event_count, 4);
-    assert_eq!(stats.today_successful_logins, 1);
-    assert_eq!(stats.today_unique_ips, 1);
+    assert_eq!(stats.today_logins, 1);
+    assert_eq!(stats.today_ips, 1);
     assert_eq!(stats.daily.len(), 14);
     let today = stats.daily.last().unwrap();
-    assert_eq!(today.successful_logins, 1);
-    assert_eq!(today.unique_ips, 1);
+    assert_eq!(today.logins, 1);
+    assert_eq!(today.ips, 1);
     assert_eq!(today.login_failures, 1);
     assert_eq!(today.access_denials, 1);
 

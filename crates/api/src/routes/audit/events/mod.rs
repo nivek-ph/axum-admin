@@ -196,8 +196,8 @@ mod tests {
         let data = &body["data"];
         assert_eq!(data["days"], 14);
         assert_eq!(data["eventCount"], 11);
-        assert_eq!(data["todaySuccessfulLogins"], 4);
-        assert_eq!(data["todayUniqueIps"], 2);
+        assert_eq!(data["todayLogins"], 4);
+        assert_eq!(data["todayIps"], 2);
         let daily = data["daily"].as_array().unwrap();
         assert_eq!(daily.len(), 14);
         let expected_dates = sqlx::query_scalar::<_, String>(
@@ -217,27 +217,27 @@ mod tests {
             .map(|row| row["date"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(actual_dates, expected_dates);
-        assert_eq!(daily[0]["successfulLogins"], 1);
-        assert_eq!(daily[0]["uniqueIps"], 1);
+        assert_eq!(daily[0]["logins"], 1);
+        assert_eq!(daily[0]["ips"], 1);
         for row in &daily[1..13] {
-            assert_eq!(row["successfulLogins"], 0);
-            assert_eq!(row["uniqueIps"], 0);
+            assert_eq!(row["logins"], 0);
+            assert_eq!(row["ips"], 0);
             assert_eq!(row["loginFailures"], 0);
             assert_eq!(row["accessDenials"], 0);
         }
-        assert_eq!(daily[13]["successfulLogins"], 4);
-        assert_eq!(daily[13]["uniqueIps"], 2);
+        assert_eq!(daily[13]["logins"], 4);
+        assert_eq!(daily[13]["ips"], 2);
         assert_eq!(daily[13]["loginFailures"], 2);
         assert_eq!(daily[13]["accessDenials"], 1);
-        assert_eq!(data["todaySuccessfulLogins"], daily[13]["successfulLogins"]);
-        assert_eq!(data["todayUniqueIps"], daily[13]["uniqueIps"]);
+        assert_eq!(data["todayLogins"], daily[13]["logins"]);
+        assert_eq!(data["todayIps"], daily[13]["ips"]);
         assert!(data.get("loginCount").is_none());
-        assert!(data.get("uniqueIps").is_none());
+        assert!(data.get("ips").is_none());
         assert!(data.get("byHour").is_none());
         assert!(data.get("topActions").is_none());
         assert!(data.get("topIps").is_none());
 
-        for (days, expected_successful_logins) in [(1, 4), (90, 6)] {
+        for (days, expected_logins) in [(1, 4), (90, 6)] {
             let response = app
                 .clone()
                 .oneshot(
@@ -261,9 +261,9 @@ mod tests {
             assert_eq!(
                 daily
                     .iter()
-                    .map(|row| row["successfulLogins"].as_i64().unwrap())
+                    .map(|row| row["logins"].as_i64().unwrap())
                     .sum::<i64>(),
-                expected_successful_logins
+                expected_logins
             );
         }
     }

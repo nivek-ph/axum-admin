@@ -110,8 +110,8 @@ pub struct AuditStatsRequest {
 #[serde(rename_all = "camelCase")]
 pub struct AuditDailyStatResponse {
     pub date: String,
-    pub successful_logins: i64,
-    pub unique_ips: i64,
+    pub logins: i64,
+    pub ips: i64,
     pub login_failures: i64,
     pub access_denials: i64,
 }
@@ -121,8 +121,8 @@ pub struct AuditDailyStatResponse {
 pub struct AuditStatsResponse {
     pub days: i64,
     pub event_count: i64,
-    pub today_successful_logins: i64,
-    pub today_unique_ips: i64,
+    pub today_logins: i64,
+    pub today_ips: i64,
     pub daily: Vec<AuditDailyStatResponse>,
 }
 
@@ -131,15 +131,15 @@ impl From<audit::AuditStats> for AuditStatsResponse {
         Self {
             days: value.days,
             event_count: value.event_count,
-            today_successful_logins: value.today_successful_logins,
-            today_unique_ips: value.today_unique_ips,
+            today_logins: value.today_logins,
+            today_ips: value.today_ips,
             daily: value
                 .daily
                 .into_iter()
                 .map(|row| AuditDailyStatResponse {
                     date: row.date,
-                    successful_logins: row.successful_logins,
-                    unique_ips: row.unique_ips,
+                    logins: row.logins,
+                    ips: row.ips,
                     login_failures: row.login_failures,
                     access_denials: row.access_denials,
                 })

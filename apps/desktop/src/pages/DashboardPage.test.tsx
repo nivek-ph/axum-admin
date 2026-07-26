@@ -24,20 +24,20 @@ const RESOURCE_RESPONSES: Record<string, unknown> = {
 const auditStats = {
   days: 14,
   eventCount: 9,
-  todaySuccessfulLogins: 2,
-  todayUniqueIps: 1,
+  todayLogins: 2,
+  todayIps: 1,
   daily: [
     {
       date: '2026-07-24',
-      successfulLogins: 0,
-      uniqueIps: 0,
+      logins: 0,
+      ips: 0,
       loginFailures: 1,
       accessDenials: 0,
     },
     {
       date: '2026-07-25',
-      successfulLogins: 2,
-      uniqueIps: 1,
+      logins: 2,
+      ips: 1,
       loginFailures: 1,
       accessDenials: 1,
     },
@@ -108,16 +108,16 @@ describe('Dashboard page', () => {
     const view = renderDashboard()
 
     expect(screen.getByRole('heading', { name: 'Welcome back, Admin.' })).toBeInTheDocument()
-    const loginMetric = await screen.findByLabelText('Successful logins today (UTC)')
+    const loginMetric = await screen.findByLabelText('Logins today (UTC)')
     await waitFor(() => expect(within(loginMetric).getByText('2')).toBeInTheDocument())
     expect(loginMetric.closest('a, button')).toBeNull()
-    expect(within(screen.getByLabelText('Unique IPs today (UTC)')).getByText('1')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('IPs today (UTC)')).getByText('1')).toBeInTheDocument()
     const loginTrend = screen.getByText('Login trend')
     expect(screen.getByText('Security event trend')).toBeInTheDocument()
     expect(screen.getAllByText('Last 14 days · UTC')).toHaveLength(2)
     const loginSeries = screen.getByRole('group', { name: 'Login trend series' })
-    expect(within(loginSeries).getByText('Successful logins')).toBeInTheDocument()
-    expect(within(loginSeries).getByText('Unique IPs')).toBeInTheDocument()
+    expect(within(loginSeries).getByText('Logins')).toBeInTheDocument()
+    expect(within(loginSeries).getByText('IPs')).toBeInTheDocument()
     const securitySeries = screen.getByRole('group', { name: 'Security event trend series' })
     expect(within(securitySeries).getByText('Login failures')).toBeInTheDocument()
     expect(within(securitySeries).getByText('Access denials')).toBeInTheDocument()
@@ -148,12 +148,12 @@ describe('Dashboard page', () => {
     http.defaults.adapter = successAdapter({
       ...auditStats,
       eventCount: 0,
-      todaySuccessfulLogins: 0,
-      todayUniqueIps: 0,
+      todayLogins: 0,
+      todayIps: 0,
       daily: auditStats.daily.map((row) => ({
         ...row,
-        successfulLogins: 0,
-        uniqueIps: 0,
+        logins: 0,
+        ips: 0,
         loginFailures: 0,
         accessDenials: 0,
       })),
@@ -164,8 +164,8 @@ describe('Dashboard page', () => {
     expect(await screen.findByText('Login trend')).toBeInTheDocument()
     expect(screen.getByText('Security event trend')).toBeInTheDocument()
     expect(screen.getByLabelText('Login trend dates: 07-24, 07-25')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Successful logins today (UTC)')).getByText('0')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Unique IPs today (UTC)')).getByText('0')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Logins today (UTC)')).getByText('0')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('IPs today (UTC)')).getByText('0')).toBeInTheDocument()
     expect(screen.queryByText('No audit events')).not.toBeInTheDocument()
   })
 
@@ -180,7 +180,7 @@ describe('Dashboard page', () => {
     const welcome = screen.getByRole('heading', { name: 'Welcome back, Admin.' })
     const usersLink = await screen.findByRole('link', { name: 'Users: 12' })
     expect(welcome.compareDocumentPosition(usersLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.queryByLabelText('Successful logins today (UTC)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Logins today (UTC)')).not.toBeInTheDocument()
     expect(screen.queryByText('Login trend')).not.toBeInTheDocument()
     expect(screen.queryByText('Security event trend')).not.toBeInTheDocument()
     expect(requests).not.toContain('/audit/events/stats')
@@ -205,8 +205,8 @@ describe('Dashboard page', () => {
 
     renderDashboard()
 
-    expect(within(screen.getByLabelText('Successful logins today (UTC)')).getByText('…')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Unique IPs today (UTC)')).getByText('…')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Logins today (UTC)')).getByText('…')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('IPs today (UTC)')).getByText('…')).toBeInTheDocument()
     expect(screen.getAllByText('Loading statistics…')).toHaveLength(2)
     expect(screen.queryByText('Last 14 days · UTC')).not.toBeInTheDocument()
   })
@@ -232,8 +232,8 @@ describe('Dashboard page', () => {
 
     expect(await screen.findByText('Failed to load statistics')).toBeInTheDocument()
     expect(screen.getAllByText('Failed to load statistics')).toHaveLength(1)
-    expect(within(screen.getByLabelText('Successful logins today (UTC)')).getByText('—')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Unique IPs today (UTC)')).getByText('—')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Logins today (UTC)')).getByText('—')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('IPs today (UTC)')).getByText('—')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByText('Login trend')).not.toBeInTheDocument())
   })
 })

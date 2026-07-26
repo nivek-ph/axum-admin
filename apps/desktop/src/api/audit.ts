@@ -95,16 +95,16 @@ export async function analyzeAuditEvents(filters: Omit<AuditFilters, 'page' | 'p
 
 export interface AuditDailyStat {
   date: string
-  successfulLogins: number
-  uniqueIps: number
+  logins: number
+  ips: number
   loginFailures: number
   accessDenials: number
 }
 export interface AuditStats {
   days: number
   eventCount: number
-  todaySuccessfulLogins: number
-  todayUniqueIps: number
+  todayLogins: number
+  todayIps: number
   daily: AuditDailyStat[]
 }
 
@@ -117,8 +117,8 @@ export async function fetchAuditStats(days = 14) {
     response.data ?? {
       days,
       eventCount: 0,
-      todaySuccessfulLogins: 0,
-      todayUniqueIps: 0,
+      todayLogins: 0,
+      todayIps: 0,
       daily: [],
     }
   )
