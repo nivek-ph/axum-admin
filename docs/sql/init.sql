@@ -96,8 +96,13 @@ WHERE (
 -- Every job role can access the dashboard. Department heads also receive
 -- organization visibility scoped by their role's data_scope. Menu assignments
 -- use stable names rather than frontend component paths.
-WITH role_menu_names(role_code, menu_name) AS (
-    VALUES
+CREATE TEMP TABLE demo_role_menu_names (
+    role_code TEXT NOT NULL,
+    menu_name TEXT NOT NULL
+) ON COMMIT DROP;
+
+INSERT INTO demo_role_menu_names (role_code, menu_name)
+VALUES
         ('executive', 'dashboard'),
         ('rd_manager', 'dashboard'),
         ('product_manager', 'dashboard'),
@@ -178,13 +183,29 @@ WITH role_menu_names(role_code, menu_name) AS (
         ('auditor', 'audit-events'),
 
         ('executive', 'audit'),
-        ('executive', 'audit-events')
-)
+        ('executive', 'audit-events');
+
 INSERT INTO sys_role_menus (role_id, menu_id)
 SELECT role.id, menu.id
-FROM role_menu_names assignment
+FROM demo_role_menu_names assignment
 JOIN sys_roles role ON role.code = assignment.role_code
 JOIN sys_menus menu ON menu.name = assignment.menu_name
+WHERE menu.menu_type <> 'action'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+SELECT
+    'p',
+    'role:' || role.id::text,
+    menu.permission,
+    '',
+    '',
+    '',
+    ''
+FROM demo_role_menu_names assignment
+JOIN sys_roles role ON role.code = assignment.role_code
+JOIN sys_menus menu ON menu.name = assignment.menu_name
+WHERE menu.permission IS NOT NULL
 ON CONFLICT DO NOTHING;
 
 -- Demo accounts use a valid Argon2id hash that is not tied to a distributed
@@ -276,8 +297,15 @@ role_members(role_code, employee_no) AS (
     SELECT role_code, employee_no
     FROM functional_role_members
 )
-INSERT INTO sys_user_roles (user_id, role_id)
-SELECT user_account.id, role.id
+INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+SELECT
+    'g',
+    'user:' || user_account.id::text,
+    'role:' || role.id::text,
+    '',
+    '',
+    '',
+    ''
 FROM role_members assignment
 JOIN sys_roles role ON role.code = assignment.role_code
 JOIN sys_users user_account

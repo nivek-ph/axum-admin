@@ -67,7 +67,7 @@ fn build_tree(
 ) -> Vec<MenuView> {
     let mut children: HashMap<i64, Vec<MenuRecord>> = HashMap::new();
     for record in records {
-        if record.status == "enabled"
+        if (allowed.is_none() || record.status == "enabled")
             && allowed.is_none_or(|ids| ids.contains(&record.id))
             && (include_actions || record.menu_type != "action")
         {
@@ -157,5 +157,21 @@ mod tests {
         );
         assert_eq!(tree[0].children.len(), 1);
         assert!(tree[0].children[0].children.is_empty());
+    }
+
+    #[test]
+    fn management_tree_includes_disabled_catalog_nodes() {
+        let tree = build_tree(
+            vec![
+                record(1, 0, "directory", "enabled"),
+                record(2, 1, "page", "disabled"),
+                record(3, 2, "action", "disabled"),
+            ],
+            None,
+            true,
+        );
+
+        assert_eq!(tree[0].children[0].status, "disabled");
+        assert_eq!(tree[0].children[0].children[0].status, "disabled");
     }
 }

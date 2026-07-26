@@ -1,4 +1,7 @@
-use crate::access::{AccessPropagationError, CatalogError};
+use crate::{
+    access::{AccessPropagationError, CatalogError},
+    authorization::AuthorizationError,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RoleError {
@@ -8,10 +11,16 @@ pub enum RoleError {
     NotFound,
     #[error("system role cannot be deleted")]
     Immutable,
-    #[error("role is assigned to users")]
-    InUse,
     #[error(transparent)]
     AccessPropagation(#[from] AccessPropagationError),
     #[error(transparent)]
     InvalidMenuAssignment(#[from] CatalogError),
+    #[error("permission assignment is invalid")]
+    InvalidPermissionAssignment,
+    #[error("user assignment is invalid")]
+    InvalidUserAssignment,
+    #[error("authorization configuration is invalid")]
+    AuthorizationConfig,
+    #[error(transparent)]
+    Authorization(#[from] AuthorizationError),
 }

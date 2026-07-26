@@ -20,6 +20,8 @@ VALUES
     (1103, 11, '', 'users:delete', true, '', 30, 'Delete user', '', 'action', 'enabled', 'system:user:delete'),
     (1104, 11, '', 'users:reset-password', true, '', 40, 'Reset password', '', 'action', 'enabled', 'system:user:reset-password'),
     (1105, 11, '', 'users:assign-roles', true, '', 50, 'Assign roles', '', 'action', 'enabled', 'system:user:assign-roles'),
+    (1106, 11, '', 'users:permissions-read', true, '', 60, 'Read user permissions', '', 'action', 'enabled', 'system:user:permissions-read'),
+    (1107, 11, '', 'users:permissions-update', true, '', 70, 'Update user permissions', '', 'action', 'enabled', 'system:user:permissions-update'),
     (12, 10, '/roles', 'roles', false, '', 20, 'Roles', 'shield', 'page', 'enabled', 'system:role:list'),
     (1201, 12, '', 'roles:create', true, '', 10, 'Create role', '', 'action', 'enabled', 'system:role:create'),
     (1202, 12, '', 'roles:update', true, '', 20, 'Update role', '', 'action', 'enabled', 'system:role:update'),
@@ -30,6 +32,8 @@ VALUES
     (1207, 12, '', 'roles:depts-update', true, '', 70, 'Update role departments', '', 'action', 'enabled', 'system:role:depts-update'),
     (1208, 12, '', 'roles:users-read', true, '', 80, 'Read role users', '', 'action', 'enabled', 'system:role:list-users'),
     (1209, 12, '', 'roles:users-update', true, '', 90, 'Assign role users', '', 'action', 'enabled', 'system:role:assign-users'),
+    (1210, 12, '', 'roles:permissions-read', true, '', 100, 'Read role permissions', '', 'action', 'enabled', 'system:role:permissions-read'),
+    (1211, 12, '', 'roles:permissions-update', true, '', 110, 'Update role permissions', '', 'action', 'enabled', 'system:role:permissions-update'),
     (13, 10, '/departments', 'departments', false, '', 30, 'Departments', 'building', 'page', 'enabled', 'system:dept:list'),
     (1301, 13, '', 'departments:create', true, '', 10, 'Create department', '', 'action', 'enabled', 'system:dept:create'),
     (1302, 13, '', 'departments:get', true, '', 20, 'Get department', '', 'action', 'enabled', 'system:dept:get'),
@@ -72,6 +76,8 @@ VALUES
     (1103, 'DELETE', '/api/users/{id}'),
     (1104, 'POST', '/api/users/{id}/password/reset'),
     (1105, 'PUT', '/api/users/{id}/roles'),
+    (1106, 'GET', '/api/users/{id}/permissions'),
+    (1107, 'PUT', '/api/users/{id}/permissions'),
 
     (12, 'GET', '/api/roles'),
     (1201, 'POST', '/api/roles'),
@@ -83,6 +89,8 @@ VALUES
     (1207, 'PUT', '/api/roles/{id}/depts'),
     (1208, 'GET', '/api/roles/{id}/users'),
     (1209, 'PUT', '/api/roles/{id}/users'),
+    (1210, 'GET', '/api/roles/{id}/permissions'),
+    (1211, 'PUT', '/api/roles/{id}/permissions'),
 
     (13, 'GET', '/api/depts'),
     (1301, 'POST', '/api/depts'),
@@ -125,3 +133,6 @@ VALUES
     (41, 'GET', '/api/audit/events/{id}'),
     (41, 'POST', '/api/audit/events/analyze'),
     (41, 'GET', '/api/audit/events/stats');
+
+INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+VALUES ('p', 'role:1', '*', '', '', '', '');

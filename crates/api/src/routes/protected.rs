@@ -35,6 +35,7 @@ mod tests {
             .route("/", get(|| ok_marker("roles:list")))
             .route("/{id}", put(|| ok_marker("roles:update")))
             .route("/{id}/menus", get(|| ok_marker("roles:menus")))
+            .route("/{id}/permissions", get(|| ok_marker("roles:permissions")))
             .route("/{id}/users", get(|| ok_marker("roles:users")));
 
         Router::new().nest("/roles", role_routes)
@@ -80,5 +81,25 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "roles:users");
+    }
+
+    #[tokio::test]
+    async fn role_permission_route_stays_distinct_from_page_access() {
+        let response = role_shape_router()
+            .oneshot(
+                Request::builder()
+                    .uri("/roles/7/permissions")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should be readable");
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&bytes[..], b"roles:permissions");
     }
 }

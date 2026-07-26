@@ -35,7 +35,18 @@ describe('Roles workbench', () => {
       let data: unknown
       if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
       else if (config.url === '/menus/current')
-        data = { code: 'OK', message: 'ok', data: { menus: [{ name: 'roles', path: 'roles' }], permissions: [] } }
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'roles', path: 'roles' }],
+            permissions: [
+              'system:role:update-permission',
+              'system:role:permissions-read',
+              'system:role:permissions-update',
+            ],
+          },
+        }
       else if (config.url === '/menus/tree')
         data = {
           code: 'OK',
@@ -76,7 +87,33 @@ describe('Roles workbench', () => {
             },
           ],
         }
-      else if (config.url === '/roles/2/menus') data = { code: 'OK', message: 'ok', data: { menuIds: [] } }
+      else if (config.url === '/roles/2/menus')
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: { menuIds: [], effectiveMenuIds: [], systemManaged: false },
+        }
+      else if (config.url === '/roles/2/permissions')
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            permissions: [],
+            systemManaged: false,
+            catalog: [
+              {
+                permission: 'system:user:create',
+                title: 'Create user',
+                menuType: 'action',
+                status: 'enabled',
+                effectivelyEnabled: true,
+                owningPageId: 11,
+                owningPageTitle: 'Users',
+                pageVisible: false,
+              },
+            ],
+          },
+        }
       else if (config.url === '/roles')
         data = {
           code: 'OK',
@@ -112,17 +149,17 @@ describe('Roles workbench', () => {
     expect(within(basicPanel).getByText('数据范围')).toBeInTheDocument()
     expect(within(basicPanel).getByText('排序')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('tab', { name: '菜单授权' }))
+    await userEvent.click(screen.getByRole('tab', { name: '页面访问' }))
     const menuPanel = await screen.findByRole('tabpanel')
-    expect(
-      within(menuPanel).getByText('勾选页面访问会同时包含该页面下的按钮权限，避免页面可见但接口返回 403。'),
-    ).toBeInTheDocument()
+    expect(within(menuPanel).getByText('选择该角色可以访问的目录和页面。')).toBeInTheDocument()
     expect(within(menuPanel).getByText('系统管理')).toBeInTheDocument()
     expect(within(menuPanel).getByText('用户管理')).toBeInTheDocument()
-    expect(within(menuPanel).getByText('创建用户')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: '操作权限' }))
+    expect(await screen.findByText('创建用户')).toBeInTheDocument()
+    expect(screen.getByText('页面不可见')).toBeInTheDocument()
   })
 
-  it('saves an action permission with its ancestor closure but not sibling actions', async () => {
+  it('saves page access and operation permissions independently', async () => {
     const currentUser = {
       id: 1,
       userName: 'admin',
@@ -131,6 +168,8 @@ describe('Roles workbench', () => {
     }
     useAuthStore.getState().setSession({ accessToken: 'token', refreshToken: 'refresh', userInfo: currentUser })
     let savedMenuIds: number[] = []
+    let savedPermissions: string[] = []
+    let permissionGets = 0
     const menuTree = [
       {
         id: 1,
@@ -180,12 +219,60 @@ describe('Roles workbench', () => {
       let data: unknown
       if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
       else if (config.url === '/menus/current')
-        data = { code: 'OK', message: 'ok', data: { menus: [{ name: 'roles', path: 'roles' }], permissions: [] } }
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'roles', path: 'roles' }],
+            permissions: [
+              'system:role:update-permission',
+              'system:role:permissions-read',
+              'system:role:permissions-update',
+              'system:role:list-users',
+              'system:user:list',
+            ],
+          },
+        }
       else if (config.url === '/menus/tree') data = { code: 'OK', message: 'ok', data: menuTree }
       else if (config.url === '/roles/2/menus' && config.method === 'get')
-        data = { code: 'OK', message: 'ok', data: { menuIds: [] } }
+        data = { code: 'OK', message: 'ok', data: { menuIds: [], effectiveMenuIds: [], systemManaged: false } }
       else if (config.url === '/roles/2/menus' && config.method === 'put') {
         savedMenuIds = JSON.parse(String(config.data)).menuIds
+        data = { code: 'OK', message: 'saved' }
+      } else if (config.url === '/roles/2/permissions' && config.method !== 'put') {
+        permissionGets += 1
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            permissions: [],
+            systemManaged: false,
+            catalog: [
+              {
+                permission: 'system:user:list',
+                title: 'List',
+                menuType: 'action',
+                status: 'enabled',
+                effectivelyEnabled: true,
+                owningPageId: 2,
+                owningPageTitle: 'Users',
+                pageVisible: false,
+              },
+              {
+                permission: 'system:user:create',
+                title: 'Create',
+                menuType: 'action',
+                status: 'enabled',
+                effectivelyEnabled: true,
+                owningPageId: 2,
+                owningPageTitle: 'Users',
+                pageVisible: false,
+              },
+            ],
+          },
+        }
+      } else if (config.url === '/roles/2/permissions' && config.method === 'put') {
+        savedPermissions = JSON.parse(String(config.data)).permissions
         data = { code: 'OK', message: 'saved' }
       } else if (config.url === '/roles')
         data = {
@@ -215,10 +302,17 @@ describe('Roles workbench', () => {
     expect(await screen.findByRole('tab', { name: 'Basic Info' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Data Scope' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Assigned Users' })).toBeInTheDocument()
-    await user.click(await screen.findByRole('checkbox', { name: 'Create' }))
-    await user.click(screen.getByRole('button', { name: 'Save permissions' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'Users page access' }))
+    await user.click(screen.getByRole('button', { name: 'Save page access' }))
+    await waitFor(() => expect(savedMenuIds).toEqual([1, 2]))
 
-    await waitFor(() => expect(savedMenuIds).toEqual([1, 2, 21]))
+    await user.click(screen.getByRole('tab', { name: 'Operation Permissions' }))
+    await waitFor(() => expect(permissionGets).toBe(1))
+    const permissionPanel = await screen.findByRole('tabpanel')
+    await user.click(await within(permissionPanel).findByRole('checkbox', { name: 'Create' }))
+    await user.click(screen.getByRole('button', { name: 'Save permissions' }))
+    await waitFor(() => expect(savedPermissions).toEqual(['system:user:create']))
+    expect(savedMenuIds).toEqual([1, 2])
     expect(screen.getByRole('checkbox', { name: 'List' })).not.toBeChecked()
   })
 

@@ -49,6 +49,8 @@ impl Modify for SecurityAddon {
         crate::routes::roles::delete_role,
         crate::routes::roles::get_role_menus,
         crate::routes::roles::set_role_menus,
+        crate::routes::roles::get_role_permissions,
+        crate::routes::roles::set_role_permissions,
         crate::routes::roles::get_role_depts,
         crate::routes::roles::set_role_depts,
         crate::routes::roles::get_role_users,

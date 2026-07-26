@@ -270,7 +270,9 @@ mod tests {
         .execute(pool)
         .await
         .unwrap();
-        sqlx::query("insert into sys_user_roles (user_id, role_id) values ($1, 1)")
+        sqlx::query(
+            "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5) values ('g', 'user:' || $1::text, 'role:1', '', '', '', '')",
+        )
             .bind(actor_user_id)
             .execute(pool)
             .await

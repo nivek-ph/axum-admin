@@ -12,6 +12,8 @@ pub enum AccessInitError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AccessEvaluationError {
+    #[error("authorization policy evaluation failed")]
+    Authorization(#[from] crate::authorization::AuthorizationError),
     #[error("authorization database operation failed")]
     Database(#[from] sqlx::Error),
     #[error("authorization cache is unavailable")]

@@ -35,7 +35,7 @@ pub fn merge_scopes(scopes: &[DataScope]) -> DataScope {
 pub(crate) async fn resolve_user_data_scope(
     pool: &sqlx::PgPool,
     user_id: i64,
-    _resource: &str,
+    active_role_ids: &[i64],
 ) -> Result<ResolvedDataScope, sqlx::Error> {
     let user_dept_id: Option<i64> =
         sqlx::query_scalar("select dept_id from sys_users where id = $1")
@@ -45,15 +45,13 @@ pub(crate) async fn resolve_user_data_scope(
             .flatten();
     let role_scopes: Vec<String> = sqlx::query_scalar(
         r#"
-        select r.data_scope
-        from sys_user_roles ur
-        join sys_roles r on r.id = ur.role_id
-        where ur.user_id = $1
-          and r.status = 'enabled'
-        order by r.id
+        select data_scope
+        from sys_roles
+        where id = any($1)
+        order by id
         "#,
     )
-    .bind(user_id)
+    .bind(active_role_ids)
     .fetch_all(pool)
     .await?;
     let scopes = role_scopes
@@ -78,16 +76,13 @@ pub(crate) async fn resolve_user_data_scope(
         DataScope::CustomDepts => {
             let dept_ids = sqlx::query_scalar(
                 r#"
-                select distinct rd.dept_id
-                from sys_user_roles ur
-                join sys_role_depts rd on rd.role_id = ur.role_id
-                join sys_roles r on r.id = ur.role_id
-                where ur.user_id = $1
-                  and r.status = 'enabled'
-                order by rd.dept_id
+                select distinct dept_id
+                from sys_role_depts
+                where role_id = any($1)
+                order by dept_id
                 "#,
             )
-            .bind(user_id)
+            .bind(active_role_ids)
             .fetch_all(pool)
             .await?;
             Ok(ResolvedDataScope::DeptIds(dept_ids))

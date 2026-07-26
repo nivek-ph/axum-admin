@@ -5,7 +5,8 @@ use axum::{
 
 use super::dto::{
     RoleData, RoleDeptIdsData, RoleDeptRequest, RoleListData, RoleMenuIdsData, RoleMenuRequest,
-    RoleRequest, RoleResponse, RoleUserIdsData, RoleUsersRequest,
+    RolePermissionRequest, RolePermissionsData, RoleRequest, RoleResponse, RoleUserIdsData,
+    RoleUsersRequest,
 };
 use crate::{ApiResponse, AppResult, EmptyData, state::AppState};
 
@@ -95,9 +96,13 @@ pub async fn get_role_menus(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<RoleMenuIdsData>>> {
-    let menu_ids = state.roles.menu_ids(id).await?;
+    let access = state.roles.menu_access(id).await?;
 
-    Ok(Json(ApiResponse::ok(RoleMenuIdsData { menu_ids })))
+    Ok(Json(ApiResponse::ok(RoleMenuIdsData {
+        menu_ids: access.menu_ids,
+        effective_menu_ids: access.effective_menu_ids,
+        system_managed: access.system_managed,
+    })))
 }
 
 #[utoipa::path(
@@ -116,6 +121,41 @@ pub async fn set_role_menus(
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     state.roles.set_menu_ids(id, payload.menu_ids).await?;
 
+    Ok(Json(ApiResponse::new("OK", "saved", None)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/roles/{id}/permissions",
+    tag = "role",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Role ID")),
+    responses((status = 200, description = "Role permissions", body = ApiResponse<RolePermissionsData>))
+)]
+pub async fn get_role_permissions(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> AppResult<Json<ApiResponse<RolePermissionsData>>> {
+    Ok(Json(ApiResponse::ok(
+        state.roles.permissions(id).await?.into(),
+    )))
+}
+
+#[utoipa::path(
+    put,
+    path = "/roles/{id}/permissions",
+    tag = "role",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Role ID")),
+    request_body = RolePermissionRequest,
+    responses((status = 200, description = "Role permissions saved", body = ApiResponse<EmptyData>))
+)]
+pub async fn set_role_permissions(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(payload): Json<RolePermissionRequest>,
+) -> AppResult<Json<ApiResponse<EmptyData>>> {
+    state.roles.set_permissions(id, payload.permissions).await?;
     Ok(Json(ApiResponse::new("OK", "saved", None)))
 }
 

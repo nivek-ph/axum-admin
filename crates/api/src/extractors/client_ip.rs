@@ -5,7 +5,7 @@ use axum::{
     http::{HeaderMap, request::Parts},
 };
 
-/// Client IP resolved for audit/logging.
+/// Extract client IP from HTTP headers or TCP peer address, preference order:
 ///
 /// Preference order:
 /// 1. first hop in `X-Forwarded-For`

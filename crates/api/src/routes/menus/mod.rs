@@ -35,6 +35,7 @@ mod tests {
         AccessSnapshot {
             version: 0,
             user_id: 1,
+            system_managed: super_admin,
             role_codes: if super_admin {
                 BTreeSet::from(["super_admin".to_string()])
             } else {

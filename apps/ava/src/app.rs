@@ -5,8 +5,8 @@ use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
 use file_storage::files::FileService;
 use iam::{
-    access::AccessService, departments::DepartmentService, menus::MenuService, roles::RoleService,
-    users::UserService,
+    access::AccessService, authorization::Authorization, departments::DepartmentService,
+    menus::MenuService, roles::RoleService, users::UserService,
 };
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
 use tracing::info;
@@ -65,18 +65,26 @@ async fn build_state(
     let files = FileService::new(pool.clone(), "./uploads");
 
     // 2. authorization catalog (needed by IAM services below)
-    let access = AccessService::load(pool.clone(), redis_connection)
+    let authorization = Authorization::load(pool.clone())
         .await
-        .context("authorization catalog and cache should initialize")?;
+        .context("Casbin authorization should initialize")?;
+    let access = AccessService::load(pool.clone(), authorization.clone(), redis_connection)
+        .await
+        .context("access catalog and context cache should initialize")?;
+    authorization
+        .start_redis_watcher(&config.redis_url)
+        .context("Casbin Redis watcher should initialize")?;
+    authorization.start_periodic_reload(Duration::from_secs(30));
 
     // 3. IAM services that depend on access / audit / password
     let users = UserService::new(
         pool.clone(),
         access.clone(),
+        authorization.clone(),
         audits.clone(),
         password_service,
     );
-    let roles = RoleService::new(pool.clone(), access.clone());
+    let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
     let departments = DepartmentService::new(pool, access.clone());
 
     Ok(api::AppState {
@@ -87,6 +95,7 @@ async fn build_state(
         roles,
         departments,
         access,
+        authorization,
         dictionaries,
         parameters,
         menus,

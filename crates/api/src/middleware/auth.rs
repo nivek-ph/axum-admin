@@ -53,10 +53,13 @@ pub async fn require_auth(
         },
     };
     let snapshot = state.access.snapshot(claims.user_id).await?;
-
     if !is_self_service_endpoint(&method, &path) {
-        let menu_id = state.access.required_menu(&method, &path)?;
-        if !snapshot.allows_menu(menu_id) {
+        let permission = state.access.required_permission(&method, &path)?;
+        if !state
+            .authorization
+            .enforce(claims.user_id, permission)
+            .await?
+        {
             record_access_denied(&state.audits, &audit_context, path).await;
             return Err(PERMISSION_DENIED.into());
         }

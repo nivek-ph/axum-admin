@@ -23,6 +23,10 @@ CREATE TABLE sys_roles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE UNIQUE INDEX idx_sys_roles_single_system
+    ON sys_roles (is_system)
+    WHERE is_system;
+
 CREATE TABLE sys_users (
     id BIGSERIAL PRIMARY KEY,
     uuid TEXT NOT NULL UNIQUE,
@@ -43,17 +47,26 @@ CREATE TABLE sys_users (
 
 CREATE INDEX idx_sys_users_username ON sys_users(username);
 
-CREATE TABLE sys_user_roles (
-    user_id BIGINT NOT NULL REFERENCES sys_users(id) ON DELETE CASCADE,
-    role_id BIGINT NOT NULL REFERENCES sys_roles(id) ON DELETE RESTRICT,
-    PRIMARY KEY (user_id, role_id)
-);
-
 CREATE TABLE sys_role_depts (
     role_id BIGINT NOT NULL REFERENCES sys_roles(id) ON DELETE CASCADE,
     dept_id BIGINT NOT NULL REFERENCES sys_depts(id) ON DELETE CASCADE,
     PRIMARY KEY (role_id, dept_id)
 );
+
+CREATE TABLE casbin_rule (
+    id BIGSERIAL PRIMARY KEY,
+    ptype VARCHAR NOT NULL,
+    v0 VARCHAR NOT NULL,
+    v1 VARCHAR NOT NULL,
+    v2 VARCHAR NOT NULL,
+    v3 VARCHAR NOT NULL,
+    v4 VARCHAR NOT NULL,
+    v5 VARCHAR NOT NULL,
+    CONSTRAINT unique_key_sqlx_adapter UNIQUE (ptype, v0, v1, v2, v3, v4, v5)
+);
+
+CREATE INDEX idx_casbin_rule_subject
+    ON casbin_rule (ptype, v0, v1);
 
 CREATE TABLE sys_menus (
     id BIGINT PRIMARY KEY,

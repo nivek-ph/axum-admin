@@ -3,7 +3,8 @@ use axum::{
     http::{Method, Request, header},
 };
 use iam::{
-    access::AccessService, departments::DepartmentService, roles::RoleService, users::UserService,
+    access::AccessService, authorization::Authorization, departments::DepartmentService,
+    roles::RoleService, users::UserService,
 };
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde_json::json;
@@ -16,9 +17,16 @@ fn test_state() -> api::AppState {
     let tokens = auth::token::TokenService::without_session_store("test-secret");
     let captcha = auth::captcha::CaptchaService::without_store();
     let access = AccessService::new(pool.clone());
+    let authorization = Authorization::new(pool.clone());
     let audits = audit::AuditService::new(pool.clone());
-    let users = UserService::new(pool.clone(), access.clone(), audits.clone(), passwords);
-    let roles = RoleService::new(pool.clone(), access.clone());
+    let users = UserService::new(
+        pool.clone(),
+        access.clone(),
+        authorization.clone(),
+        audits.clone(),
+        passwords,
+    );
+    let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
     let departments = DepartmentService::new(pool.clone(), access.clone());
     api::AppState {
         public_base_url: "http://127.0.0.1:3000".to_string(),
@@ -28,6 +36,7 @@ fn test_state() -> api::AppState {
         roles,
         departments,
         access,
+        authorization,
         dictionaries: metadata::dictionaries::DictionaryService::new(pool.clone()),
         parameters: metadata::parameters::ParameterService::new(pool.clone()),
         menus: iam::menus::MenuService::new(pool.clone()),

@@ -9,13 +9,16 @@ import {
   createRole,
   deleteRole,
   getRoleDeptIds,
-  getRolePermissionIds,
+  getRolePageAccess,
+  getRolePermissions,
   getRoleUserIds,
   listRoles,
   setRoleDeptIds,
-  setRolePermissionIds,
+  setRolePageAccess,
+  setRolePermissions,
   setRoleUserIds,
   updateRole,
+  type PermissionCatalogItem,
   type RolePayload,
   type RoleResource,
 } from '@/api/roles'
@@ -34,7 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 
-type Tab = 'basic' | 'menus' | 'scope' | 'users'
+type Tab = 'basic' | 'page_access' | 'permissions' | 'scope' | 'users'
 type FlatMenu = MenuRecord & { level: number }
 type FlatDept = DeptRecord & { level: number }
 
@@ -46,9 +49,6 @@ const scopeOptions = [
   ['custom_depts', 'Custom departments'],
 ] as const
 
-function flattenAllMenus(items: MenuRecord[]): MenuRecord[] {
-  return items.flatMap((item) => [item, ...flattenAllMenus(item.children ?? [])])
-}
 function flattenPageMenus(items: MenuRecord[], level = 0): FlatMenu[] {
   return items
     .filter((item) => item.menuType !== 'action')
@@ -64,22 +64,28 @@ function flattenDepartments(items: DeptRecord[], level = 0): FlatDept[] {
   return items.flatMap((item) => [{ ...item, level }, ...flattenDepartments(item.children ?? [], level + 1)])
 }
 function isSystemRole(role: RoleResource) {
-  return role.is_system || role.code === 'super_admin'
+  return role.is_system
 }
 
 export function RolesPage() {
   const { t } = useTranslation()
   const can = useAuthStore((state) => state.can)
   const confirmAction = useConfirm()
+  const canViewPageAccess = can('system:role:menus-read') && can('system:menu:list')
+  const canViewPermissions = can('system:role:permissions-read')
   const canViewMembers = can('system:role:list-users') && can('system:user:list')
   const canAssignMembers = can('system:role:assign-users')
   const [roles, setRoles] = useState<RoleResource[]>([])
   const [menus, setMenus] = useState<MenuRecord[]>([])
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null)
-  const [tab, setTab] = useState<Tab>('menus')
+  const [tab, setTab] = useState<Tab>(
+    canViewPageAccess ? 'page_access' : canViewPermissions ? 'permissions' : 'basic',
+  )
   const [roleSearch, setRoleSearch] = useState('')
   const [memberSearch, setMemberSearch] = useState('')
   const [selectedMenuIds, setSelectedMenuIds] = useState<number[]>([])
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([])
+  const [permissionCatalog, setPermissionCatalog] = useState<PermissionCatalogItem[]>([])
   const [selectedDeptIds, setSelectedDeptIds] = useState<number[]>([])
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([])
   const [departments, setDepartments] = useState<DeptRecord[]>([])
@@ -98,18 +104,17 @@ export function RolesPage() {
   })
 
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? null
-  const allMenus = useMemo(() => flattenAllMenus(menus), [menus])
   const pageMenus = useMemo(() => flattenPageMenus(menus), [menus])
   const flatDepartments = useMemo(() => flattenDepartments(departments), [departments])
   const systemRole = selectedRole ? isSystemRole(selectedRole) : false
-  const canEditPermissions = can('system:role:update-permission') && !systemRole
+  const canEditPageAccess = can('system:role:update-permission') && !systemRole
+  const canEditPermissions = can('system:role:permissions-update') && !systemRole
 
   const loadWorkbench = useCallback(async () => {
     setLoading(true)
     try {
-      const [nextRoles, nextMenus] = await Promise.all([listRoles(), fetchMenuTree()])
+      const nextRoles = await listRoles()
       setRoles(nextRoles)
-      setMenus(nextMenus)
       setSelectedRoleId((current) =>
         nextRoles.some((role) => role.id === current) ? current : (nextRoles[0]?.id ?? null),
       )
@@ -127,10 +132,21 @@ export function RolesPage() {
   useEffect(() => {
     if (!selectedRoleId) return
     let cancelled = false
-    if (tab === 'menus')
-      void getRolePermissionIds(selectedRoleId)
-        .then((ids) => {
-          if (!cancelled) setSelectedMenuIds(ids)
+    if (tab === 'page_access' && canViewPageAccess)
+      void Promise.all([fetchMenuTree(), getRolePageAccess(selectedRoleId)])
+        .then(([nextMenus, access]) => {
+          if (!cancelled) {
+            setMenus(nextMenus)
+            setSelectedMenuIds(access.systemManaged ? access.effectiveMenuIds : access.menuIds)
+          }
+        })
+        .catch(() => toast.error(t('Failed to load page access')))
+    if (tab === 'permissions' && canViewPermissions)
+      void getRolePermissions(selectedRoleId)
+        .then((result) => {
+          if (cancelled) return
+          setSelectedPermissions(result.permissions)
+          setPermissionCatalog(result.catalog)
         })
         .catch(() => toast.error(t('Failed to load role permissions')))
     if (tab === 'scope') {
@@ -154,11 +170,19 @@ export function RolesPage() {
     return () => {
       cancelled = true
     }
-  }, [canViewMembers, selectedRoleId, tab, selectedRole?.data_scope, t])
+  }, [
+    canViewMembers,
+    canViewPageAccess,
+    canViewPermissions,
+    selectedRoleId,
+    tab,
+    selectedRole?.data_scope,
+    t,
+  ])
 
   function setMenuAccess(menuId: number, enabled: boolean, includeDescendants: boolean) {
     const current = new Set(selectedMenuIds)
-    const byId = new Map(allMenus.map((menu) => [menu.id, menu]))
+    const byId = new Map(pageMenus.map((menu) => [menu.id, menu]))
     if (enabled) {
       let node = byId.get(menuId)
       while (node) {
@@ -167,7 +191,7 @@ export function RolesPage() {
       }
       if (includeDescendants) {
         const addChildren = (id: number) =>
-          allMenus
+          pageMenus
             .filter((item) => item.parentId === id)
             .forEach((item) => {
               current.add(item.id)
@@ -178,7 +202,7 @@ export function RolesPage() {
     } else {
       current.delete(menuId)
       const removeChildren = (id: number) =>
-        allMenus
+        pageMenus
           .filter((item) => item.parentId === id)
           .forEach((item) => {
             current.delete(item.id)
@@ -189,11 +213,24 @@ export function RolesPage() {
     setSelectedMenuIds([...current].sort((a, b) => a - b))
   }
 
+  async function savePageAccess() {
+    if (!selectedRoleId || !canEditPageAccess) return
+    setSaving(true)
+    try {
+      await setRolePageAccess(selectedRoleId, selectedMenuIds)
+      toast.success(t('Page access updated'))
+    } catch {
+      toast.error(t('Failed to save page access'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function savePermissions() {
     if (!selectedRoleId || !canEditPermissions) return
     setSaving(true)
     try {
-      await setRolePermissionIds(selectedRoleId, selectedMenuIds)
+      await setRolePermissions(selectedRoleId, selectedPermissions)
       toast.success(t('Role permissions updated'))
     } catch {
       toast.error(t('Failed to save permissions'))
@@ -201,6 +238,16 @@ export function RolesPage() {
       setSaving(false)
     }
   }
+
+  const permissionGroups = useMemo(() => {
+    const groups = new Map<number, { title: string; items: PermissionCatalogItem[] }>()
+    for (const item of permissionCatalog) {
+      const group = groups.get(item.owningPageId) ?? { title: item.owningPageTitle, items: [] }
+      group.items.push(item)
+      groups.set(item.owningPageId, group)
+    }
+    return [...groups.entries()]
+  }, [permissionCatalog])
 
   async function saveScope() {
     if (!selectedRole) return
@@ -373,7 +420,8 @@ export function RolesPage() {
             <Tabs onValueChange={(value) => setTab(value as Tab)} value={tab}>
               <TabsList aria-label="Role sections">
                 <TabsTrigger value="basic">{t('Basic Info')}</TabsTrigger>
-                <TabsTrigger value="menus">{t('Menu Authorization')}</TabsTrigger>
+                {canViewPageAccess && <TabsTrigger value="page_access">{t('Page Access')}</TabsTrigger>}
+                {canViewPermissions && <TabsTrigger value="permissions">{t('Operation Permissions')}</TabsTrigger>}
                 <TabsTrigger value="scope">{t('Data Scope')}</TabsTrigger>
                 {canViewMembers && <TabsTrigger value="users">{t('Assigned Users')}</TabsTrigger>}
               </TabsList>
@@ -406,16 +454,60 @@ export function RolesPage() {
                 )}
               </TabsContent>
 
-              <TabsContent className="pt-4" value="menus">
+              <TabsContent className="pt-4" value="page_access">
                 {selectedRole && (
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-sm font-semibold">{t('Menu Authorization')}</h3>
+                        <h3 className="text-sm font-semibold">{t('Page Access')}</h3>
                         <p className="text-xs text-muted-foreground">
-                          {t(
-                            'Select page access to include button permissions under that page and avoid visible pages with 403 APIs.',
-                          )}
+                          {t('Choose which directories and pages this role can navigate.')}
+                        </p>
+                      </div>
+                      {canEditPageAccess && (
+                        <Button disabled={saving} onClick={() => void savePageAccess()} size="sm">
+                          {t('Save page access')}
+                        </Button>
+                      )}
+                    </div>
+                    <div className="divide-y divide-border rounded-lg border">
+                      {pageMenus.map((menu) => (
+                        <div className="flex flex-wrap items-center gap-4 px-3 py-2" key={menu.id}>
+                          <div className="min-w-40" style={{ paddingLeft: menu.level * 18 }}>
+                            <div className="flex items-center gap-2">
+                              <strong className="block text-sm">{t(menu.meta?.title || menu.name)}</strong>
+                              {menu.status === 'disabled' && (
+                                <span className="text-xs text-muted-foreground">{t('Dormant')}</span>
+                              )}
+                            </div>
+                            <small className="text-xs text-muted-foreground">{menu.path}</small>
+                          </div>
+                          <div className="inline-flex flex-1 items-center gap-1.5 text-xs">
+                            <Checkbox
+                              aria-label={t('{{title}} page access', {
+                                title: t(menu.meta?.title || menu.name),
+                              })}
+                              checked={selectedMenuIds.includes(menu.id)}
+                              disabled={!canEditPageAccess}
+                              onCheckedChange={(checked) => setMenuAccess(menu.id, checked === true, true)}
+                            />
+                            <span aria-hidden="true">{t('Page access')}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent className="pt-4" value="permissions">
+                {selectedRole && canViewPermissions && (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold">{t('Operation Permissions')}</h3>
+                        <p className="text-xs text-muted-foreground">
+                          {t('Operation permissions are enforced independently from page access.')}
                         </p>
                       </div>
                       {canEditPermissions && (
@@ -425,38 +517,35 @@ export function RolesPage() {
                       )}
                     </div>
                     <div className="divide-y divide-border rounded-lg border">
-                      {pageMenus.map((menu) => (
-                        <div className="flex flex-wrap items-center gap-4 px-3 py-2" key={menu.id}>
-                          <div className="min-w-40" style={{ paddingLeft: menu.level * 18 }}>
-                            <strong className="block text-sm">{t(menu.meta?.title || menu.name)}</strong>
-                            <small className="text-xs text-muted-foreground">{menu.path}</small>
+                      {permissionGroups.map(([pageId, group]) => (
+                        <div className="space-y-2 px-3 py-3" key={pageId}>
+                          <div className="flex items-center gap-2">
+                            <strong className="text-sm">{t(group.title)}</strong>
+                            {!group.items.some((item) => item.pageVisible) && (
+                              <span className="text-xs text-amber-600">{t('Page not visible')}</span>
+                            )}
                           </div>
-                          <div className="flex flex-1 flex-wrap items-center gap-3">
-                            <div className="inline-flex items-center gap-1.5 text-xs">
-                              <Checkbox
-                                aria-label={t('Page access')}
-                                checked={selectedMenuIds.includes(menu.id)}
-                                disabled={!canEditPermissions}
-                                onCheckedChange={(checked) => setMenuAccess(menu.id, checked === true, true)}
-                              />
-                              <span aria-hidden="true">{t('Page access')}</span>
-                            </div>
-                            {(menu.children ?? [])
-                              .filter((child) => child.menuType === 'action')
-                              .map((action) => {
-                                const title = action.meta?.title || action.permission || action.name
-                                return (
-                                  <div className="inline-flex items-center gap-1.5 text-xs" key={action.id}>
-                                    <Checkbox
-                                      aria-label={title}
-                                      checked={selectedMenuIds.includes(action.id)}
-                                      disabled={!canEditPermissions}
-                                      onCheckedChange={(checked) => setMenuAccess(action.id, checked === true, false)}
-                                    />
-                                    <span aria-hidden="true">{t(title)}</span>
-                                  </div>
-                                )
-                              })}
+                          <div className="flex flex-wrap gap-3">
+                            {group.items.map((item) => (
+                              <div className="inline-flex items-center gap-1.5 text-xs" key={item.permission}>
+                                <Checkbox
+                                  aria-label={t(item.title)}
+                                  checked={selectedPermissions.includes(item.permission)}
+                                  disabled={!canEditPermissions}
+                                  onCheckedChange={(checked) =>
+                                    setSelectedPermissions((current) =>
+                                      checked === true
+                                        ? [...new Set([...current, item.permission])].sort()
+                                        : current.filter((permission) => permission !== item.permission),
+                                    )
+                                  }
+                                />
+                                <span aria-hidden="true">{t(item.title)}</span>
+                                {!item.effectivelyEnabled && (
+                                  <span className="text-muted-foreground">{t('Dormant')}</span>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         </div>
                       ))}

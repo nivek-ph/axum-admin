@@ -161,7 +161,9 @@ async fn execute_login(state: &AppState, input: LoginInput) -> Result<LoginRespo
                 users::AuthenticateError::Disabled => {
                     (AuditResult::Denied, AuditReason::UserDisabled)
                 }
-                users::AuthenticateError::Credential(_) | users::AuthenticateError::Database(_) => {
+                users::AuthenticateError::Credential(_)
+                | users::AuthenticateError::Database(_)
+                | users::AuthenticateError::Authorization(_) => {
                     (AuditResult::Failed, AuditReason::InternalError)
                 }
             };
