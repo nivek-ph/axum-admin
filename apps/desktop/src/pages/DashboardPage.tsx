@@ -184,16 +184,8 @@ export function DashboardPage() {
       {canAudit && (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:gap-4">
-            <MetricCard
-              icon={IconLogin2}
-              label={t('Logins today (UTC)')}
-              value={metricValue(stats.data?.todayLogins)}
-            />
-            <MetricCard
-              icon={IconNetwork}
-              label={t('IPs today (UTC)')}
-              value={metricValue(stats.data?.todayIps)}
-            />
+            <MetricCard icon={IconLogin2} label={t('Logins today')} value={metricValue(stats.data?.todayLogins)} />
+            <MetricCard icon={IconNetwork} label={t('IPs today')} value={metricValue(stats.data?.todayIps)} />
           </div>
 
           {stats.isLoading ? (
@@ -241,10 +233,10 @@ export function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <ChartLegend
-                    items={[
-                      { color: 'var(--chart-1)', label: t('Logins') },
-                      { color: 'var(--chart-2)', label: t('IPs') },
-                    ]}
+                    items={loginSeries.map((series) => ({
+                      color: series.color,
+                      label: t(series.labelKey),
+                    }))}
                     label={t('Login trend series')}
                   />
                   <div
@@ -255,14 +247,12 @@ export function DashboardPage() {
                     <ResponsiveContainer className="min-h-[240px] xl:min-h-[280px]" height={240} width="100%">
                       <AreaChart data={dailyData}>
                         <defs>
-                          <linearGradient id="dashboardLoginsFill" x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.28} />
-                            <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
-                          </linearGradient>
-                          <linearGradient id="dashboardIpsFill" x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.2} />
-                            <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.02} />
-                          </linearGradient>
+                          {loginSeries.map((series) => (
+                            <linearGradient id={series.gradient.id} key={series.dataKey} x1="0" x2="0" y1="0" y2="1">
+                              <stop offset="0%" stopColor={series.color} stopOpacity={series.gradient.startOpacity} />
+                              <stop offset="100%" stopColor={series.color} stopOpacity={series.gradient.endOpacity} />
+                            </linearGradient>
+                          ))}
                         </defs>
                         <CartesianGrid stroke="var(--border)" strokeDasharray="3 6" vertical={false} />
                         <XAxis axisLine={false} dataKey="label" tick={chartTickStyle} tickLine={false} />
@@ -281,7 +271,7 @@ export function DashboardPage() {
                             fillOpacity={series.fillOpacity}
                             isAnimationActive={false}
                             key={series.dataKey}
-                            name={t(series.dataKey === 'logins' ? 'Logins' : 'IPs')}
+                            name={t(series.labelKey)}
                             stroke={series.color}
                             strokeWidth={2}
                             type="monotone"
@@ -300,10 +290,10 @@ export function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <ChartLegend
-                    items={[
-                      { color: 'var(--chart-1)', label: t('Login failures') },
-                      { color: 'var(--chart-2)', label: t('Access denials') },
-                    ]}
+                    items={securitySeries.map((series) => ({
+                      color: series.color,
+                      label: t(series.labelKey),
+                    }))}
                     label={t('Security event trend series')}
                   />
                   <ResponsiveContainer className="min-h-[240px] xl:min-h-[280px]" height={240} width="100%">
@@ -318,7 +308,7 @@ export function DashboardPage() {
                           fill={series.color}
                           isAnimationActive={false}
                           key={series.dataKey}
-                          name={t(series.dataKey === 'loginFailures' ? 'Login failures' : 'Access denials')}
+                          name={t(series.labelKey)}
                           radius={index === securitySeries.length - 1 ? [4, 4, 0, 0] : undefined}
                           stackId={series.stackId}
                         />
