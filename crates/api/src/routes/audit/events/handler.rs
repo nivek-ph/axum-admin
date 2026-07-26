@@ -41,7 +41,7 @@ pub async fn get_audit_events(
     tag = "audit",
     security(("bearer_auth" = [])),
     params(AuditStatsRequest),
-    responses((status = 200, description = "Audit visit stats", body = ApiResponse<AuditStatsResponse>))
+    responses((status = 200, description = "Audit login and security stats", body = ApiResponse<AuditStatsResponse>))
 )]
 pub async fn get_audit_stats(
     State(state): State<AppState>,
