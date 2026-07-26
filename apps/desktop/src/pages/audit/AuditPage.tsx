@@ -211,7 +211,7 @@ export function AuditPage() {
             </Button>
           </div>
           {analysis.isError && (
-            <p className="text-sm text-destructive">{getApiErrorMessage(analysis.error, t('Audit analysis failed'))}</p>
+            <p className="text-sm text-destructive">{t(getApiErrorMessage(analysis.error, 'Audit analysis failed'))}</p>
           )}
           <DataTable
             emptyLabel={t('No audit events')}

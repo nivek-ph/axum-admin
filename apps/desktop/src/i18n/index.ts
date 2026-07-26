@@ -74,6 +74,7 @@ const zh = {
   'Current account': '当前账户',
   'Not signed in': '未登录',
   'Sign in failed': '登录失败',
+  'Network unavailable': '网络不可用',
   'Identity management': '身份管理',
   'Manage operator accounts, roles, and account recovery.': '管理操作员账户、角色和账户恢复。',
   Refresh: '刷新',

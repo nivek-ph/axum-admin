@@ -79,7 +79,9 @@ describe('authenticated HTTP requests', () => {
 })
 
 describe('API error messages', () => {
-  it('uses the contextual fallback when the server is unreachable', () => {
-    expect(getApiErrorMessage(new AxiosError('Network Error'), 'Sign in failed')).toBe('Sign in failed')
+  it('uses a network message when the server is unreachable', () => {
+    expect(getApiErrorMessage(new AxiosError('Network Error'), 'Sign in failed')).toBe(
+      'Network unavailable',
+    )
   })
 })
