@@ -1,5 +1,5 @@
 import type { AxiosAdapter } from 'axios'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -215,5 +215,67 @@ describe('Departments workflow', () => {
 
     expect(screen.queryByText('Support')).not.toBeInTheDocument()
     expect(screen.queryByText('Service Desk')).not.toBeInTheDocument()
+  })
+
+  it('shows only department actions granted to the current operator', async () => {
+    const user = userEvent.setup()
+    const currentUser = {
+      id: 4,
+      userName: 'org_operator',
+      nickName: 'Organization Operator',
+      roles: [{ id: 4, code: 'org_operator', name: 'Organization Operator' }],
+    }
+    useAuthStore.getState().setSession({ accessToken: 'token', refreshToken: 'refresh', userInfo: currentUser })
+    http.defaults.adapter = (async (config) => {
+      let data: unknown
+      if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
+      else if (config.url === '/menus/current')
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'departments', menuType: 'page' }],
+            permissions: ['system:dept:create', 'system:dept:update'],
+          },
+        }
+      else if (config.url === '/depts' && config.method === 'get')
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            list: [
+              { id: 3, parent_id: null, name: 'Operations', code: 'ops', sort: 1, status: 'enabled', children: [] },
+            ],
+          },
+        }
+      else throw new Error(`Unexpected request: ${config.method} ${config.url}`)
+      return { data, status: 200, statusText: 'OK', headers: {}, config }
+    }) as AxiosAdapter
+    window.history.replaceState({}, '', '/departments')
+
+    render(<Application />)
+
+    await screen.findByText('Operations')
+    expect(screen.getByRole('button', { name: 'New department' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Add child' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'More actions for Operations' }))
+    expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    act(() => {
+      useAuthStore.getState().setUserAndPermissions(currentUser, ['system:dept:delete'])
+    })
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'New department' })).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Add child' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'More actions for Operations' }))
+    expect(await screen.findByRole('menuitem', { name: 'Delete' })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    await user.click(screen.getByRole('tab', { name: 'Organization chart' }))
+    expect(screen.queryByRole('button', { name: 'Add child to Operations' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit Operations' })).not.toBeInTheDocument()
   })
 })

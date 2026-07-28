@@ -186,6 +186,21 @@ describe('Dashboard page', () => {
     expect(requests).not.toContain('/audit/events/stats')
   })
 
+  it('waits for page access before requesting authorized resource totals', async () => {
+    const requests: string[] = []
+    setSession(false)
+    http.defaults.adapter = successAdapter(auditStats, requests)
+
+    renderDashboard()
+
+    await waitFor(() => expect(requests).toEqual([]))
+
+    useMenuStore.getState().setAuthorizedMenus([{ name: 'users', menuType: 'page' }])
+
+    expect(await screen.findByRole('link', { name: 'Users: 12' })).toBeInTheDocument()
+    expect(requests).toEqual(['/users'])
+  })
+
   it('shows loading placeholders without drawing zero charts', async () => {
     setSession()
     useMenuStore.getState().setAuthorizedMenus([], true)

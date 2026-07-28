@@ -21,8 +21,8 @@ interface DepartmentOrgChartProps {
   departments: DeptRecord[]
   isError: boolean
   isLoading: boolean
-  onAddChild: (department: DeptRecord) => void
-  onEdit: (department: DeptRecord) => void
+  onAddChild?: (department: DeptRecord) => void
+  onEdit?: (department: DeptRecord) => void
 }
 
 function countDepartments(items: DeptRecord[]): number {
@@ -49,8 +49,8 @@ interface OrgNodeProps {
   collapsed: Set<number>
   department: DeptRecord
   isRoot?: boolean
-  onAddChild: (department: DeptRecord) => void
-  onEdit: (department: DeptRecord) => void
+  onAddChild?: (department: DeptRecord) => void
+  onEdit?: (department: DeptRecord) => void
   onToggle: (id: number) => void
   parentName?: string
 }
@@ -104,26 +104,32 @@ function OrgNode({ collapsed, department, isRoot = false, onAddChild, onEdit, on
           <IconCircleX className="text-muted-foreground" size={15} />
         )}
       </span>
-      <div className="absolute -right-2 -bottom-3 z-10 flex gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-        <Button
-          aria-label={t('Add child to {{name}}', { name: department.name })}
-          className="border bg-background shadow-sm"
-          onClick={() => onAddChild(department)}
-          size="icon-xs"
-          variant="ghost"
-        >
-          <IconPlus />
-        </Button>
-        <Button
-          aria-label={t('Edit {{name}}', { name: department.name })}
-          className="border bg-background shadow-sm"
-          onClick={() => onEdit(department)}
-          size="icon-xs"
-          variant="ghost"
-        >
-          <IconPencil />
-        </Button>
-      </div>
+      {(onAddChild || onEdit) && (
+        <div className="absolute -right-2 -bottom-3 z-10 flex gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+          {onAddChild && (
+            <Button
+              aria-label={t('Add child to {{name}}', { name: department.name })}
+              className="border bg-background shadow-sm"
+              onClick={() => onAddChild(department)}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <IconPlus />
+            </Button>
+          )}
+          {onEdit && (
+            <Button
+              aria-label={t('Edit {{name}}', { name: department.name })}
+              className="border bg-background shadow-sm"
+              onClick={() => onEdit(department)}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <IconPencil />
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   )
 

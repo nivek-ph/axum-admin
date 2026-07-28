@@ -94,41 +94,42 @@ export function DashboardPage() {
   const [loginChartMode, setLoginChartMode] = useState<LoginChartMode>('area')
   const user = useAuthStore((state) => state.userInfo)
   const canAccess = useMenuStore((state) => state.canAccess)
+  const accessLoaded = useMenuStore((state) => state.accessLoaded)
 
-  const visibleCards = RESOURCE_CARDS.filter((card) => canAccess(card.key))
-  const canAudit = canAccess('audit-events')
+  const visibleCards = accessLoaded ? RESOURCE_CARDS.filter((card) => canAccess(card.key)) : []
+  const canAudit = accessLoaded && canAccess('audit-events')
 
   const resourceQueries = useQueries({
     queries: [
       {
         queryKey: ['dashboard', 'users'],
         queryFn: () => fetchUsers({ page: 1, pageSize: 1 }),
-        enabled: canAccess('users'),
+        enabled: accessLoaded && canAccess('users'),
       },
       {
         queryKey: ['dashboard', 'roles'],
         queryFn: listRoles,
-        enabled: canAccess('roles'),
+        enabled: accessLoaded && canAccess('roles'),
       },
       {
         queryKey: ['dashboard', 'departments'],
         queryFn: listDepartments,
-        enabled: canAccess('departments'),
+        enabled: accessLoaded && canAccess('departments'),
       },
       {
         queryKey: ['dashboard', 'files'],
         queryFn: () => fetchFiles({ page: 1, pageSize: 1 }),
-        enabled: canAccess('files'),
+        enabled: accessLoaded && canAccess('files'),
       },
       {
         queryKey: ['dashboard', 'params'],
         queryFn: () => fetchParams({ page: 1, pageSize: 1 }),
-        enabled: canAccess('params'),
+        enabled: accessLoaded && canAccess('params'),
       },
       {
         queryKey: ['dashboard', 'dictionaries'],
         queryFn: () => fetchDictionaries(),
-        enabled: canAccess('dictionaries'),
+        enabled: accessLoaded && canAccess('dictionaries'),
       },
     ],
   })
