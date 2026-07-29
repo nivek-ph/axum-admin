@@ -13,7 +13,7 @@ use tower_http::request_id::RequestId;
 
 use crate::{
     AppResult,
-    extractors::{client_ip::ClientIp, current_access::CurrentAccess, user_agent::UserAgent},
+    extractors::{client_ip::ClientIp, user_agent::UserAgent},
     mappings::{LOGIN_REQUIRED, PERMISSION_DENIED},
     request_id::request_id_text,
     state::AppState,
@@ -52,29 +52,21 @@ pub async fn require_auth(
             user_agent: agent,
         },
     };
-    let snapshot = state.access.snapshot(claims.user_id).await?;
+    let context = state.access.context(claims.user_id).await?;
     if !is_self_service_endpoint(&method, &path) {
         let permission = state.access.required_permission(&method, &path)?;
-        if !state
-            .authorization
-            .enforce(claims.user_id, permission)
-            .await?
-        {
+        if !state.access.enforce(&context, permission).await? {
             record_access_denied(&state.audits, &audit_context, path).await;
             return Err(PERMISSION_DENIED.into());
         }
     }
 
-    if is_current_menu_endpoint(&method, &path) {
-        request.extensions_mut().insert(CurrentAccess(snapshot));
-    } else {
-        request
-            .extensions_mut()
-            .insert(iam::users::AuthenticatedUser {
-                id: claims.user_id,
-                data_scope: snapshot.data_scope,
-            });
-    }
+    request
+        .extensions_mut()
+        .insert(iam::users::AuthenticatedUser {
+            id: claims.user_id,
+            data_scope: context.data_scope(),
+        });
     request.extensions_mut().insert(audit_context);
     Ok(next.run(request).await)
 }
@@ -106,10 +98,6 @@ fn is_self_service_endpoint(method: &str, path: &str) -> bool {
     )
 }
 
-fn is_current_menu_endpoint(method: &str, path: &str) -> bool {
-    method == "GET" && path == "/api/menus/current"
-}
-
 fn permission_registry_path(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     let normalized = if trimmed.is_empty() { "/api" } else { trimmed };
@@ -133,12 +121,6 @@ mod tests {
         assert!(!is_self_service_endpoint("GET", "/api/users"));
     }
 
-    #[test]
-    fn access_snapshot_is_forwarded_only_to_the_current_menu_route() {
-        assert!(is_current_menu_endpoint("GET", "/api/menus/current"));
-        assert!(!is_current_menu_endpoint("POST", "/api/menus/current"));
-        assert!(!is_current_menu_endpoint("GET", "/api/menus/tree"));
-    }
     #[test]
     fn restores_api_prefix() {
         assert_eq!(

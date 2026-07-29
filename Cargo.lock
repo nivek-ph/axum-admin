@@ -1729,7 +1729,6 @@ dependencies = [
  "audit",
  "auth",
  "casbin",
- "redis 1.2.1",
  "redis-watcher",
  "serde",
  "serde_json",

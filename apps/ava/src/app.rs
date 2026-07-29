@@ -60,7 +60,6 @@ async fn build_state(
     let audits = AuditService::new(pool.clone());
     let dictionaries = DictionaryService::new(pool.clone());
     let parameters = ParameterService::new(pool.clone());
-    let menus = MenuService::new(pool.clone());
     let audit_analyzer = AuditAnalyzer::new(&config.ollama_base_url, &config.ollama_model);
     let files = FileService::new(pool.clone(), "./uploads");
 
@@ -68,9 +67,12 @@ async fn build_state(
     let authorization = Authorization::load(pool.clone())
         .await
         .context("Casbin authorization should initialize")?;
-    let access = AccessService::load(pool.clone(), authorization.clone(), redis_connection)
+    let access = AccessService::load(pool.clone(), authorization.clone())
         .await
-        .context("access catalog and context cache should initialize")?;
+        .context("access catalog should initialize")?;
+    let menus = MenuService::load(pool.clone(), authorization.clone())
+        .await
+        .context("menus should initialize")?;
     authorization
         .start_redis_watcher(&config.redis_url)
         .context("Casbin Redis watcher should initialize")?;
@@ -79,13 +81,12 @@ async fn build_state(
     // 3. IAM services that depend on access / audit / password
     let users = UserService::new(
         pool.clone(),
-        access.clone(),
         authorization.clone(),
         audits.clone(),
         password_service,
     );
     let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
-    let departments = DepartmentService::new(pool, access.clone());
+    let departments = DepartmentService::new(pool);
 
     Ok(api::AppState {
         public_base_url: config.public_base_url(),
@@ -95,7 +96,6 @@ async fn build_state(
         roles,
         departments,
         access,
-        authorization,
         dictionaries,
         parameters,
         menus,

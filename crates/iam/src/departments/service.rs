@@ -1,17 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{CreateDeptPayload, Dept, DeptError, DeptNode, UpdateDeptPayload};
-use crate::access::AccessService;
-
 #[derive(Clone)]
 pub struct DepartmentService {
     pool: sqlx::PgPool,
-    access: AccessService,
 }
 
 impl DepartmentService {
-    pub fn new(pool: sqlx::PgPool, access: AccessService) -> Self {
-        Self { pool, access }
+    pub fn new(pool: sqlx::PgPool) -> Self {
+        Self { pool }
     }
 
     pub async fn tree(&self) -> Result<Vec<DeptNode>, DeptError> {
@@ -23,23 +20,15 @@ impl DepartmentService {
     }
 
     pub async fn create(&self, payload: CreateDeptPayload) -> Result<(), DeptError> {
-        create(&self.pool, payload).await?;
-        self.bump_access_version().await
+        Ok(create(&self.pool, payload).await?)
     }
 
     pub async fn update(&self, id: i64, payload: UpdateDeptPayload) -> Result<(), DeptError> {
-        update(&self.pool, id, payload).await?;
-        self.bump_access_version().await
+        update(&self.pool, id, payload).await
     }
 
     pub async fn delete(&self, id: i64) -> Result<(), DeptError> {
-        delete(&self.pool, id).await?;
-        self.bump_access_version().await
-    }
-
-    async fn bump_access_version(&self) -> Result<(), DeptError> {
-        self.access.bump_version().await?;
-        Ok(())
+        delete(&self.pool, id).await
     }
 }
 

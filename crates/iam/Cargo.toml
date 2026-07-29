@@ -8,7 +8,6 @@ license.workspace = true
 audit.workspace = true
 auth.workspace = true
 casbin.workspace = true
-redis.workspace = true
 redis-watcher.workspace = true
 serde.workspace = true
 serde_json.workspace = true

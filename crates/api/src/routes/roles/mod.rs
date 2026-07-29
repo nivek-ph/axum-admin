@@ -82,10 +82,10 @@ mod tests {
         let redis_url =
             std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
         let client = redis::Client::open(redis_url).unwrap();
-        let access = iam::access::AccessService::load_without_cache(pool.clone())
+        let policy = iam::authorization::Authorization::load(pool.clone())
             .await
             .unwrap();
-        let policy = iam::authorization::Authorization::load(pool.clone())
+        let access = iam::access::AccessService::load(pool.clone(), policy.clone())
             .await
             .unwrap();
         let tokens = auth::token::TokenService::new(
@@ -99,7 +99,6 @@ mod tests {
         let mut state = crate::state::test_state(pool.clone());
         state.tokens = tokens.clone();
         state.access = access.clone();
-        state.authorization = policy.clone();
         state.roles = iam::roles::RoleService::new(pool.clone(), access, policy);
         let app = crate::router::router(state.clone());
         let authorization = format!("Bearer {}", session.access_token);

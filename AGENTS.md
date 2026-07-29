@@ -101,3 +101,17 @@ ADMIN_USERNAME / ADMIN_PASSWORD from the environment
 ```
 
 Before claiming a change is complete, report the exact verification commands that were run and whether they passed.
+
+## Agent skills
+
+### Issue tracker
+
+Specs and implementation issues use the local Markdown tracker under `.notes/`. See `.notes/agents/issue-tracker.md`.
+
+### Triage labels
+
+The local tracker uses the default five-role triage vocabulary. See `.notes/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single domain context rooted at `.notes/CONTEXT.md`, with architectural decisions under `.notes/adr/`. See `.notes/agents/domain.md`.

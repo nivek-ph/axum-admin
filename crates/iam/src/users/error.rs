@@ -1,6 +1,6 @@
 use auth::password::PasswordError;
 
-use crate::{access::AccessPropagationError, authorization::AuthorizationError};
+use crate::authorization::AuthorizationError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UserError {
@@ -18,8 +18,6 @@ pub enum UserError {
     Database(#[from] sqlx::Error),
     #[error(transparent)]
     Audit(#[from] audit::AuditError),
-    #[error(transparent)]
-    AccessPropagation(#[from] AccessPropagationError),
     #[error(transparent)]
     Authorization(#[from] AuthorizationError),
 }

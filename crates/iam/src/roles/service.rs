@@ -7,6 +7,56 @@ use super::{
 };
 use crate::{access::AccessService, authorization::Authorization};
 
+async fn role_menu_ids(pool: &PgPool, role_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+    sqlx::query_scalar("select menu_id from sys_role_menus where role_id = $1 order by menu_id")
+        .bind(role_id)
+        .fetch_all(pool)
+        .await
+}
+
+async fn replace_role_menu_ids(
+    pool: &PgPool,
+    role_id: i64,
+    menu_ids: &[i64],
+) -> Result<(), sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    sqlx::query("delete from sys_role_menus where role_id = $1")
+        .bind(role_id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("insert into sys_role_menus (role_id, menu_id) select $1, unnest($2::bigint[])")
+        .bind(role_id)
+        .bind(menu_ids)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await
+}
+
+async fn role_dept_ids(pool: &PgPool, role_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+    sqlx::query_scalar("select dept_id from sys_role_depts where role_id = $1 order by dept_id")
+        .bind(role_id)
+        .fetch_all(pool)
+        .await
+}
+
+async fn replace_role_dept_ids(
+    pool: &PgPool,
+    role_id: i64,
+    dept_ids: &[i64],
+) -> Result<(), sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    sqlx::query("delete from sys_role_depts where role_id = $1")
+        .bind(role_id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("insert into sys_role_depts (role_id, dept_id) select $1, unnest($2::bigint[])")
+        .bind(role_id)
+        .bind(dept_ids)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await
+}
+
 #[derive(Clone)]
 pub struct RoleService {
     pool: PgPool,
@@ -28,9 +78,7 @@ impl RoleService {
     }
 
     pub async fn create(&self, p: RolePayload) -> Result<RoleSummary, RoleError> {
-        let role = create(&self.pool, p).await?;
-        self.bump_access_version().await?;
-        Ok(role)
+        create(&self.pool, p).await
     }
 
     pub async fn update(&self, id: i64, p: RolePayload) -> Result<RoleSummary, RoleError> {
@@ -57,28 +105,23 @@ impl RoleService {
         .bind(id)
         .fetch_one(&self.pool)
         .await?;
-        self.authorization.refresh().await?;
-        self.bump_access_version().await?;
         Ok(role)
     }
 
     pub async fn delete(&self, id: i64) -> Result<(), RoleError> {
         ensure_mutable(&self.pool, id).await?;
-        let mut transaction = self.pool.begin().await?;
-        self.authorization
-            .remove_role_in(&mut transaction, id)
-            .await?;
+        let mut mutation = self.authorization.begin_mutation().await?;
+        mutation.remove_role(id).await?;
         sqlx::query("delete from sys_roles where id = $1")
             .bind(id)
-            .execute(&mut *transaction)
+            .execute(mutation.connection())
             .await?;
-        transaction.commit().await?;
-        self.authorization.refresh().await?;
-        self.bump_access_version().await
+        Ok(mutation.commit().await?)
     }
 
     pub async fn menu_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
-        ids(&self.pool, id, "sys_role_menus", "menu_id").await
+        self.ensure_exists(id).await?;
+        Ok(role_menu_ids(&self.pool, id).await?)
     }
 
     pub async fn menu_access(&self, id: i64) -> Result<RoleMenuAccess, RoleError> {
@@ -86,7 +129,7 @@ impl RoleService {
         let menu_ids = if role.is_system {
             Vec::new()
         } else {
-            ids(&self.pool, id, "sys_role_menus", "menu_id").await?
+            role_menu_ids(&self.pool, id).await?
         };
         let configured = menu_ids.iter().copied().collect::<BTreeSet<_>>();
         let effective_menu_ids = self
@@ -106,8 +149,7 @@ impl RoleService {
         let values = normalize(values);
         self.access
             .validate_menu_assignment(&values.iter().copied().collect())?;
-        replace(&self.pool, id, "sys_role_menus", "menu_id", values).await?;
-        self.bump_access_version().await
+        Ok(replace_role_menu_ids(&self.pool, id, &values).await?)
     }
 
     pub async fn permissions(&self, id: i64) -> Result<RolePermissions, RoleError> {
@@ -163,17 +205,18 @@ impl RoleService {
         self.authorization
             .replace_role_permissions(id, permissions)
             .await?;
-        self.bump_access_version().await
+        Ok(())
     }
 
     pub async fn dept_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
-        ids(&self.pool, id, "sys_role_depts", "dept_id").await
+        self.ensure_exists(id).await?;
+        Ok(role_dept_ids(&self.pool, id).await?)
     }
 
     pub async fn set_dept_ids(&self, id: i64, v: Vec<i64>) -> Result<(), RoleError> {
         ensure_mutable(&self.pool, id).await?;
-        replace(&self.pool, id, "sys_role_depts", "dept_id", normalize(v)).await?;
-        self.bump_access_version().await
+        replace_role_dept_ids(&self.pool, id, &normalize(v)).await?;
+        Ok(())
     }
 
     pub async fn user_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
@@ -195,11 +238,11 @@ impl RoleService {
         self.authorization
             .replace_role_users(id, user_ids.into_iter().collect())
             .await?;
-        self.bump_access_version().await
+        Ok(())
     }
 
-    async fn bump_access_version(&self) -> Result<(), RoleError> {
-        self.access.bump_version().await?;
+    async fn ensure_exists(&self, id: i64) -> Result<(), RoleError> {
+        find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
         Ok(())
     }
 }
@@ -234,55 +277,6 @@ async fn ensure_mutable(pool: &PgPool, id: i64) -> Result<(), RoleError> {
     }
 }
 
-async fn ids(
-    pool: &PgPool,
-    role_id: i64,
-    table: &str,
-    column: &str,
-) -> Result<Vec<i64>, RoleError> {
-    if find(pool, role_id).await?.is_none() {
-        return Err(RoleError::NotFound);
-    }
-    let sql = format!("SELECT {column} FROM {table} WHERE role_id=$1 ORDER BY {column}");
-    Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(role_id)
-        .fetch_all(pool)
-        .await?)
-}
-
-async fn replace(
-    pool: &PgPool,
-    role_id: i64,
-    table: &str,
-    column: &str,
-    values: Vec<i64>,
-) -> Result<(), RoleError> {
-    let mut tx = pool.begin().await?;
-    let del = format!("DELETE FROM {table} WHERE role_id=$1");
-    sqlx::query(sqlx::AssertSqlSafe(del))
-        .bind(role_id)
-        .execute(&mut *tx)
-        .await?;
-    if !values.is_empty() {
-        let insert = if column == "user_id" {
-            format!(
-                "INSERT INTO {table}(user_id,role_id) SELECT unnest($2::bigint[]),$1 ON CONFLICT DO NOTHING"
-            )
-        } else {
-            format!(
-                "INSERT INTO {table}(role_id,{column}) SELECT $1,unnest($2::bigint[]) ON CONFLICT DO NOTHING"
-            )
-        };
-        sqlx::query(sqlx::AssertSqlSafe(insert))
-            .bind(role_id)
-            .bind(&values)
-            .execute(&mut *tx)
-            .await?;
-    }
-    tx.commit().await?;
-    Ok(())
-}
-
 fn normalize(v: Vec<i64>) -> Vec<i64> {
     v.into_iter()
         .filter(|v| *v > 0)
@@ -294,7 +288,10 @@ fn normalize(v: Vec<i64>) -> Vec<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::access::{AccessCatalog, AccessNode};
+    use crate::{
+        access::{AccessCatalog, AccessNode},
+        menus::MenuService,
+    };
 
     #[test]
     fn normalizes_ids() {
@@ -373,8 +370,8 @@ mod tests {
             Vec::new(),
         )
         .unwrap();
-        let access = AccessService::with_catalog(pool.clone(), catalog);
         let authorization = Authorization::new(pool.clone());
+        let access = AccessService::with_catalog(pool.clone(), authorization.clone(), catalog);
         let service = RoleService::new(pool, access, authorization);
         service.set_menu_ids(2, vec![11, 10, 11]).await.unwrap();
         service.set_dept_ids(2, vec![3, 3, 0]).await.unwrap();
@@ -432,10 +429,10 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let access = AccessService::load_without_cache(pool.clone())
+        let authorization = Authorization::load(pool.clone()).await.unwrap();
+        let access = AccessService::load(pool.clone(), authorization.clone())
             .await
             .unwrap();
-        let authorization = Authorization::load(pool.clone()).await.unwrap();
         let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
 
         roles
@@ -466,8 +463,9 @@ mod tests {
                 .await
                 .unwrap()
         );
-        let snapshot = access.snapshot(100).await.unwrap();
-        assert!(snapshot.menu_ids.is_empty());
+        let menus = MenuService::load(pool, authorization).await.unwrap();
+        let (navigation, _) = menus.current(100).await.unwrap();
+        assert!(navigation.is_empty());
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -504,10 +502,10 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let access = AccessService::load_without_cache(pool.clone())
+        let authorization = Authorization::load(pool.clone()).await.unwrap();
+        let access = AccessService::load(pool.clone(), authorization.clone())
             .await
             .unwrap();
-        let authorization = Authorization::load(pool.clone()).await.unwrap();
         let roles = RoleService::new(pool.clone(), access, authorization);
 
         roles.delete(2).await.unwrap();
@@ -529,10 +527,10 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn system_role_is_dynamic_and_never_exposes_wildcard(pool: PgPool) {
-        let access = AccessService::load_without_cache(pool.clone())
+        let authorization = Authorization::load(pool.clone()).await.unwrap();
+        let access = AccessService::load(pool.clone(), authorization.clone())
             .await
             .unwrap();
-        let authorization = Authorization::load(pool.clone()).await.unwrap();
         let roles = RoleService::new(pool, access, authorization);
 
         let page_access = roles.menu_access(1).await.unwrap();

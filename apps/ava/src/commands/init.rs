@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use audit::AuditService;
 use auth::password::PasswordService;
 use clap::{Parser, builder::NonEmptyStringValueParser};
-use iam::{access::AccessService, authorization::Authorization, users::UserService};
+use iam::{authorization::Authorization, users::UserService};
 use tracing::info;
 
 #[derive(Debug, Clone, Parser)]
@@ -55,12 +55,11 @@ pub(crate) async fn execute(config: InitConfig) -> Result<()> {
         .await
         .context("database migrations should run")?;
 
-    let access = AccessService::new(pool.clone());
-    let audit = AuditService::new(pool.clone());
     let authorization = Authorization::load(pool.clone())
         .await
         .context("Casbin authorization should initialize")?;
-    UserService::new(pool, access, authorization, audit, PasswordService::new())
+    let audit = AuditService::new(pool.clone());
+    UserService::new(pool, authorization, audit, PasswordService::new())
         .ensure_admin(
             &config.admin_username,
             &config.admin_password,

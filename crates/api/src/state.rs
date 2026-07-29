@@ -2,8 +2,8 @@ use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, token::TokenService};
 use file_storage::files::FileService;
 use iam::{
-    access::AccessService, authorization::Authorization, departments::DepartmentService,
-    menus::MenuService, roles::RoleService, users::UserService,
+    access::AccessService, departments::DepartmentService, menus::MenuService, roles::RoleService,
+    users::UserService,
 };
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
 
@@ -16,7 +16,6 @@ pub struct AppState {
     pub roles: RoleService,
     pub departments: DepartmentService,
     pub access: AccessService,
-    pub authorization: Authorization,
     pub dictionaries: DictionaryService,
     pub parameters: ParameterService,
     pub menus: MenuService,
@@ -28,21 +27,20 @@ pub struct AppState {
 #[cfg(test)]
 pub(crate) fn test_state(pool: sqlx::PgPool) -> AppState {
     let passwords = auth::password::PasswordService::new();
-    let access = AccessService::new(pool.clone());
-    let authorization = Authorization::new(pool.clone());
+    let authorization = iam::authorization::Authorization::new(pool.clone());
+    let access = AccessService::without_catalog_for_tests(pool.clone(), authorization.clone());
     let audits = AuditService::new(pool.clone());
     let users = UserService::new(
         pool.clone(),
-        access.clone(),
         authorization.clone(),
         audits.clone(),
         passwords,
     );
     let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
-    let departments = DepartmentService::new(pool.clone(), access.clone());
+    let departments = DepartmentService::new(pool.clone());
     let dictionaries = DictionaryService::new(pool.clone());
     let parameters = ParameterService::new(pool.clone());
-    let menus = MenuService::new(pool.clone());
+    let menus = MenuService::without_catalog_for_tests(pool.clone(), authorization.clone());
     let files = FileService::new(pool, "./uploads");
     AppState {
         public_base_url: "http://127.0.0.1:3000".to_string(),
@@ -52,7 +50,6 @@ pub(crate) fn test_state(pool: sqlx::PgPool) -> AppState {
         roles,
         departments,
         access,
-        authorization,
         dictionaries,
         parameters,
         menus,

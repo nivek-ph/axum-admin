@@ -16,18 +16,17 @@ fn test_state() -> api::AppState {
     let passwords = auth::password::PasswordService::new();
     let tokens = auth::token::TokenService::without_session_store("test-secret");
     let captcha = auth::captcha::CaptchaService::without_store();
-    let access = AccessService::new(pool.clone());
     let authorization = Authorization::new(pool.clone());
+    let access = AccessService::without_catalog_for_tests(pool.clone(), authorization.clone());
     let audits = audit::AuditService::new(pool.clone());
     let users = UserService::new(
         pool.clone(),
-        access.clone(),
         authorization.clone(),
         audits.clone(),
         passwords,
     );
     let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
-    let departments = DepartmentService::new(pool.clone(), access.clone());
+    let departments = DepartmentService::new(pool.clone());
     api::AppState {
         public_base_url: "http://127.0.0.1:3000".to_string(),
         tokens,
@@ -36,10 +35,9 @@ fn test_state() -> api::AppState {
         roles,
         departments,
         access,
-        authorization,
         dictionaries: metadata::dictionaries::DictionaryService::new(pool.clone()),
         parameters: metadata::parameters::ParameterService::new(pool.clone()),
-        menus: iam::menus::MenuService::new(pool.clone()),
+        menus: iam::menus::MenuService::without_catalog_for_tests(pool.clone(), authorization),
         audits,
         audit_analyzer: audit::AuditAnalyzer::new("http://127.0.0.1:9/v1", "test"),
         files: file_storage::files::FileService::new(pool, "./uploads"),

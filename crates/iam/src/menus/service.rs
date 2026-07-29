@@ -1,29 +1,97 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    sync::Arc,
+};
 
 use sqlx::PgPool;
 
 use super::{ApiBinding, MenuError, MenuMeta, MenuRecord, MenuView};
-use crate::access::AccessSnapshot;
+use crate::{
+    access::{AccessCatalog, AccessInitError},
+    authorization::Authorization,
+};
 
 #[derive(Clone)]
 pub struct MenuService {
     pool: PgPool,
+    catalog: Arc<AccessCatalog>,
+    authorization: Authorization,
 }
 
 impl MenuService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    #[doc(hidden)]
+    pub fn without_catalog_for_tests(pool: PgPool, authorization: Authorization) -> Self {
+        Self {
+            pool,
+            catalog: Arc::new(AccessCatalog::new(Vec::new()).expect("empty catalog is valid")),
+            authorization,
+        }
     }
 
-    pub async fn current(
-        &self,
-        snapshot: AccessSnapshot,
-    ) -> Result<(Vec<MenuView>, Vec<String>), MenuError> {
-        let allowed = snapshot.menu_ids.iter().copied().collect::<HashSet<_>>();
+    pub async fn load(pool: PgPool, authorization: Authorization) -> Result<Self, AccessInitError> {
+        Ok(Self {
+            catalog: Arc::new(AccessCatalog::load(&pool).await?),
+            authorization,
+            pool,
+        })
+    }
+
+    pub async fn current(&self, user_id: i64) -> Result<(Vec<MenuView>, Vec<String>), MenuError> {
+        let active_role_ids = self.authorization.active_user_role_ids(user_id).await?;
+        let system_managed = sqlx::query_scalar::<_, bool>(
+            r#"
+            select exists(
+                select 1
+                from sys_roles
+                where id = any($1) and is_system
+            )
+            "#,
+        )
+        .bind(&active_role_ids)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(MenuError::NavigationUnavailable)?;
+        let menu_ids = if system_managed {
+            self.catalog.system_page_access()
+        } else {
+            let configured = sqlx::query_scalar::<_, i64>(
+                r#"
+                select distinct menu_id
+                from sys_role_menus
+                where role_id = any($1)
+                order by menu_id
+                "#,
+            )
+            .bind(&active_role_ids)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(MenuError::NavigationUnavailable)?
+            .into_iter()
+            .collect::<HashSet<_>>();
+            self.catalog.effective_page_access(&configured, true)
+        };
+        let effective_permissions = self
+            .authorization
+            .effective_permissions_for(user_id, &active_role_ids)
+            .await?;
+        let permissions = if system_managed {
+            self.catalog
+                .enabled_permissions()
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        } else {
+            let enabled_permissions = self.catalog.enabled_permissions();
+            effective_permissions
+                .into_iter()
+                .filter(|permission| enabled_permissions.contains(permission))
+                .collect()
+        };
+        let allowed = menu_ids.into_iter().collect::<HashSet<_>>();
         let records = load_records(&self.pool).await?;
         Ok((
             build_tree(records, Some(&allowed), false),
-            snapshot.permissions.into_iter().collect(),
+            permissions.into_iter().collect(),
         ))
     }
 
@@ -173,5 +241,55 @@ mod tests {
 
         assert_eq!(tree[0].children[0].status, "disabled");
         assert_eq!(tree[0].children[0].children[0].status, "disabled");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn current_navigation_uses_page_access_and_effective_permissions(pool: PgPool) {
+        sqlx::query(
+            r#"
+            insert into sys_users (
+                id, uuid, username, password_hash, nick_name, header_img,
+                enable, dept_id, is_system
+            )
+            values (9001, 'menu-user', 'menu-user', 'hash', 'Menu User', '', true, 1, false)
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "insert into sys_roles (id, name, code, status, is_system) values (9001, 'Menu Role', 'menu-role', 'enabled', false)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("insert into sys_role_menus (role_id, menu_id) values (9001, 10), (9001, 11)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"
+            insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+            values
+                ('g', 'user:9001', 'role:9001', '', '', '', ''),
+                ('p', 'role:9001', 'system:user:list', '', '', '', '')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let authorization = crate::authorization::Authorization::load(pool.clone())
+            .await
+            .unwrap();
+        let menus = MenuService::load(pool, authorization).await.unwrap();
+
+        let (tree, permissions) = menus.current(9001).await.unwrap();
+
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].id, 10);
+        assert_eq!(tree[0].children.len(), 1);
+        assert_eq!(tree[0].children[0].id, 11);
+        assert_eq!(permissions, vec!["system:user:list"]);
     }
 }

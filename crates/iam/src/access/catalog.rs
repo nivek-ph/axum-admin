@@ -1,5 +1,26 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use sqlx::{FromRow, PgPool};
+
+use super::AccessInitError;
+
+#[derive(Debug, FromRow)]
+struct CatalogNodeRow {
+    id: i64,
+    parent_id: Option<i64>,
+    title: String,
+    menu_type: String,
+    status: String,
+    permission: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct CatalogBindingRow {
+    menu_id: i64,
+    method: String,
+    path_pattern: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccessNode {
     pub id: i64,
@@ -61,6 +82,37 @@ pub struct AccessCatalog {
 }
 
 impl AccessCatalog {
+    pub(crate) async fn load(pool: &PgPool) -> Result<Self, AccessInitError> {
+        let nodes = sqlx::query_as::<_, CatalogNodeRow>(
+            "select id, parent_id, title, menu_type, status, permission from sys_menus order by id",
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| AccessNode {
+            id: row.id,
+            parent_id: row.parent_id,
+            title: row.title,
+            menu_type: row.menu_type,
+            status: row.status,
+            permission: row.permission,
+        })
+        .collect();
+        let bindings = sqlx::query_as::<_, CatalogBindingRow>(
+            "select menu_id, method, path_pattern from sys_menu_apis order by method, path_pattern",
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| AccessBinding {
+            menu_id: row.menu_id,
+            method: row.method,
+            path: row.path_pattern,
+        })
+        .collect();
+        Ok(Self::from_parts(nodes, bindings)?)
+    }
+
     pub fn new(bindings: Vec<AccessBinding>) -> Result<Self, CatalogError> {
         Self::build(
             bindings,
