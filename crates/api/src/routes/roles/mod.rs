@@ -85,7 +85,7 @@ mod tests {
         let policy = iam::authorization::Authorization::load(pool.clone())
             .await
             .unwrap();
-        let access = iam::access::AccessService::load(pool.clone(), policy.clone())
+        let (access, _) = iam::load_access_and_menus(pool.clone(), policy.clone())
             .await
             .unwrap();
         let tokens = auth::token::TokenService::new(

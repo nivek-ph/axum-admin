@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use sqlx::PgPool;
 
 use super::{
-    AccessEvaluationError, AccessInitError,
+    AccessEvaluationError,
     catalog::{AccessCatalog, CatalogError, PermissionCatalogEntry},
 };
 use crate::{access::scope::ResolvedDataScope, authorization::Authorization};
@@ -29,12 +29,15 @@ pub struct AccessService {
 }
 
 impl AccessService {
-    #[doc(hidden)]
-    pub fn without_catalog_for_tests(pool: PgPool, authorization: Authorization) -> Self {
+    pub(crate) fn from_catalog(
+        pool: PgPool,
+        authorization: Authorization,
+        catalog: Arc<AccessCatalog>,
+    ) -> Self {
         Self {
             authorization,
             pool,
-            catalog: Arc::new(AccessCatalog::new(Vec::new()).expect("empty catalog is valid")),
+            catalog,
         }
     }
 
@@ -49,14 +52,6 @@ impl AccessService {
             pool,
             catalog: Arc::new(catalog),
         }
-    }
-
-    pub async fn load(pool: PgPool, authorization: Authorization) -> Result<Self, AccessInitError> {
-        Ok(Self {
-            catalog: Arc::new(AccessCatalog::load(&pool).await?),
-            authorization,
-            pool,
-        })
     }
 
     pub async fn context(&self, user_id: i64) -> Result<AccessContext, AccessEvaluationError> {
@@ -168,7 +163,7 @@ mod tests {
         .await
         .unwrap();
         let authorization = Authorization::load(pool.clone()).await.unwrap();
-        let access = AccessService::load(pool.clone(), authorization)
+        let (access, _) = crate::load_access_and_menus(pool.clone(), authorization)
             .await
             .unwrap();
 

@@ -6,10 +6,7 @@ use std::{
 use sqlx::PgPool;
 
 use super::{ApiBinding, MenuError, MenuMeta, MenuRecord, MenuView};
-use crate::{
-    access::{AccessCatalog, AccessInitError},
-    authorization::Authorization,
-};
+use crate::{access::AccessCatalog, authorization::Authorization};
 
 #[derive(Clone)]
 pub struct MenuService {
@@ -19,21 +16,16 @@ pub struct MenuService {
 }
 
 impl MenuService {
-    #[doc(hidden)]
-    pub fn without_catalog_for_tests(pool: PgPool, authorization: Authorization) -> Self {
+    pub(crate) fn from_catalog(
+        pool: PgPool,
+        authorization: Authorization,
+        catalog: Arc<AccessCatalog>,
+    ) -> Self {
         Self {
             pool,
-            catalog: Arc::new(AccessCatalog::new(Vec::new()).expect("empty catalog is valid")),
+            catalog,
             authorization,
         }
-    }
-
-    pub async fn load(pool: PgPool, authorization: Authorization) -> Result<Self, AccessInitError> {
-        Ok(Self {
-            catalog: Arc::new(AccessCatalog::load(&pool).await?),
-            authorization,
-            pool,
-        })
     }
 
     pub async fn current(&self, user_id: i64) -> Result<(Vec<MenuView>, Vec<String>), MenuError> {
@@ -49,8 +41,7 @@ impl MenuService {
         )
         .bind(&active_role_ids)
         .fetch_one(&self.pool)
-        .await
-        .map_err(MenuError::NavigationUnavailable)?;
+        .await?;
         let menu_ids = if system_managed {
             self.catalog.system_page_access()
         } else {
@@ -64,8 +55,7 @@ impl MenuService {
             )
             .bind(&active_role_ids)
             .fetch_all(&self.pool)
-            .await
-            .map_err(MenuError::NavigationUnavailable)?
+            .await?
             .into_iter()
             .collect::<HashSet<_>>();
             self.catalog.effective_page_access(&configured, true)
@@ -282,7 +272,9 @@ mod tests {
         let authorization = crate::authorization::Authorization::load(pool.clone())
             .await
             .unwrap();
-        let menus = MenuService::load(pool, authorization).await.unwrap();
+        let (_, menus) = crate::load_access_and_menus(pool, authorization)
+            .await
+            .unwrap();
 
         let (tree, permissions) = menus.current(9001).await.unwrap();
 

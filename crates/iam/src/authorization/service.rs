@@ -332,7 +332,6 @@ impl Authorization {
         let active_roles = active_role_ids
             .iter()
             .copied()
-            .into_iter()
             .map(role_subject)
             .collect::<Vec<_>>();
         let state = self.state.read().await;

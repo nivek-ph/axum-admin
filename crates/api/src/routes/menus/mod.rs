@@ -31,9 +31,11 @@ mod tests {
             .await
             .unwrap();
         let mut state = crate::state::test_state(pool.clone());
-        state.menus = iam::menus::MenuService::load(pool, authorization)
+        let (access, menus) = iam::load_access_and_menus(pool, authorization)
             .await
             .unwrap();
+        state.access = access;
+        state.menus = menus;
         let response = routes()
             .with_state(state)
             .oneshot(

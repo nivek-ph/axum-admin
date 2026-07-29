@@ -3,8 +3,8 @@ use axum::{
     http::{Method, Request, header},
 };
 use iam::{
-    access::AccessService, authorization::Authorization, departments::DepartmentService,
-    roles::RoleService, users::UserService,
+    authorization::Authorization, departments::DepartmentService, roles::RoleService,
+    users::UserService,
 };
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde_json::json;
@@ -17,7 +17,8 @@ fn test_state() -> api::AppState {
     let tokens = auth::token::TokenService::without_session_store("test-secret");
     let captcha = auth::captcha::CaptchaService::without_store();
     let authorization = Authorization::new(pool.clone());
-    let access = AccessService::without_catalog_for_tests(pool.clone(), authorization.clone());
+    let (access, menus) =
+        iam::access_and_menus_without_catalog_for_tests(pool.clone(), authorization.clone());
     let audits = audit::AuditService::new(pool.clone());
     let users = UserService::new(
         pool.clone(),
@@ -37,7 +38,7 @@ fn test_state() -> api::AppState {
         access,
         dictionaries: metadata::dictionaries::DictionaryService::new(pool.clone()),
         parameters: metadata::parameters::ParameterService::new(pool.clone()),
-        menus: iam::menus::MenuService::without_catalog_for_tests(pool.clone(), authorization),
+        menus,
         audits,
         audit_analyzer: audit::AuditAnalyzer::new("http://127.0.0.1:9/v1", "test"),
         files: file_storage::files::FileService::new(pool, "./uploads"),

@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use sqlx::{FromRow, PgPool};
 
-use super::AccessInitError;
+use crate::IamInitError;
 
 #[derive(Debug, FromRow)]
 struct CatalogNodeRow {
@@ -82,7 +82,7 @@ pub struct AccessCatalog {
 }
 
 impl AccessCatalog {
-    pub(crate) async fn load(pool: &PgPool) -> Result<Self, AccessInitError> {
+    pub(crate) async fn load(pool: &PgPool) -> Result<Self, IamInitError> {
         let nodes = sqlx::query_as::<_, CatalogNodeRow>(
             "select id, parent_id, title, menu_type, status, permission from sys_menus order by id",
         )

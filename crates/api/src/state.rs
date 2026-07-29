@@ -28,7 +28,8 @@ pub struct AppState {
 pub(crate) fn test_state(pool: sqlx::PgPool) -> AppState {
     let passwords = auth::password::PasswordService::new();
     let authorization = iam::authorization::Authorization::new(pool.clone());
-    let access = AccessService::without_catalog_for_tests(pool.clone(), authorization.clone());
+    let (access, menus) =
+        iam::access_and_menus_without_catalog_for_tests(pool.clone(), authorization.clone());
     let audits = AuditService::new(pool.clone());
     let users = UserService::new(
         pool.clone(),
@@ -40,7 +41,6 @@ pub(crate) fn test_state(pool: sqlx::PgPool) -> AppState {
     let departments = DepartmentService::new(pool.clone());
     let dictionaries = DictionaryService::new(pool.clone());
     let parameters = ParameterService::new(pool.clone());
-    let menus = MenuService::without_catalog_for_tests(pool.clone(), authorization.clone());
     let files = FileService::new(pool, "./uploads");
     AppState {
         public_base_url: "http://127.0.0.1:3000".to_string(),

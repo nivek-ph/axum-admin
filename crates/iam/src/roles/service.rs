@@ -288,10 +288,7 @@ fn normalize(v: Vec<i64>) -> Vec<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        access::{AccessCatalog, AccessNode},
-        menus::MenuService,
-    };
+    use crate::access::{AccessCatalog, AccessNode};
 
     #[test]
     fn normalizes_ids() {
@@ -430,7 +427,7 @@ mod tests {
             .await
             .unwrap();
         let authorization = Authorization::load(pool.clone()).await.unwrap();
-        let access = AccessService::load(pool.clone(), authorization.clone())
+        let (access, menus) = crate::load_access_and_menus(pool.clone(), authorization.clone())
             .await
             .unwrap();
         let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
@@ -463,7 +460,6 @@ mod tests {
                 .await
                 .unwrap()
         );
-        let menus = MenuService::load(pool, authorization).await.unwrap();
         let (navigation, _) = menus.current(100).await.unwrap();
         assert!(navigation.is_empty());
     }
@@ -503,7 +499,7 @@ mod tests {
         .await
         .unwrap();
         let authorization = Authorization::load(pool.clone()).await.unwrap();
-        let access = AccessService::load(pool.clone(), authorization.clone())
+        let (access, _) = crate::load_access_and_menus(pool.clone(), authorization.clone())
             .await
             .unwrap();
         let roles = RoleService::new(pool.clone(), access, authorization);
@@ -528,7 +524,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn system_role_is_dynamic_and_never_exposes_wildcard(pool: PgPool) {
         let authorization = Authorization::load(pool.clone()).await.unwrap();
-        let access = AccessService::load(pool.clone(), authorization.clone())
+        let (access, _) = crate::load_access_and_menus(pool.clone(), authorization.clone())
             .await
             .unwrap();
         let roles = RoleService::new(pool, access, authorization);

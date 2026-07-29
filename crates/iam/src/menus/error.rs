@@ -4,8 +4,6 @@ pub enum MenuError {
     NotFound,
     #[error("{0}")]
     Database(#[from] sqlx::Error),
-    #[error("current navigation is unavailable")]
-    NavigationUnavailable(#[source] sqlx::Error),
     #[error(transparent)]
     Authorization(#[from] crate::authorization::AuthorizationError),
     #[error("invalid menu payload")]

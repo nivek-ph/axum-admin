@@ -5,8 +5,8 @@ use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
 use file_storage::files::FileService;
 use iam::{
-    access::AccessService, authorization::Authorization, departments::DepartmentService,
-    menus::MenuService, roles::RoleService, users::UserService,
+    authorization::Authorization, departments::DepartmentService, roles::RoleService,
+    users::UserService,
 };
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
 use tracing::info;
@@ -67,12 +67,9 @@ async fn build_state(
     let authorization = Authorization::load(pool.clone())
         .await
         .context("Casbin authorization should initialize")?;
-    let access = AccessService::load(pool.clone(), authorization.clone())
+    let (access, menus) = iam::load_access_and_menus(pool.clone(), authorization.clone())
         .await
-        .context("access catalog should initialize")?;
-    let menus = MenuService::load(pool.clone(), authorization.clone())
-        .await
-        .context("menus should initialize")?;
+        .context("IAM access catalog should initialize")?;
     authorization
         .start_redis_watcher(&config.redis_url)
         .context("Casbin Redis watcher should initialize")?;

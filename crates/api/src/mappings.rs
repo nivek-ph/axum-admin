@@ -230,9 +230,6 @@ impl From<iam::menus::MenuError> for AppError {
                 ErrorSpec::validation("MENU_INVALID_PAYLOAD", "invalid menu payload").into()
             }
             MenuError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            MenuError::NavigationUnavailable(source) => {
-                AUTHORIZATION_UNAVAILABLE.into_error().with_source(source)
-            }
             MenuError::Authorization(source) => source.into(),
         }
     }
@@ -436,10 +433,10 @@ mod tests {
         let pool = sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1/ava")
             .expect("lazy pool should construct");
         let authorization = iam::authorization::Authorization::new(pool.clone());
-        let catalog_error =
-            iam::access::AccessService::without_catalog_for_tests(pool, authorization)
-                .required_menu("GET", "/api/unbound")
-                .expect_err("an empty catalog should reject an unbound route");
+        let (access, _) = iam::access_and_menus_without_catalog_for_tests(pool, authorization);
+        let catalog_error = access
+            .required_menu("GET", "/api/unbound")
+            .expect_err("an empty catalog should reject an unbound route");
 
         let cases = [
             (
@@ -465,16 +462,6 @@ mod tests {
             assert_eq!(error.status(), status);
             assert_eq!(error.code(), code);
         }
-    }
-
-    #[test]
-    fn current_navigation_database_failure_remains_authorization_unavailable() {
-        let error = AppError::from(iam::menus::MenuError::NavigationUnavailable(
-            sqlx::Error::PoolClosed,
-        ));
-
-        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
     }
 
     #[test]
