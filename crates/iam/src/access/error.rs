@@ -12,4 +12,6 @@ pub enum AccessEvaluationError {
     UserNotFound,
     #[error("authorization user is disabled")]
     UserDisabled,
+    #[error("request permission is denied")]
+    PermissionDenied { path: String },
 }

@@ -80,6 +80,7 @@ impl From<iam::access::AccessEvaluationError> for AppError {
             AccessEvaluationError::Authorization(source) => source.into(),
             AccessEvaluationError::UserNotFound => SESSION_INVALID.into(),
             AccessEvaluationError::UserDisabled => USER_DISABLED.into(),
+            AccessEvaluationError::PermissionDenied { .. } => PERMISSION_DENIED.into(),
             AccessEvaluationError::Catalog(source) => AUTHORIZATION_CONFIG_INVALID
                 .into_error()
                 .with_source(source),
@@ -428,26 +429,13 @@ mod tests {
         assert_eq!(error.message(), "uploaded file is too large");
     }
 
-    #[tokio::test]
-    async fn access_evaluation_contract_separates_config_and_availability_failures() {
-        let pool = sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1/ava")
-            .expect("lazy pool should construct");
-        let authorization = iam::authorization::Authorization::new(pool.clone());
-        let (access, _) = iam::access_and_menus_without_catalog_for_tests(pool, authorization);
-        let catalog_error = access
-            .required_menu("GET", "/api/unbound")
-            .expect_err("an empty catalog should reject an unbound route");
-
+    #[test]
+    fn access_evaluation_contract_separates_identity_and_availability_failures() {
         let cases = [
             (
                 AppError::from(iam::access::AccessEvaluationError::UserDisabled),
                 StatusCode::FORBIDDEN,
                 "USER_DISABLED",
-            ),
-            (
-                AppError::from(catalog_error),
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "AUTHORIZATION_CONFIG_INVALID",
             ),
             (
                 AppError::from(iam::access::AccessEvaluationError::Database(

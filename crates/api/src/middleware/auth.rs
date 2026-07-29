@@ -14,7 +14,7 @@ use tower_http::request_id::RequestId;
 use crate::{
     AppResult,
     extractors::{client_ip::ClientIp, user_agent::UserAgent},
-    mappings::{LOGIN_REQUIRED, PERMISSION_DENIED},
+    mappings::LOGIN_REQUIRED,
     request_id::request_id_text,
     state::AppState,
 };
@@ -36,8 +36,8 @@ pub async fn require_auth(
     mut request: Request,
     next: Next,
 ) -> AppResult<Response> {
-    let method = request.method().as_str().to_uppercase();
-    let path = permission_registry_path(request.uri().path());
+    let method = request.method().as_str();
+    let path = request.uri().path();
     let headers = request.headers();
     let token = extract_bearer_token(headers).ok_or(LOGIN_REQUIRED)?;
     let claims = state.tokens.decode_active(token).await?;
@@ -52,14 +52,14 @@ pub async fn require_auth(
             user_agent: agent,
         },
     };
-    let context = state.access.context(claims.user_id).await?;
-    if !is_self_service_endpoint(&method, &path) {
-        let permission = state.access.required_permission(&method, &path)?;
-        if !state.access.enforce(&context, permission).await? {
-            record_access_denied(&state.audits, &audit_context, path).await;
-            return Err(PERMISSION_DENIED.into());
+    let context = match state.access.evaluate(claims.user_id, method, path).await {
+        Ok(context) => context,
+        Err(iam::access::AccessEvaluationError::PermissionDenied { path }) => {
+            record_access_denied(&state.audits, &audit_context, path.clone()).await;
+            return Err(iam::access::AccessEvaluationError::PermissionDenied { path }.into());
         }
-    }
+        Err(error) => return Err(error.into()),
+    };
 
     request
         .extensions_mut()
@@ -86,48 +86,9 @@ async fn record_access_denied(audits: &audit::AuditService, context: &AuditConte
         .await;
 }
 
-fn is_self_service_endpoint(method: &str, path: &str) -> bool {
-    matches!(
-        (method, path),
-        ("GET", "/api/users/me")
-            | ("PUT", "/api/users/me")
-            | ("PUT", "/api/users/me/password")
-            | ("PUT", "/api/users/me/settings")
-            | ("GET", "/api/menus/current")
-            | ("POST", "/api/auth/logout")
-    )
-}
-
-fn permission_registry_path(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    let normalized = if trimmed.is_empty() { "/api" } else { trimmed };
-    if normalized == "/api" || normalized.starts_with("/api/") {
-        normalized.to_string()
-    } else if normalized.starts_with('/') {
-        format!("/api{normalized}")
-    } else {
-        format!("/api/{normalized}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn self_service_is_explicit() {
-        assert!(is_self_service_endpoint("GET", "/api/users/me"));
-        assert!(is_self_service_endpoint("GET", "/api/menus/current"));
-        assert!(!is_self_service_endpoint("GET", "/api/users"));
-    }
-
-    #[test]
-    fn restores_api_prefix() {
-        assert_eq!(
-            permission_registry_path("/roles/1/menus/"),
-            "/api/roles/1/menus"
-        );
-    }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn permission_denial_records_the_expected_audit_classification(pool: sqlx::PgPool) {
