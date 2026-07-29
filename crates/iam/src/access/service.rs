@@ -68,7 +68,7 @@ impl AccessService {
         }
 
         let method = method.trim().to_ascii_uppercase();
-        let path = request_path(path);
+        let path = normalize_request_path(path);
         let required_permission = if is_self_service_endpoint(&method, &path) {
             None
         } else {
@@ -145,7 +145,7 @@ fn is_self_service_endpoint(method: &str, path: &str) -> bool {
     )
 }
 
-fn request_path(path: &str) -> String {
+fn normalize_request_path(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     let normalized = if trimmed.is_empty() { "/api" } else { trimmed };
     if normalized == "/api" || normalized.starts_with("/api/") {
@@ -240,6 +240,43 @@ mod tests {
         let context = access.evaluate(user_id, "GET", "/api/users").await.unwrap();
 
         assert_eq!(context.data_scope(), ResolvedDataScope::Owner(user_id));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn protected_route_evaluation_returns_the_roles_broader_data_scope(pool: PgPool) {
+        let user_id = 901_239_i64;
+        let role_id = 901_239_i64;
+        insert_user(&pool, user_id, true).await;
+        sqlx::query(
+            r#"
+            insert into sys_roles (id, code, name, status, sort, data_scope, is_system)
+            values ($1, $2, 'Request Access Role', 'enabled', 10, 'all', false)
+            "#,
+        )
+        .bind(role_id)
+        .bind(format!("request-access-role-{role_id}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+            values
+                ('g', $1, $2, '', '', '', ''),
+                ('p', $2, 'system:user:list', '', '', '', '')
+            "#,
+        )
+        .bind(format!("user:{user_id}"))
+        .bind(format!("role:{role_id}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let authorization = Authorization::load(pool.clone()).await.unwrap();
+        let access = AccessService::with_catalog(pool, authorization, protected_catalog());
+
+        let context = access.evaluate(user_id, "GET", "/api/users").await.unwrap();
+
+        assert_eq!(context.data_scope(), ResolvedDataScope::All);
     }
 
     #[sqlx::test(migrations = "../../migrations")]

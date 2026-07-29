@@ -438,6 +438,13 @@ mod tests {
                 "USER_DISABLED",
             ),
             (
+                AppError::from(iam::access::AccessEvaluationError::PermissionDenied {
+                    path: "/api/users".to_string(),
+                }),
+                StatusCode::FORBIDDEN,
+                "PERMISSION_DENIED",
+            ),
+            (
                 AppError::from(iam::access::AccessEvaluationError::Database(
                     sqlx::Error::PoolTimedOut,
                 )),
