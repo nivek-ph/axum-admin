@@ -12,7 +12,7 @@ default Admin Console is a React + Vite single-page application.
 - Password: `123456`
 
 The previous Vue 3 + Tauri implementation is available in the
-`[v1.1.0](../../tree/v1.1.0)` tag.
+[`v1.1.0`](https://github.com/nivek-ph/axum-admin/releases/tag/v1.0.0) tag.
 
 ## Acknowledgements
 
