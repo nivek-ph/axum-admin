@@ -1,12 +1,51 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub type UserListRequest = iam::users::GetUserListRequest;
-pub type RegisterUserRequest = iam::users::RegisterRequest;
-pub type ChangePasswordRequest = iam::users::ChangePasswordRequest;
-pub type UpdateSelfRequest = iam::users::SetSelfInfoRequest;
-pub type UpdateSelfSettingsRequest = iam::users::SetSelfSettingRequest;
-pub type SetUserRolesRequest = iam::users::SetUserRolesRequest;
+pub type UserListRequest = iam::accounts::GetUserListRequest;
+pub type UpdateSelfRequest = iam::accounts::SetSelfInfoRequest;
+pub type UpdateSelfSettingsRequest = iam::accounts::SetSelfSettingRequest;
+pub type SetUserRolesRequest = iam::accounts::SetUserRolesRequest;
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RegisterUserRequest {
+    #[serde(rename = "username")]
+    pub user_name: String,
+    pub password: String,
+    #[serde(rename = "nickName")]
+    pub nick_name: String,
+    #[serde(rename = "headerImg")]
+    pub header_img: Option<String>,
+    #[serde(rename = "roleIds")]
+    pub role_ids: Option<Vec<i64>>,
+    #[serde(rename = "deptId", alias = "dept_id")]
+    pub dept_id: Option<i64>,
+    pub enable: Option<i32>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+}
+
+impl RegisterUserRequest {
+    pub fn into_account_input(self, password_hash: String) -> iam::accounts::CreateAccountInput {
+        iam::accounts::CreateAccountInput {
+            user_name: self.user_name,
+            password_hash,
+            nick_name: self.nick_name,
+            header_img: self.header_img,
+            role_ids: self.role_ids,
+            dept_id: self.dept_id,
+            enable: self.enable,
+            phone: self.phone,
+            email: self.email,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ChangePasswordRequest {
+    pub password: String,
+    #[serde(rename = "newPassword")]
+    pub new_password: String,
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateUserRequest {
@@ -23,7 +62,7 @@ pub struct UpdateUserRequest {
     pub dept_id: Option<i64>,
 }
 
-impl From<UpdateUserRequest> for iam::users::UpdateUserInput {
+impl From<UpdateUserRequest> for iam::accounts::UpdateUserInput {
     fn from(value: UpdateUserRequest) -> Self {
         Self {
             nick_name: value.nick_name,
@@ -41,14 +80,6 @@ pub struct ResetPasswordRequest {
     #[serde(default)]
     pub id: i64,
     pub password: String,
-}
-
-impl From<ResetPasswordRequest> for iam::users::ResetPasswordInput {
-    fn from(value: ResetPasswordRequest) -> Self {
-        Self {
-            password: value.password,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -119,8 +150,8 @@ pub struct UserListData {
     pub page_size: i64,
 }
 
-impl From<iam::users::UserInfoView> for UserResponse {
-    fn from(v: iam::users::UserInfoView) -> Self {
+impl From<iam::accounts::UserInfoView> for UserResponse {
+    fn from(v: iam::accounts::UserInfoView) -> Self {
         Self {
             id: v.id,
             uuid: v.uuid,

@@ -18,18 +18,7 @@ pub struct RoleMenuPayload {
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct RolePermissionPayload {
-    pub permissions: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct RoleDeptPayload {
     #[serde(rename = "deptIds", alias = "dept_ids")]
     pub dept_ids: Vec<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct RoleUsersPayload {
-    #[serde(rename = "userIds", alias = "user_ids")]
-    pub user_ids: Vec<i64>,
 }

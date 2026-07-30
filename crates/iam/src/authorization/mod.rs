@@ -1,3 +1,6 @@
 mod service;
 
-pub use service::{Authorization, AuthorizationError};
+pub use service::{
+    Authorization, AuthorizationError, PolicyAdministrationError, ReplaceUserRoles,
+    RolePermissionPolicy,
+};

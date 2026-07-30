@@ -20,11 +20,12 @@ mod tests {
         body::{Body, to_bytes},
         http::Request,
     };
-    use iam::{access::ResolvedDataScope, users::AuthenticatedUser};
+    use iam::access::ResolvedDataScope;
     use serde_json::Value;
     use tower::ServiceExt;
 
     use super::*;
+    use crate::extractors::current_user::AuthenticatedUser;
 
     async fn request_current_menu(pool: sqlx::PgPool, user_id: i64) -> Value {
         let authorization = iam::authorization::Authorization::load(pool.clone())

@@ -3,8 +3,8 @@ use axum::{
     http::{Method, Request, header},
 };
 use iam::{
-    authorization::Authorization, departments::DepartmentService, roles::RoleService,
-    users::UserService,
+    accounts::Accounts, authorization::Authorization, departments::DepartmentService,
+    roles::RoleService,
 };
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde_json::json;
@@ -20,19 +20,15 @@ fn test_state() -> api::AppState {
     let (access, menus) =
         iam::access_and_menus_without_catalog_for_tests(pool.clone(), authorization.clone());
     let audits = audit::AuditService::new(pool.clone());
-    let users = UserService::new(
-        pool.clone(),
-        authorization.clone(),
-        audits.clone(),
-        passwords,
-    );
+    let accounts = Accounts::new(pool.clone(), authorization.clone(), audits.clone());
     let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
     let departments = DepartmentService::new(pool.clone());
     api::AppState {
         public_base_url: "http://127.0.0.1:3000".to_string(),
         tokens,
         captcha,
-        users,
+        passwords,
+        accounts,
         roles,
         departments,
         access,

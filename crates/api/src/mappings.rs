@@ -27,13 +27,15 @@ pub(crate) const CAPTCHA_REQUIRED: ErrorSpec =
     ErrorSpec::bad_request("CAPTCHA_REQUIRED", "captcha is required");
 pub(crate) const CAPTCHA_INVALID: ErrorSpec =
     ErrorSpec::bad_request("CAPTCHA_INVALID", "captcha is invalid or expired");
-const INVALID_CREDENTIALS: ErrorSpec =
+pub(crate) const INVALID_CREDENTIALS: ErrorSpec =
     ErrorSpec::unauthorized("INVALID_CREDENTIALS", "invalid username or password");
-const USER_DISABLED: ErrorSpec = ErrorSpec::forbidden("USER_DISABLED", "user is disabled");
+pub(crate) const USER_DISABLED: ErrorSpec =
+    ErrorSpec::forbidden("USER_DISABLED", "user is disabled");
 const USER_NOT_FOUND: ErrorSpec = ErrorSpec::not_found("USER_NOT_FOUND", "user not found");
 const USER_ALREADY_EXISTS: ErrorSpec =
     ErrorSpec::conflict("USER_ALREADY_EXISTS", "user already exists");
-const INVALID_PASSWORD: ErrorSpec = ErrorSpec::bad_request("INVALID_PASSWORD", "invalid password");
+pub(crate) const INVALID_PASSWORD: ErrorSpec =
+    ErrorSpec::bad_request("INVALID_PASSWORD", "invalid password");
 const INVALID_ROLES: ErrorSpec =
     ErrorSpec::validation("INVALID_ROLES", "at least one enabled role is required");
 const INVALID_AUDIT_TIME_RANGE: ErrorSpec = ErrorSpec::validation(
@@ -153,9 +155,9 @@ impl From<::auth::token::RefreshError> for AppError {
     }
 }
 
-impl From<iam::users::RefreshIdentityError> for AppError {
-    fn from(error: iam::users::RefreshIdentityError) -> Self {
-        use iam::users::RefreshIdentityError;
+impl From<iam::accounts::RefreshIdentityError> for AppError {
+    fn from(error: iam::accounts::RefreshIdentityError) -> Self {
+        use iam::accounts::RefreshIdentityError;
 
         match error {
             RefreshIdentityError::NotFound => SESSION_INVALID.into(),
@@ -186,38 +188,26 @@ impl From<::auth::token::UserSessionRevokeError> for AppError {
     }
 }
 
-impl From<iam::users::UserError> for AppError {
-    fn from(error: iam::users::UserError) -> Self {
-        use iam::users::UserError;
+impl From<iam::accounts::AccountError> for AppError {
+    fn from(error: iam::accounts::AccountError) -> Self {
+        use iam::accounts::AccountError;
 
         match error {
-            UserError::NotFound => USER_NOT_FOUND.into(),
-            UserError::AlreadyExists => USER_ALREADY_EXISTS.into(),
-            UserError::InvalidPassword => INVALID_PASSWORD.into(),
-            UserError::InvalidRoles => INVALID_ROLES.into(),
-            UserError::Password(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            UserError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            UserError::Audit(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            UserError::Authorization(source) => source.into(),
+            AccountError::NotFound => USER_NOT_FOUND.into(),
+            AccountError::AlreadyExists => USER_ALREADY_EXISTS.into(),
+            AccountError::InvalidRoles => INVALID_ROLES.into(),
+            AccountError::Database(source) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+            }
+            AccountError::Audit(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
+            AccountError::Authorization(source) => source.into(),
         }
     }
 }
 
-impl From<iam::users::AuthenticateError> for AppError {
-    fn from(error: iam::users::AuthenticateError) -> Self {
-        use iam::users::AuthenticateError;
-
-        match error {
-            AuthenticateError::InvalidCredentials => INVALID_CREDENTIALS.into(),
-            AuthenticateError::Disabled => USER_DISABLED.into(),
-            AuthenticateError::Credential(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-            AuthenticateError::Database(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-            AuthenticateError::Authorization(source) => source.into(),
-        }
+impl From<::auth::password::PasswordError> for AppError {
+    fn from(error: ::auth::password::PasswordError) -> Self {
+        INTERNAL_SERVER_ERROR.into_error().with_source(error)
     }
 }
 

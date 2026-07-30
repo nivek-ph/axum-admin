@@ -13,7 +13,7 @@ use tower_http::request_id::RequestId;
 
 use crate::{
     AppResult,
-    extractors::{client_ip::ClientIp, user_agent::UserAgent},
+    extractors::{client_ip::ClientIp, current_user::AuthenticatedUser, user_agent::UserAgent},
     mappings::LOGIN_REQUIRED,
     request_id::request_id_text,
     state::AppState,
@@ -61,12 +61,10 @@ pub async fn require_auth(
         Err(error) => return Err(error.into()),
     };
 
-    request
-        .extensions_mut()
-        .insert(iam::users::AuthenticatedUser {
-            id: claims.user_id,
-            data_scope: context.data_scope(),
-        });
+    request.extensions_mut().insert(AuthenticatedUser {
+        id: claims.user_id,
+        data_scope: context.data_scope(),
+    });
     request.extensions_mut().insert(audit_context);
     Ok(next.run(request).await)
 }

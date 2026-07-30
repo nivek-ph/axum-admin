@@ -22,7 +22,7 @@ pub async fn get_user_info(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> AppResult<Json<ApiResponse<UserInfoData>>> {
-    let user = UserResponse::from(state.users.info(user.id).await?);
+    let user = UserResponse::from(state.accounts.info(user.id).await?);
     Ok(Json(ApiResponse::ok(UserInfoData { user_info: user })))
 }
 
@@ -44,7 +44,7 @@ pub async fn get_user_list_by_query(
     let page_size = payload.page_size.max(1);
 
     let (list, total) = state
-        .users
+        .accounts
         .list_with_scope(payload, user.data_scope.clone())
         .await?;
 
@@ -71,7 +71,11 @@ pub async fn admin_register(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<RegisterUserRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.users.create(user.id, payload).await?;
+    let password_hash = state.passwords.hash_password(&payload.password)?;
+    state
+        .accounts
+        .create(user.id, payload.into_account_input(password_hash))
+        .await?;
 
     Ok(Json(ApiResponse::new("OK", "registered", None)))
 }
@@ -89,10 +93,15 @@ pub async fn change_password(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<ChangePasswordRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    let prepared = state
-        .users
-        .prepare_password_change(user.id, payload)
-        .await?;
+    let current_hash = state.accounts.password_hash(user.id).await?;
+    if !state
+        .passwords
+        .verify_password(&payload.password, &current_hash)?
+    {
+        return Err(crate::mappings::INVALID_PASSWORD.into());
+    }
+    let password_hash = state.passwords.hash_password(&payload.new_password)?;
+    let prepared = iam::accounts::PreparedPasswordUpdate::new(user.id, password_hash);
     revoke_sessions_and_persist_password(&state, prepared).await?;
 
     Ok(Json(ApiResponse::new("OK", "updated", None)))
@@ -113,7 +122,7 @@ pub async fn set_user_info_by_id(
     Path(id): Path<i64>,
     Json(payload): Json<UpdateUserRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.users.update(user.id, id, payload.into()).await?;
+    state.accounts.update(user.id, id, payload.into()).await?;
 
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -131,7 +140,7 @@ pub async fn set_self_info(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<UpdateSelfRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.users.set_self_info(user.id, payload).await?;
+    state.accounts.set_self_info(user.id, payload).await?;
 
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -149,7 +158,7 @@ pub async fn set_self_setting(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<UpdateSelfSettingsRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.users.set_self_setting(user.id, payload).await?;
+    state.accounts.set_self_setting(user.id, payload).await?;
 
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -167,7 +176,7 @@ pub async fn delete_user_by_id(
     CurrentUser(user): CurrentUser,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.users.delete(user.id, id).await?;
+    state.accounts.delete(user.id, id).await?;
 
     Ok(Json(ApiResponse::new("OK", "deleted", None)))
 }
@@ -187,10 +196,10 @@ pub async fn reset_password_by_id(
     Path(id): Path<i64>,
     Json(payload): Json<ResetPasswordRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    let prepared = state
-        .users
-        .prepare_password_reset(user.id, id, payload.into())
-        .await?;
+    state.accounts.validate_password_reset(user.id, id).await?;
+    let _request_id = payload.id;
+    let password_hash = state.passwords.hash_password(&payload.password)?;
+    let prepared = iam::accounts::PreparedPasswordUpdate::new(id, password_hash);
     revoke_sessions_and_persist_password(&state, prepared).await?;
 
     Ok(Json(ApiResponse::new("OK", "password reset", None)))
@@ -198,13 +207,13 @@ pub async fn reset_password_by_id(
 
 async fn revoke_sessions_and_persist_password(
     state: &AppState,
-    prepared: iam::users::PreparedPasswordUpdate,
+    prepared: iam::accounts::PreparedPasswordUpdate,
 ) -> AppResult<()> {
     state
         .tokens
         .revoke_user_sessions(prepared.user_id())
         .await?;
-    state.users.persist_password_update(prepared).await?;
+    state.accounts.persist_password_update(prepared).await?;
     Ok(())
 }
 
@@ -225,7 +234,7 @@ pub async fn set_user_roles_by_id(
     Json(payload): Json<SetUserRolesRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     state
-        .users
+        .accounts
         .set_user_roles_by_id(user.id, id, payload, audit_context)
         .await?;
 
@@ -238,12 +247,10 @@ mod tests {
         password::PasswordService,
         token::{TokenService, TokenSessionError},
     };
-    use iam::{
-        access::ResolvedDataScope,
-        users::{AuthenticatedUser, ChangePasswordRequest},
-    };
+    use iam::access::ResolvedDataScope;
 
     use super::*;
+    use crate::extractors::current_user::AuthenticatedUser;
 
     async fn seed_password_users(
         pool: &sqlx::PgPool,

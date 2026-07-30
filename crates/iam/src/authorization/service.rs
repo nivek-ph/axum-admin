@@ -6,11 +6,17 @@ use std::{
     time::Duration,
 };
 
+use audit::{
+    AuditAction, AuditContext, AuditEvent, AuditReason, AuditResource, AuditResult, AuditService,
+    AuditValue, FieldChange,
+};
 use casbin::{CoreApi, DefaultModel, Enforcer, EventData, Watcher};
 use redis_watcher::{RedisWatcher, WatcherOptions};
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use sqlx_adapter::SqlxAdapter;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
+
+use crate::access::ResolvedDataScope;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthorizationError {
@@ -24,6 +30,52 @@ pub enum AuthorizationError {
     Watcher(#[from] redis_watcher::WatcherError),
     #[error("authorization state is unavailable")]
     StateUnavailable,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PolicyAdministrationError {
+    #[error("role not found")]
+    RoleNotFound,
+    #[error("user not found")]
+    UserNotFound,
+    #[error("system role is immutable")]
+    RoleImmutable,
+    #[error("selected permissions are invalid")]
+    InvalidPermissionAssignment,
+    #[error("selected roles are invalid")]
+    InvalidRoleAssignment,
+    #[error("selected users are invalid")]
+    InvalidUserAssignment,
+    #[error("authorization administration database operation failed")]
+    Database(#[from] sqlx::Error),
+    #[error(transparent)]
+    Audit(#[from] audit::AuditError),
+    #[error(transparent)]
+    Authorization(AuthorizationError),
+}
+
+impl From<AuthorizationError> for PolicyAdministrationError {
+    fn from(error: AuthorizationError) -> Self {
+        match error {
+            AuthorizationError::Database(source) => Self::Database(source),
+            source => Self::Authorization(source),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ReplaceUserRoles {
+    pub actor_user_id: i64,
+    pub user_id: i64,
+    pub role_ids: Vec<i64>,
+    pub data_scope: ResolvedDataScope,
+    pub audit_context: AuditContext,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RolePermissionPolicy {
+    pub permissions: Vec<String>,
+    pub system_managed: bool,
 }
 
 struct AuthorizationState {
@@ -164,38 +216,133 @@ impl Authorization {
     pub async fn replace_role_permissions(
         &self,
         role_id: i64,
-        permissions: BTreeSet<String>,
-    ) -> Result<(), AuthorizationError> {
+        permissions: Vec<String>,
+    ) -> Result<(), PolicyAdministrationError> {
+        let permissions = permissions.into_iter().collect::<BTreeSet<_>>();
         let mut mutation = self.begin_mutation().await?;
         lock_policy_table(mutation.connection()).await?;
-        let system_role = role_is_system_in(mutation.connection(), role_id).await?;
-        if permissions.contains("*") && !system_role {
-            return Err(AuthorizationError::Configuration(
-                "wildcard is reserved for the system role".to_string(),
-            ));
+        let system_role = role_is_system_in(mutation.connection(), role_id)
+            .await?
+            .ok_or(PolicyAdministrationError::RoleNotFound)?;
+        if system_role {
+            return Err(PolicyAdministrationError::RoleImmutable);
         }
-        ensure_known_permissions_in(mutation.connection(), &permissions).await?;
+        if permissions.contains("*")
+            || !known_permissions_in(mutation.connection(), &permissions).await?
+        {
+            return Err(PolicyAdministrationError::InvalidPermissionAssignment);
+        }
         replace_subject_policies_in(mutation.connection(), &role_subject(role_id), permissions)
             .await?;
-        mutation.commit().await
+        Ok(mutation.commit().await?)
     }
 
     pub async fn replace_user_roles(
         &self,
-        user_id: i64,
-        role_ids: BTreeSet<i64>,
-    ) -> Result<(), AuthorizationError> {
+        request: ReplaceUserRoles,
+    ) -> Result<(), PolicyAdministrationError> {
+        let result = self.replace_user_roles_with_audit(&request).await;
+        if let Err(error) = &result {
+            self.record_user_role_failure(&request, error).await;
+        }
+        result
+    }
+
+    async fn replace_user_roles_with_audit(
+        &self,
+        request: &ReplaceUserRoles,
+    ) -> Result<(), PolicyAdministrationError> {
+        let role_ids = normalize_ids(&request.role_ids);
+        if role_ids.is_empty() {
+            return Err(PolicyAdministrationError::InvalidRoleAssignment);
+        }
         let mut mutation = self.begin_mutation().await?;
-        mutation.replace_user_roles(user_id, role_ids).await?;
-        mutation.commit().await
+        ensure_user_in_scope(
+            mutation.connection(),
+            request.user_id,
+            &request.data_scope,
+        )
+        .await?;
+        ensure_assignable_roles(
+            mutation.connection(),
+            request.actor_user_id,
+            &role_ids,
+        )
+        .await?;
+        let before = mutation
+            .replace_user_roles(request.user_id, role_ids.iter().copied().collect())
+            .await?;
+        AuditService::record_in(
+            mutation.connection(),
+            AuditEvent {
+                req_id: request.audit_context.req_id.clone(),
+                actor: request.audit_context.actor.clone(),
+                action: AuditAction::AssignUserRoles,
+                resource: AuditResource::User(request.user_id),
+                result: AuditResult::Succeeded,
+                reason_code: None,
+                source: request.audit_context.source.clone(),
+                changes: vec![FieldChange {
+                    field: "role_ids".to_string(),
+                    before: AuditValue::Ids(before),
+                    after: AuditValue::Ids(role_ids),
+                }],
+            },
+        )
+        .await?;
+        Ok(mutation.commit().await?)
+    }
+
+    async fn record_user_role_failure(
+        &self,
+        request: &ReplaceUserRoles,
+        error: &PolicyAdministrationError,
+    ) {
+        let (result, reason_code) = match error {
+            PolicyAdministrationError::UserNotFound
+            | PolicyAdministrationError::InvalidRoleAssignment => {
+                (AuditResult::Denied, AuditReason::InvalidRoleAssignment)
+            }
+            PolicyAdministrationError::RoleNotFound
+            | PolicyAdministrationError::RoleImmutable
+            | PolicyAdministrationError::InvalidPermissionAssignment
+            | PolicyAdministrationError::InvalidUserAssignment
+            | PolicyAdministrationError::Database(_)
+            | PolicyAdministrationError::Audit(_)
+            | PolicyAdministrationError::Authorization(_) => {
+                (AuditResult::Failed, AuditReason::InternalError)
+            }
+        };
+        AuditService::new(self.pool.clone())
+            .record_best_effort(AuditEvent {
+                req_id: request.audit_context.req_id.clone(),
+                actor: request.audit_context.actor.clone(),
+                action: AuditAction::AssignUserRoles,
+                resource: AuditResource::User(request.user_id),
+                result,
+                reason_code: Some(reason_code),
+                source: request.audit_context.source.clone(),
+                changes: Vec::new(),
+            })
+            .await;
     }
 
     pub async fn replace_role_users(
         &self,
         role_id: i64,
-        user_ids: BTreeSet<i64>,
-    ) -> Result<(), AuthorizationError> {
+        user_ids: Vec<i64>,
+    ) -> Result<(), PolicyAdministrationError> {
+        let user_ids = normalize_ids(&user_ids);
         let mut mutation = self.begin_mutation().await?;
+        let system_role = role_is_system_in(mutation.connection(), role_id)
+            .await?
+            .ok_or(PolicyAdministrationError::RoleNotFound)?;
+        if system_role {
+            return Err(PolicyAdministrationError::RoleImmutable);
+        }
+        if !users_exist_in(mutation.connection(), &user_ids).await? {
+            return Err(PolicyAdministrationError::InvalidUserAssignment);
+        }
         replace_grouping_policies_in(
             mutation.connection(),
             1,
@@ -203,11 +350,24 @@ impl Authorization {
             user_ids.into_iter().map(user_subject).collect(),
         )
         .await?;
-        mutation.commit().await
+        Ok(mutation.commit().await?)
     }
 
-    pub async fn role_permissions(&self, role_id: i64) -> Result<Vec<String>, AuthorizationError> {
-        Ok(sqlx::query_scalar(
+    pub async fn role_permissions(
+        &self,
+        role_id: i64,
+    ) -> Result<RolePermissionPolicy, PolicyAdministrationError> {
+        let system_managed = sqlx::query_scalar::<_, bool>(
+            "select is_system from sys_roles where id = $1",
+        )
+        .bind(role_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(PolicyAdministrationError::RoleNotFound)?;
+        let permissions = if system_managed {
+            enabled_permissions(&self.pool).await?
+        } else {
+            let permissions = sqlx::query_scalar(
             r#"
             select v1
             from casbin_rule
@@ -217,10 +377,30 @@ impl Authorization {
         )
         .bind(role_subject(role_id))
         .fetch_all(&self.pool)
-        .await?)
+        .await?;
+            let permission_set = permissions.iter().cloned().collect();
+            if !known_permissions(&self.pool, &permission_set).await? {
+                return Err(PolicyAdministrationError::Authorization(
+                    AuthorizationError::Configuration(
+                        "persisted role permission does not exist in the access catalog".to_string(),
+                    ),
+                ));
+            }
+            permissions
+        };
+        Ok(RolePermissionPolicy {
+            permissions,
+            system_managed,
+        })
     }
 
-    pub async fn user_role_ids(&self, user_id: i64) -> Result<Vec<i64>, AuthorizationError> {
+    pub async fn user_role_ids(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<i64>, PolicyAdministrationError> {
+        if !user_exists(&self.pool, user_id).await? {
+            return Err(PolicyAdministrationError::UserNotFound);
+        }
         Ok(sqlx::query_scalar(
             r#"
             select split_part(v1, ':', 2)::bigint
@@ -297,7 +477,22 @@ impl Authorization {
         .collect())
     }
 
-    pub async fn role_user_ids(&self, role_id: i64) -> Result<Vec<i64>, AuthorizationError> {
+    pub async fn effective_permissions(
+        &self,
+        user_id: i64,
+    ) -> Result<BTreeSet<String>, AuthorizationError> {
+        let active_role_ids = self.active_user_role_ids(user_id).await?;
+        self.effective_permissions_for(user_id, &active_role_ids)
+            .await
+    }
+
+    pub async fn role_user_ids(
+        &self,
+        role_id: i64,
+    ) -> Result<Vec<i64>, PolicyAdministrationError> {
+        if !role_exists(&self.pool, role_id).await? {
+            return Err(PolicyAdministrationError::RoleNotFound);
+        }
         Ok(sqlx::query_scalar(
             r#"
             select split_part(v0, ':', 2)::bigint
@@ -536,35 +731,190 @@ async fn validate_policy_rows(pool: &PgPool) -> Result<(), AuthorizationError> {
 async fn role_is_system_in(
     connection: &mut PgConnection,
     role_id: i64,
-) -> Result<bool, AuthorizationError> {
-    Ok(
-        sqlx::query_scalar("select is_system from sys_roles where id = $1 for update")
-            .bind(role_id)
-            .fetch_one(connection)
-            .await?,
-    )
+) -> Result<Option<bool>, sqlx::Error> {
+    sqlx::query_scalar("select is_system from sys_roles where id = $1 for update")
+        .bind(role_id)
+        .fetch_optional(connection)
+        .await
 }
 
-async fn ensure_known_permissions_in(
+fn normalize_ids(ids: &[i64]) -> Vec<i64> {
+    ids.iter()
+        .copied()
+        .filter(|id| *id > 0)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+async fn known_permissions_in(
     connection: &mut PgConnection,
     permissions: &BTreeSet<String>,
-) -> Result<(), AuthorizationError> {
-    let concrete = permissions
-        .iter()
-        .filter(|permission| permission.as_str() != "*")
-        .cloned()
-        .collect::<Vec<_>>();
+) -> Result<bool, sqlx::Error> {
+    let concrete = permissions.iter().cloned().collect::<Vec<_>>();
     let count =
         sqlx::query_scalar::<_, i64>("select count(*) from sys_menus where permission = any($1)")
             .bind(&concrete)
             .fetch_one(connection)
             .await?;
-    if count == concrete.len() as i64 {
+    Ok(count == concrete.len() as i64)
+}
+
+async fn known_permissions(
+    pool: &PgPool,
+    permissions: &BTreeSet<String>,
+) -> Result<bool, sqlx::Error> {
+    let concrete = permissions.iter().cloned().collect::<Vec<_>>();
+    let count =
+        sqlx::query_scalar::<_, i64>("select count(*) from sys_menus where permission = any($1)")
+            .bind(&concrete)
+            .fetch_one(pool)
+            .await?;
+    Ok(count == concrete.len() as i64)
+}
+
+async fn enabled_permissions(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        with recursive menu_tree as (
+            select id, status = 'enabled' as enabled
+            from sys_menus
+            where parent_id is null
+
+            union all
+
+            select child.id, parent.enabled and child.status = 'enabled'
+            from sys_menus child
+            join menu_tree parent on child.parent_id = parent.id
+        )
+        select distinct menu.permission
+        from menu_tree
+        join sys_menus menu on menu.id = menu_tree.id
+        where menu_tree.enabled and menu.permission is not null
+        order by menu.permission
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+async fn user_exists(pool: &PgPool, user_id: i64) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("select exists(select 1 from sys_users where id = $1)")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+}
+
+async fn role_exists(pool: &PgPool, role_id: i64) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("select exists(select 1 from sys_roles where id = $1)")
+        .bind(role_id)
+        .fetch_one(pool)
+        .await
+}
+
+async fn users_exist_in(
+    connection: &mut PgConnection,
+    user_ids: &[i64],
+) -> Result<bool, sqlx::Error> {
+    let count = sqlx::query_scalar::<_, i64>(
+        "select count(*) from sys_users where id = any($1)",
+    )
+    .bind(user_ids)
+    .fetch_one(connection)
+    .await?;
+    Ok(count == user_ids.len() as i64)
+}
+
+async fn ensure_user_in_scope(
+    connection: &mut PgConnection,
+    user_id: i64,
+    data_scope: &ResolvedDataScope,
+) -> Result<(), PolicyAdministrationError> {
+    let visible = match data_scope {
+        ResolvedDataScope::All => {
+            sqlx::query_scalar::<_, bool>(
+                "select exists(select 1 from sys_users where id = $1 for update)",
+            )
+            .bind(user_id)
+            .fetch_one(&mut *connection)
+            .await?
+        }
+        ResolvedDataScope::Owner(owner_id) if *owner_id == user_id => {
+            sqlx::query_scalar::<_, bool>(
+                "select exists(select 1 from sys_users where id = $1 for update)",
+            )
+            .bind(user_id)
+            .fetch_one(&mut *connection)
+            .await?
+        }
+        ResolvedDataScope::Owner(_) => false,
+        ResolvedDataScope::DeptIds(dept_ids) if dept_ids.is_empty() => false,
+        ResolvedDataScope::DeptIds(dept_ids) => {
+            sqlx::query_scalar::<_, bool>(
+                r#"
+                select exists(
+                    select 1 from sys_users
+                    where id = $1 and dept_id = any($2)
+                    for update
+                )
+                "#,
+            )
+            .bind(user_id)
+            .bind(dept_ids)
+            .fetch_one(&mut *connection)
+            .await?
+        }
+    };
+    if visible {
         Ok(())
     } else {
-        Err(AuthorizationError::Configuration(
-            "permission does not exist in the access catalog".to_string(),
-        ))
+        Err(PolicyAdministrationError::UserNotFound)
+    }
+}
+
+async fn ensure_assignable_roles(
+    connection: &mut PgConnection,
+    actor_user_id: i64,
+    role_ids: &[i64],
+) -> Result<(), PolicyAdministrationError> {
+    let rows = sqlx::query_as::<_, (i64, bool)>(
+        r#"
+        select id, is_system
+        from sys_roles
+        where id = any($1) and status = 'enabled'
+        for update
+        "#,
+    )
+    .bind(role_ids)
+    .fetch_all(&mut *connection)
+    .await?;
+    if rows.len() != role_ids.len() {
+        return Err(PolicyAdministrationError::InvalidRoleAssignment);
+    }
+    if !rows.iter().any(|(_, is_system)| *is_system) {
+        return Ok(());
+    }
+    let actor_is_system = sqlx::query_scalar::<_, bool>(
+        r#"
+        select exists(
+            select 1
+            from casbin_rule membership
+            join sys_roles role
+              on membership.v1 = 'role:' || role.id::text
+             and role.status = 'enabled'
+             and role.is_system
+            where membership.ptype = 'g'
+              and membership.v0 = $1
+        )
+        "#,
+    )
+    .bind(user_subject(actor_user_id))
+    .fetch_one(connection)
+    .await?;
+    if actor_is_system {
+        Ok(())
+    } else {
+        Err(PolicyAdministrationError::InvalidRoleAssignment)
     }
 }
 

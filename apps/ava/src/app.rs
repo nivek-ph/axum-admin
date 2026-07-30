@@ -5,8 +5,8 @@ use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
 use file_storage::files::FileService;
 use iam::{
-    authorization::Authorization, departments::DepartmentService, roles::RoleService,
-    users::UserService,
+    accounts::Accounts, authorization::Authorization, departments::DepartmentService,
+    roles::RoleService,
 };
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
 use tracing::info;
@@ -75,13 +75,8 @@ async fn build_state(
         .context("Casbin Redis watcher should initialize")?;
     authorization.start_periodic_reload(Duration::from_secs(30));
 
-    // 3. IAM services that depend on access / audit / password
-    let users = UserService::new(
-        pool.clone(),
-        authorization.clone(),
-        audits.clone(),
-        password_service,
-    );
+    // 3. IAM services that depend on access / audit
+    let accounts = Accounts::new(pool.clone(), authorization.clone(), audits.clone());
     let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
     let departments = DepartmentService::new(pool);
 
@@ -89,7 +84,8 @@ async fn build_state(
         public_base_url: config.public_base_url(),
         tokens,
         captcha,
-        users,
+        passwords: password_service,
+        accounts,
         roles,
         departments,
         access,

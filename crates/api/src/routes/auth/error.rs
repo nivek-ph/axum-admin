@@ -10,7 +10,13 @@ impl From<LoginError> for AppError {
             LoginError::CaptchaRequired => CAPTCHA_REQUIRED.into(),
             LoginError::CaptchaInvalid => CAPTCHA_INVALID.into(),
             LoginError::Captcha(source) => source.into(),
-            LoginError::Identity(source) => source.into(),
+            LoginError::InvalidCredentials => crate::mappings::INVALID_CREDENTIALS.into(),
+            LoginError::Disabled => crate::mappings::USER_DISABLED.into(),
+            LoginError::Password(source) => source.into(),
+            LoginError::Account(iam::accounts::AccountError::NotFound) => {
+                crate::mappings::INVALID_CREDENTIALS.into()
+            }
+            LoginError::Account(source) => source.into(),
             LoginError::Token(source) => source.into(),
         }
     }

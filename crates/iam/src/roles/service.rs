@@ -2,9 +2,7 @@ use std::collections::BTreeSet;
 
 use sqlx::PgPool;
 
-use super::{
-    PermissionCatalogItem, RoleError, RoleMenuAccess, RolePayload, RolePermissions, RoleSummary,
-};
+use super::{PermissionCatalogItem, RoleError, RoleMenuAccess, RolePayload, RoleSummary};
 use crate::{access::AccessService, authorization::Authorization};
 
 async fn role_menu_ids(pool: &PgPool, role_id: i64) -> Result<Vec<i64>, sqlx::Error> {
@@ -152,18 +150,11 @@ impl RoleService {
         Ok(replace_role_menu_ids(&self.pool, id, &values).await?)
     }
 
-    pub async fn permissions(&self, id: i64) -> Result<RolePermissions, RoleError> {
+    pub async fn permission_catalog(
+        &self,
+        id: i64,
+    ) -> Result<Vec<PermissionCatalogItem>, RoleError> {
         let role = find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
-        let permissions = if role.is_system {
-            self.access.enabled_permissions().into_iter().collect()
-        } else {
-            let permissions = self.authorization.role_permissions(id).await?;
-            let permission_set = permissions.iter().cloned().collect();
-            self.access
-                .validate_permission_assignment(&permission_set)
-                .map_err(|_| RoleError::AuthorizationConfig)?;
-            permissions
-        };
         let visible_pages = self
             .menu_access(id)
             .await?
@@ -185,27 +176,7 @@ impl RoleService {
                 page_visible: row.page_visible,
             })
             .collect();
-        Ok(RolePermissions {
-            permissions,
-            catalog,
-            system_managed: role.is_system,
-        })
-    }
-
-    pub async fn set_permissions(
-        &self,
-        id: i64,
-        permissions: Vec<String>,
-    ) -> Result<(), RoleError> {
-        let permissions = permissions.into_iter().collect::<BTreeSet<_>>();
-        ensure_mutable(&self.pool, id).await?;
-        self.access
-            .validate_permission_assignment(&permissions)
-            .map_err(|_| RoleError::InvalidPermissionAssignment)?;
-        self.authorization
-            .replace_role_permissions(id, permissions)
-            .await?;
-        Ok(())
+        Ok(catalog)
     }
 
     pub async fn dept_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
@@ -216,28 +187,6 @@ impl RoleService {
     pub async fn set_dept_ids(&self, id: i64, v: Vec<i64>) -> Result<(), RoleError> {
         ensure_mutable(&self.pool, id).await?;
         replace_role_dept_ids(&self.pool, id, &normalize(v)).await?;
-        Ok(())
-    }
-
-    pub async fn user_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
-        find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
-        Ok(self.authorization.role_user_ids(id).await?)
-    }
-
-    pub async fn set_user_ids(&self, id: i64, v: Vec<i64>) -> Result<(), RoleError> {
-        ensure_mutable(&self.pool, id).await?;
-        let user_ids = normalize(v);
-        let existing =
-            sqlx::query_scalar::<_, i64>("select count(*) from sys_users where id = any($1)")
-                .bind(&user_ids)
-                .fetch_one(&self.pool)
-                .await?;
-        if existing != user_ids.len() as i64 {
-            return Err(RoleError::InvalidUserAssignment);
-        }
-        self.authorization
-            .replace_role_users(id, user_ids.into_iter().collect())
-            .await?;
         Ok(())
     }
 

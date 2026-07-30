@@ -10,12 +10,6 @@ pub enum RoleError {
     Immutable,
     #[error(transparent)]
     InvalidMenuAssignment(#[from] CatalogError),
-    #[error("permission assignment is invalid")]
-    InvalidPermissionAssignment,
-    #[error("user assignment is invalid")]
-    InvalidUserAssignment,
-    #[error("authorization configuration is invalid")]
-    AuthorizationConfig,
     #[error(transparent)]
     Authorization(#[from] AuthorizationError),
 }

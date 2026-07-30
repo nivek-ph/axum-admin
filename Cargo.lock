@@ -1727,7 +1727,6 @@ name = "iam"
 version = "0.1.0"
 dependencies = [
  "audit",
- "auth",
  "casbin",
  "redis-watcher",
  "serde",

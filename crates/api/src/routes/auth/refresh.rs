@@ -35,11 +35,11 @@ pub async fn refresh(
     Json(payload): Json<RefreshRequest>,
 ) -> AppResult<Json<ApiResponse<RefreshResponse>>> {
     let grant = state.tokens.inspect_refresh(&payload.refresh_token).await?;
-    let identity = match state.users.refresh_identity(grant.user_id()).await {
+    let identity = match state.accounts.refresh_identity(grant.user_id()).await {
         Ok(identity) => identity,
         Err(
-            error @ (iam::users::RefreshIdentityError::NotFound
-            | iam::users::RefreshIdentityError::Disabled),
+            error @ (iam::accounts::RefreshIdentityError::NotFound
+            | iam::accounts::RefreshIdentityError::Disabled),
         ) => {
             if let Err(revoke_error) = state.tokens.revoke_refresh_grant(&grant).await {
                 tracing::error!(
@@ -50,7 +50,7 @@ pub async fn refresh(
             }
             return Err(error.into());
         }
-        Err(error @ iam::users::RefreshIdentityError::Database(_)) => return Err(error.into()),
+        Err(error @ iam::accounts::RefreshIdentityError::Database(_)) => return Err(error.into()),
     };
     let pair = state
         .tokens

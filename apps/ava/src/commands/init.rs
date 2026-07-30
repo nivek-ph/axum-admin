@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use audit::AuditService;
 use auth::password::PasswordService;
 use clap::{Parser, builder::NonEmptyStringValueParser};
-use iam::{authorization::Authorization, users::UserService};
+use iam::{accounts::Accounts, authorization::Authorization};
 use tracing::info;
 
 #[derive(Debug, Clone, Parser)]
@@ -59,10 +59,13 @@ pub(crate) async fn execute(config: InitConfig) -> Result<()> {
         .await
         .context("Casbin authorization should initialize")?;
     let audit = AuditService::new(pool.clone());
-    UserService::new(pool, authorization, audit, PasswordService::new())
+    let password_hash = PasswordService::new()
+        .hash_password(&config.admin_password)
+        .context("admin password should be hashed")?;
+    Accounts::new(pool, authorization, audit)
         .ensure_admin(
             &config.admin_username,
-            &config.admin_password,
+            password_hash,
             &config.admin_nickname,
         )
         .await

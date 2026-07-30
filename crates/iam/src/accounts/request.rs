@@ -2,24 +2,12 @@ use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Clone)]
-pub struct LoginRequest {
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct RegisterRequest {
-    #[serde(rename = "username")]
+pub struct CreateAccountInput {
     pub user_name: String,
-    #[serde(rename = "password")]
-    pub password: String,
-    #[serde(rename = "nickName")]
+    pub password_hash: String,
     pub nick_name: String,
-    #[serde(rename = "headerImg")]
     pub header_img: Option<String>,
-    #[serde(rename = "roleIds")]
     pub role_ids: Option<Vec<i64>>,
-    #[serde(rename = "deptId", alias = "dept_id")]
     pub dept_id: Option<i64>,
     pub enable: Option<i32>,
     pub phone: Option<String>,
@@ -34,13 +22,6 @@ pub struct UpdateUserInput {
     pub phone: Option<String>,
     pub email: Option<String>,
     pub dept_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct ChangePasswordRequest {
-    pub password: String,
-    #[serde(rename = "newPassword")]
-    pub new_password: String,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -62,17 +43,6 @@ pub struct SetSelfSettingRequest {
 #[derive(Debug, Clone)]
 pub struct DeleteUserRequest {
     pub id: i64,
-}
-
-#[derive(Debug, Clone)]
-pub struct ResetPasswordInput {
-    pub password: String,
-}
-
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct SetUserRolesRequest {
-    #[serde(rename = "roleIds", alias = "role_ids")]
-    pub role_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, IntoParams)]

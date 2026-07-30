@@ -6,11 +6,11 @@ use menus::MenuService;
 use sqlx::PgPool;
 
 pub mod access;
+pub mod accounts;
 pub mod authorization;
 pub mod departments;
 pub mod menus;
 pub mod roles;
-pub mod users;
 
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]

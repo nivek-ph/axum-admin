@@ -1,6 +1,6 @@
 use sqlx::FromRow;
 
-use crate::{access::ResolvedDataScope, roles::RoleSummary};
+use crate::roles::RoleSummary;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct UserRecord {
@@ -38,16 +38,11 @@ pub struct UserInfoView {
 }
 
 #[derive(Debug, Clone)]
-pub struct AuthenticatedUser {
-    pub id: i64,
-    pub data_scope: ResolvedDataScope,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoginIdentity {
+pub struct LoginAccount {
     pub id: i64,
     pub username: String,
-    pub user: UserInfoView,
+    pub password_hash: String,
+    pub enable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +61,7 @@ impl PreparedPasswordUpdate {
         self.user_id
     }
 
-    pub(crate) fn new(user_id: i64, password_hash: String) -> Self {
+    pub fn new(user_id: i64, password_hash: String) -> Self {
         Self {
             user_id,
             password_hash,
