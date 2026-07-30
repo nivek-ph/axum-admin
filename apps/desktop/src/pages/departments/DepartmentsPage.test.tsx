@@ -34,7 +34,14 @@ describe('Departments workflow', () => {
       let data: unknown
       if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
       else if (config.url === '/menus/current')
-        data = { code: 'OK', message: 'ok', data: { menus: [{ name: 'departments' }], permissions: [] } }
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'departments' }],
+            permissions: ['system:dept:create', 'system:dept:update', 'system:dept:delete'],
+          },
+        }
       else if (config.url === '/depts' && config.method === 'get') {
         reads += 1
         data = {
@@ -79,7 +86,14 @@ describe('Departments workflow', () => {
       let data: unknown
       if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
       else if (config.url === '/menus/current')
-        data = { code: 'OK', message: 'ok', data: { menus: [{ name: 'departments' }], permissions: [] } }
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'departments' }],
+            permissions: ['system:dept:create', 'system:dept:update', 'system:dept:delete'],
+          },
+        }
       else if (config.url === '/depts' && config.method === 'get') {
         data = {
           code: 'OK',
@@ -123,7 +137,14 @@ describe('Departments workflow', () => {
       let data: unknown
       if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
       else if (config.url === '/menus/current')
-        data = { code: 'OK', message: 'ok', data: { menus: [{ name: 'departments' }], permissions: [] } }
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'departments' }],
+            permissions: ['system:dept:create', 'system:dept:update', 'system:dept:delete'],
+          },
+        }
       else if (config.url === '/depts' && config.method === 'get') {
         data = {
           code: 'OK',

@@ -4,10 +4,7 @@ use anyhow::{Context, Result};
 use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
 use file_storage::files::FileService;
-use iam::{
-    accounts::Accounts, authorization::Authorization, departments::DepartmentService,
-    roles::RoleService,
-};
+use iam::departments::DepartmentService;
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
 use tracing::{info, warn};
 
@@ -64,14 +61,11 @@ async fn build_state(
     let files = FileService::new(pool.clone(), "./uploads");
 
     // 2. authorization catalog (needed by IAM services below)
-    let authorization = Authorization::load(pool.clone())
+    let iam = iam::Iam::load(pool.clone())
         .await
-        .context("Casbin authorization should initialize")?;
-    let (access, menus) = iam::load_access_and_menus(pool.clone(), authorization.clone())
-        .await
-        .context("IAM access catalog should initialize")?;
-    authorization.start_periodic_reload(Duration::from_secs(30));
-    if let Err(error) = authorization.start_redis_watcher(&config.redis_url) {
+        .context("IAM should initialize")?;
+    iam.start_periodic_reload(Duration::from_secs(30));
+    if let Err(error) = iam.start_redis_watcher(&config.redis_url) {
         warn!(
             error = ?error,
             "Casbin Redis watcher unavailable; periodic policy reload remains active"
@@ -79,8 +73,6 @@ async fn build_state(
     }
 
     // 3. IAM services that depend on access
-    let accounts = Accounts::new(pool.clone(), authorization.clone());
-    let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
     let departments = DepartmentService::new(pool);
 
     Ok(api::AppState {
@@ -88,14 +80,13 @@ async fn build_state(
         tokens,
         captcha,
         passwords: password_service,
-        accounts,
-        authorization,
-        roles,
+        accounts: iam.accounts,
+        roles: iam.roles,
         departments,
-        access,
+        access: iam.access,
         dictionaries,
         parameters,
-        menus,
+        menus: iam.menus,
         audits,
         audit_analyzer,
         files,

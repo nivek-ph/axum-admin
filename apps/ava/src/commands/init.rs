@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use auth::password::PasswordService;
 use clap::{Parser, builder::NonEmptyStringValueParser};
-use iam::{accounts::Accounts, authorization::Authorization};
 use tracing::info;
 
 #[derive(Debug, Clone, Parser)]
@@ -54,13 +53,13 @@ pub(crate) async fn execute(config: InitConfig) -> Result<()> {
         .await
         .context("database migrations should run")?;
 
-    let authorization = Authorization::load(pool.clone())
+    let iam = iam::Iam::load(pool)
         .await
-        .context("Casbin authorization should initialize")?;
+        .context("IAM should initialize")?;
     let password_hash = PasswordService::new()
         .hash_password(&config.admin_password)
         .context("admin password should be hashed")?;
-    Accounts::new(pool, authorization)
+    iam.accounts
         .ensure_admin(
             &config.admin_username,
             password_hash,

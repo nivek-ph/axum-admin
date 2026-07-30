@@ -35,14 +35,14 @@ describe('Chinese admin terminology', () => {
     ])
   })
 
-  it('translates every role workbench section', async () => {
+  it('translates the simplified access workbenches', async () => {
     await i18n.changeLanguage('zh-CN')
 
     expect([
       i18n.t('Basic Info'),
-      i18n.t('Menu Authorization'),
-      i18n.t('Data Scope'),
-      i18n.t('Assigned Users'),
-    ]).toEqual(['基础信息', '菜单授权', '数据范围', '分配用户'])
+      i18n.t('Page Access'),
+      i18n.t('Direct Permissions'),
+      i18n.t('Effective Permissions'),
+    ]).toEqual(['基础信息', '页面访问', '直接权限', '生效权限'])
   })
 })

@@ -20,7 +20,6 @@ mod tests {
         body::{Body, to_bytes},
         http::Request,
     };
-    use iam::access::ResolvedDataScope;
     use serde_json::Value;
     use tower::ServiceExt;
 
@@ -28,24 +27,13 @@ mod tests {
     use crate::extractors::current_user::AuthenticatedUser;
 
     async fn request_current_menu(pool: sqlx::PgPool, user_id: i64) -> Value {
-        let authorization = iam::authorization::Authorization::load(pool.clone())
-            .await
-            .unwrap();
-        let mut state = crate::state::tests::test_state(pool.clone()).await;
-        let (access, menus) = iam::load_access_and_menus(pool, authorization)
-            .await
-            .unwrap();
-        state.access = access;
-        state.menus = menus;
+        let state = crate::state::tests::test_state(pool).await;
         let response = routes()
             .with_state(state)
             .oneshot(
                 Request::builder()
                     .uri("/current")
-                    .extension(AuthenticatedUser {
-                        id: user_id,
-                        data_scope: ResolvedDataScope::All,
-                    })
+                    .extension(AuthenticatedUser { id: user_id })
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -69,16 +57,16 @@ mod tests {
             r#"
             insert into sys_users (
                 id, uuid, username, password_hash, nick_name, header_img,
-                enable, dept_id, is_system
+                enable, dept_id
             )
-            values (9001, 'menu-user', 'menu-user', 'hash', 'Menu User', '', true, 1, false)
+            values (9001, 'menu-user', 'menu-user', 'hash', 'Menu User', '', true, 1)
             "#,
         )
         .execute(&pool)
         .await
         .unwrap();
         sqlx::query(
-            "insert into sys_roles (id, name, code, status, is_system) values (9001, 'Menu Role', 'menu-role', 'enabled', false)",
+            "insert into sys_roles (id, name, code, status) values (9001, 'Menu Role', 'menu-role', 'enabled')",
         )
         .execute(&pool)
         .await
@@ -127,9 +115,9 @@ mod tests {
             r#"
             insert into sys_users (
                 id, uuid, username, password_hash, nick_name, header_img,
-                enable, dept_id, is_system
+                enable, dept_id
             )
-            values (9002, 'system-menu-user', 'system-menu-user', 'hash', 'System Menu User', '', true, 1, false)
+            values (9002, 'system-menu-user', 'system-menu-user', 'hash', 'System Menu User', '', true, 1)
             "#,
         )
         .execute(&pool)

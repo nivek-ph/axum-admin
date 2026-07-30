@@ -15,7 +15,7 @@ import { ThemeSwitch } from '@/components/ThemeSwitch'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { isSuperAdmin, useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/stores/auth'
 import { useMenuStore } from '@/stores/menu'
 
 const schema = z.object({
@@ -78,7 +78,7 @@ export function LoginPage() {
       const user = userResponse.data?.userInfo ?? response.data.user
       if (userResponse.code !== 'OK' || menuResponse.code !== 'OK') throw new Error(t('Sign in failed'))
       setUserAndPermissions(user, menuResponse.data?.permissions ?? [])
-      setAuthorizedMenus(menuResponse.data?.menus ?? [], isSuperAdmin(user))
+      setAuthorizedMenus(menuResponse.data?.menus ?? [])
       const routeName = user.homeRoute?.replace(/^\/+/, '') || 'dashboard'
       const menu = useMenuStore.getState()
       navigate(menu.canAccess(routeName) ? `/${routeName}` : menu.firstAuthorizedPath(), { replace: true })

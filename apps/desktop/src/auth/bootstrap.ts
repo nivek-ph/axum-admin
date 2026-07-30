@@ -1,5 +1,5 @@
 import { getCurrentMenu, getUserInfo } from '@/api/auth'
-import { isAuthenticated, isSuperAdmin, useAuthStore } from '@/stores/auth'
+import { isAuthenticated, useAuthStore } from '@/stores/auth'
 import { useMenuStore } from '@/stores/menu'
 
 export async function bootstrapAuthSession() {
@@ -17,7 +17,7 @@ export async function bootstrapAuthSession() {
     if (userResponse.code !== 'OK' || menuResponse.code !== 'OK' || !user) throw new Error('Invalid session')
     const permissions = menuResponse.data?.permissions ?? []
     useAuthStore.getState().setUserAndPermissions(user, permissions)
-    useMenuStore.getState().setAuthorizedMenus(menuResponse.data?.menus ?? [], isSuperAdmin(user))
+    useMenuStore.getState().setAuthorizedMenus(menuResponse.data?.menus ?? [])
   } catch {
     useAuthStore.getState().clearSession()
     useMenuStore.getState().resetAccess()

@@ -7,8 +7,6 @@ pub struct RoleRequest {
     pub name: String,
     pub status: Option<String>,
     pub sort: Option<i32>,
-    #[serde(alias = "dataScope")]
-    pub data_scope: Option<String>,
 }
 
 impl From<RoleRequest> for iam::roles::RolePayload {
@@ -18,7 +16,6 @@ impl From<RoleRequest> for iam::roles::RolePayload {
             name: value.name,
             status: value.status,
             sort: value.sort,
-            data_scope: value.data_scope,
         }
     }
 }
@@ -30,20 +27,8 @@ pub struct RoleMenuRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct RoleDeptRequest {
-    #[serde(rename = "deptIds", alias = "dept_ids")]
-    pub dept_ids: Vec<i64>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
 pub struct RolePermissionRequest {
     pub permissions: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct RoleUsersRequest {
-    #[serde(rename = "userIds", alias = "user_ids")]
-    pub user_ids: Vec<i64>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -53,8 +38,6 @@ pub struct RoleResponse {
     pub name: String,
     pub status: String,
     pub sort: i32,
-    pub data_scope: String,
-    pub is_system: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -72,7 +55,7 @@ pub struct RoleData {
 pub struct RoleMenuIdsData {
     pub menu_ids: Vec<i64>,
     pub effective_menu_ids: Vec<i64>,
-    pub system_managed: bool,
+    pub protected: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -93,17 +76,8 @@ pub struct PermissionCatalogItem {
 pub struct RolePermissionsData {
     pub permissions: Vec<String>,
     pub catalog: Vec<PermissionCatalogItem>,
-    pub system_managed: bool,
+    pub protected: bool,
 }
-
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RoleDeptIdsData {
-    pub dept_ids: Vec<i64>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct RoleUserIdsData(pub Vec<i64>);
 
 impl From<iam::roles::RoleSummary> for RoleResponse {
     fn from(v: iam::roles::RoleSummary) -> Self {
@@ -113,21 +87,19 @@ impl From<iam::roles::RoleSummary> for RoleResponse {
             name: v.name,
             status: v.status,
             sort: v.sort,
-            data_scope: v.data_scope,
-            is_system: v.is_system,
         }
     }
 }
 
 impl
     From<(
-        iam::authorization::RolePermissionPolicy,
+        iam::roles::RolePermissionView,
         Vec<iam::roles::PermissionCatalogItem>,
     )> for RolePermissionsData
 {
     fn from(
         (policy, catalog): (
-            iam::authorization::RolePermissionPolicy,
+            iam::roles::RolePermissionView,
             Vec<iam::roles::PermissionCatalogItem>,
         ),
     ) -> Self {
@@ -146,7 +118,7 @@ impl
                     page_visible: item.page_visible,
                 })
                 .collect(),
-            system_managed: policy.system_managed,
+            protected: policy.protected,
         }
     }
 }
@@ -160,19 +132,11 @@ mod tests {
         let menus = serde_json::to_value(RoleMenuIdsData {
             menu_ids: vec![1, 2],
             effective_menu_ids: vec![1],
-            system_managed: false,
+            protected: false,
         })
         .expect("menu IDs should serialize");
         assert_eq!(menus["menuIds"], serde_json::json!([1, 2]));
         assert_eq!(menus["effectiveMenuIds"], serde_json::json!([1]));
         assert!(menus.get("menu_ids").is_none());
-
-        let depts = serde_json::to_value(RoleDeptIdsData { dept_ids: vec![3] })
-            .expect("department IDs should serialize");
-        assert_eq!(depts["deptIds"], serde_json::json!([3]));
-
-        let users =
-            serde_json::to_value(RoleUserIdsData(vec![4, 5])).expect("user IDs should serialize");
-        assert_eq!(users, serde_json::json!([4, 5]));
     }
 }

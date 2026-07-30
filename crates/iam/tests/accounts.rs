@@ -1,136 +1,120 @@
 use iam::{
-    accounts::{Accounts, CreateAccountInput, PreparedPasswordUpdate},
-    authorization::Authorization,
+    Iam,
+    accounts::{AccountError, CreateAccountInput, GetUserListRequest, UpdateUserInput},
 };
 
-#[sqlx::test(migrations = "../../migrations")]
-async fn accounts_persists_a_prepared_password_hash(pool: sqlx::PgPool) {
-    sqlx::query(
-        r#"
-        insert into sys_users (
-            id, uuid, username, password_hash, nick_name, header_img, home_route,
-            enable, dept_id, is_system
-        )
-        values (701, 'prepared-password-user', 'prepared-password-user', 'old-hash',
-                'Prepared Password User', '', 'dashboard', true, 1, false)
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .expect("failed to insert prepared password user");
-    let accounts = Accounts::new(pool.clone(), Authorization::new(pool.clone()));
-
-    accounts
-        .persist_password_update(PreparedPasswordUpdate::new(
-            701,
-            "prepared-password-hash".to_string(),
-        ))
-        .await
-        .unwrap();
-
-    let stored_hash =
-        sqlx::query_scalar::<_, String>("select password_hash from sys_users where id = 701")
-            .fetch_one(&pool)
-            .await
-            .expect("failed to fetch stored hash");
-    assert_eq!(stored_hash, "prepared-password-hash");
-}
-
-fn create_account_input(username: &str) -> CreateAccountInput {
-    CreateAccountInput {
-        user_name: username.to_string(),
-        password_hash: "prepared-create-hash".to_string(),
-        nick_name: "Created Account".to_string(),
-        header_img: None,
-        role_ids: Some(vec![2]),
-        dept_id: Some(1),
-        enable: Some(1),
+fn list_request() -> GetUserListRequest {
+    GetUserListRequest {
+        page: 1,
+        page_size: 20,
+        keyword: None,
+        username: None,
+        nick_name: None,
         phone: None,
         email: None,
+        order_key: None,
+        desc: None,
     }
 }
 
-#[sqlx::test(migrations = "../../migrations")]
-async fn account_creation_persists_the_prepared_hash_and_initial_membership_atomically(
-    pool: sqlx::PgPool,
-) {
-    sqlx::query(
-        "insert into sys_roles (id, code, name, status, sort, data_scope, is_system)
-         values (2, 'account_creator', 'Account Creator', 'enabled', 10, 'self', false)",
-    )
-    .execute(&pool)
-    .await
-    .expect("failed to insert account creator role");
-    let authorization = Authorization::new(pool.clone());
-    let accounts = Accounts::new(pool.clone(), authorization.clone());
+fn update_input(enable: i32) -> UpdateUserInput {
+    UpdateUserInput {
+        nick_name: "Updated".to_string(),
+        header_img: String::new(),
+        enable,
+        phone: None,
+        email: None,
+        dept_id: Some(1),
+    }
+}
 
-    accounts
-        .create(1, create_account_input("created-account"))
-        .await
-        .expect("failed to create account");
-
-    let created = sqlx::query_as::<_, (i64, String)>(
-        "select id, password_hash from sys_users where username = 'created-account'",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("failed to fetch created account");
-    assert_eq!(created.1, "prepared-create-hash");
-    assert_eq!(
-        authorization
-            .user_role_ids(created.0)
-            .await
-            .expect("failed to fetch user role ids"),
-        vec![2]
-    );
-
-    let mut system_role_input = create_account_input("unauthorized-system-account");
-    system_role_input.role_ids = Some(vec![1]);
-    let error = accounts
-        .create(created.0, system_role_input)
-        .await
-        .expect_err("ordinary role members must not assign the system role");
-    assert!(matches!(error, iam::accounts::AccountError::InvalidRoles));
-    let exists = sqlx::query_scalar::<_, bool>(
-        "select exists(select 1 from sys_users where username = 'unauthorized-system-account')",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("failed to fetch exists");
-    assert!(!exists);
-
+async fn insert_user(pool: &sqlx::PgPool, id: i64, name: &str, dept_id: Option<i64>) {
     sqlx::query(
         r#"
-        create function fail_initial_membership() returns trigger language plpgsql as $$
-        begin
-            if new.ptype = 'g' then
-                raise exception 'membership insert failed';
-            end if;
-            return new;
-        end;
-        $$
+        insert into sys_users (id, uuid, username, password_hash, nick_name, header_img, dept_id)
+        values ($1, $2, $2, 'hash', $2, '', $3)
         "#,
     )
-    .execute(&pool)
+    .bind(id)
+    .bind(name)
+    .bind(dept_id)
+    .execute(pool)
     .await
-    .expect("failed to create fail_initial_membership function");
-    sqlx::query(
-        "create trigger fail_initial_membership before insert on casbin_rule
-         for each row execute function fail_initial_membership()",
-    )
-    .execute(&pool)
-    .await
-    .expect("failed to create fail_initial_membership trigger");
+    .unwrap();
+}
 
-    accounts
-        .create(1, create_account_input("rolled-back-account"))
-        .await
-        .expect_err("membership failure should fail account creation");
-    let exists = sqlx::query_scalar::<_, bool>(
-        "select exists(select 1 from sys_users where username = 'rolled-back-account')",
+#[sqlx::test(migrations = "../../migrations")]
+async fn ordinary_administrator_lists_only_exact_department(pool: sqlx::PgPool) {
+    sqlx::query(
+        "insert into sys_depts (id, parent_id, name, code) values (2, 1, 'Child', 'child')",
     )
-    .fetch_one(&pool)
+    .execute(&pool)
     .await
-    .expect("failed to fetch exists");
-    assert!(!exists);
+    .unwrap();
+    insert_user(&pool, 200, "actor", Some(1)).await;
+    insert_user(&pool, 201, "same-dept", Some(1)).await;
+    insert_user(&pool, 202, "child-dept", Some(2)).await;
+    let iam = Iam::load(pool).await.unwrap();
+
+    let (users, total) = iam.accounts.list(200, list_request()).await.unwrap();
+
+    assert_eq!(total, 2);
+    assert_eq!(
+        users
+            .into_iter()
+            .map(|user| user.user_name)
+            .collect::<Vec<_>>(),
+        vec!["same-dept", "actor"]
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn no_department_administrator_is_self_only_and_cannot_create(pool: sqlx::PgPool) {
+    insert_user(&pool, 203, "self-only", None).await;
+    let iam = Iam::load(pool).await.unwrap();
+
+    let (users, total) = iam.accounts.list(203, list_request()).await.unwrap();
+    assert_eq!(total, 1);
+    assert_eq!(users[0].id, 203);
+    assert!(matches!(
+        iam.accounts
+            .create(
+                203,
+                CreateAccountInput {
+                    user_name: "forbidden".to_string(),
+                    password_hash: "hash".to_string(),
+                    nick_name: "Forbidden".to_string(),
+                    header_img: None,
+                    role_ids: None,
+                    dept_id: None,
+                    enable: None,
+                    phone: None,
+                    email: None,
+                },
+            )
+            .await,
+        Err(AccountError::AccessDenied)
+    ));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn ordinary_administrator_may_edit_super_profile_but_not_status(pool: sqlx::PgPool) {
+    insert_user(&pool, 204, "department-admin", Some(1)).await;
+    insert_user(&pool, 205, "active-super", Some(1)).await;
+    sqlx::query(
+        "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5) values ('g', 'user:205', 'role:1', '', '', '', '')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let iam = Iam::load(pool).await.unwrap();
+
+    iam.accounts
+        .update(204, 205, update_input(1))
+        .await
+        .unwrap();
+    assert!(matches!(
+        iam.accounts.update(204, 205, update_input(0)).await,
+        Err(AccountError::AccessDenied)
+    ));
 }

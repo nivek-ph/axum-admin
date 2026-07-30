@@ -12,13 +12,9 @@ use super::{AuthorizationError, store::PolicyStore};
 
 pub(crate) const REDIS_CHANNEL: &str = "/ava/casbin";
 
-struct EnforcerState {
-    enforcer: Enforcer,
-}
-
 #[derive(Clone)]
 pub(super) struct EnforcementEngine {
-    state: Arc<RwLock<Option<EnforcerState>>>,
+    state: Arc<RwLock<Option<Enforcer>>>,
     reload_lock: Arc<Mutex<()>>,
     watcher: Arc<StdMutex<Option<RedisWatcher>>>,
 }
@@ -88,44 +84,20 @@ impl EnforcementEngine {
         // races a reload must wait for the new state instead of continuing with
         // a state that may already be stale.
         *self.state.write().await = None;
-        match load_enforcer_state(store).await {
-            Ok(state) => {
-                *self.state.write().await = Some(state);
-                Ok(())
-            }
-            Err(error) => {
-                *self.state.write().await = None;
-                Err(error)
-            }
-        }
+        let enforcer = load_enforcer(store).await?;
+        *self.state.write().await = Some(enforcer);
+        Ok(())
     }
 
     pub(super) async fn enforce(
         &self,
-        store: &PolicyStore,
         subject: String,
         permission: &str,
         active_roles: Vec<String>,
     ) -> Result<bool, AuthorizationError> {
-        self.ensure_loaded(store).await?;
         let state = self.state.read().await;
-        let state = state.as_ref().ok_or(AuthorizationError::StateUnavailable)?;
-        Ok(state
-            .enforcer
-            .enforce((subject, permission, active_roles))?)
-    }
-
-    async fn ensure_loaded(&self, store: &PolicyStore) -> Result<(), AuthorizationError> {
-        if self.state.read().await.is_some() {
-            return Ok(());
-        }
-        let _guard = self.reload_lock.lock().await;
-        if self.state.read().await.is_some() {
-            return Ok(());
-        }
-        let state = load_enforcer_state(store).await?;
-        *self.state.write().await = Some(state);
-        Ok(())
+        let enforcer = state.as_ref().ok_or(AuthorizationError::StateUnavailable)?;
+        Ok(enforcer.enforce((subject, permission, active_roles))?)
     }
 
     pub(super) async fn lock_reload(&self) -> MutexGuard<'_, ()> {
@@ -142,7 +114,7 @@ impl EnforcementEngine {
     }
 }
 
-async fn load_enforcer_state(store: &PolicyStore) -> Result<EnforcerState, AuthorizationError> {
+async fn load_enforcer(store: &PolicyStore) -> Result<Enforcer, AuthorizationError> {
     store.validate_policy_invariants().await?;
     let model = DefaultModel::from_str(
         r#"
@@ -159,21 +131,11 @@ async fn load_enforcer_state(store: &PolicyStore) -> Result<EnforcerState, Autho
         e = some(where (p_eft == allow))
 
         [matchers]
-        m = (r.sub == p.sub || (g(r.sub, p.sub) && r.active_roles.contains(p.sub))) && (p.perm == "*" || r.perm == p.perm)
+        m = (r.sub == p.sub || (g(r.sub, p.sub) && r.active_roles.contains(p.sub))) && r.perm == p.perm
         "#,
     )
     .await
     .map_err(|error| AuthorizationError::Configuration(error.to_string()))?;
     let adapter = SqlxAdapter::new_with_pool(store.pool().clone()).await?;
-    let enforcer = Enforcer::new(model, adapter).await?;
-    Ok(EnforcerState { enforcer })
-}
-
-#[cfg(test)]
-pub(super) mod tests {
-    use super::EnforcementEngine;
-
-    pub(in crate::authorization) async fn is_available(engine: &EnforcementEngine) -> bool {
-        engine.state.read().await.is_some()
-    }
+    Ok(Enforcer::new(model, adapter).await?)
 }

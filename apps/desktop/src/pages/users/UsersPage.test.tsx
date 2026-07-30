@@ -1,5 +1,5 @@
 import type { AxiosAdapter } from 'axios'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -36,7 +36,14 @@ describe('Users workflow', () => {
       let data: unknown
       if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
       else if (config.url === '/menus/current')
-        data = { code: 'OK', message: 'ok', data: { menus: [{ name: 'users', path: 'users' }], permissions: [] } }
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'users', path: 'users' }],
+            permissions: ['system:user:create', 'system:role:list', 'system:user:assign-roles'],
+          },
+        }
       else if (config.url === '/roles')
         data = {
           code: 'OK',
@@ -49,8 +56,6 @@ describe('Users workflow', () => {
                 name: 'Operator',
                 status: 'enabled',
                 sort: 1,
-                data_scope: 'all',
-                is_system: false,
               },
             ],
           },
@@ -73,7 +78,7 @@ describe('Users workflow', () => {
     await user.type(screen.getByLabelText('Nickname'), 'New Operator')
     await user.clear(screen.getByLabelText('Password'))
     await user.type(screen.getByLabelText('Password'), 'safe-password')
-    expect(screen.getByRole('checkbox', { name: 'Operator' })).toBeChecked()
+    await user.click(screen.getByRole('checkbox', { name: 'Operator' }))
     await user.click(screen.getByRole('combobox', { name: 'Status' }))
     await user.click(await screen.findByRole('option', { name: 'Disabled' }))
     await user.click(screen.getByRole('button', { name: 'Create user' }))
@@ -142,5 +147,113 @@ describe('Users workflow', () => {
 
     expect(await screen.findByText('Matched User')).toBeInTheDocument()
     expect(requestedKeywords).toContain('employee_42')
+    expect(screen.queryByRole('button', { name: 'Access' })).not.toBeInTheDocument()
+  })
+
+  it('manages direct employee permissions separately from assigned roles', async () => {
+    const currentUser = {
+      id: 1,
+      userName: 'admin',
+      nickName: 'Admin',
+      homeRoute: 'users',
+      roles: [{ id: 1, code: 'super_admin', name: 'Super Admin' }],
+    }
+    const target = {
+      id: 42,
+      userName: 'developer',
+      nickName: 'Developer',
+      phone: '',
+      email: '',
+      enable: 1,
+      roles: [
+        { id: 2, code: 'developer', name: 'Developer' },
+        { id: 3, code: 'legacy', name: 'Legacy Developer' },
+      ],
+      roleIds: [2, 3],
+    }
+    let savedDirect: string[] = []
+    useAuthStore.getState().setSession({ accessToken: 'token', refreshToken: 'refresh', userInfo: currentUser })
+    http.defaults.adapter = (async (config) => {
+      let data: unknown
+      if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
+      else if (config.url === '/menus/current')
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'users', path: 'users' }],
+            permissions: [
+              'system:user:list',
+              'system:role:list',
+              'system:user:permissions-read',
+              'system:user:permissions-update',
+            ],
+          },
+        }
+      else if (config.url === '/roles')
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            list: [
+              { id: 1, code: 'super_admin', name: 'Super Admin', status: 'enabled', sort: 0 },
+              { id: 2, code: 'developer', name: 'Developer', status: 'enabled', sort: 1 },
+              { id: 3, code: 'legacy', name: 'Legacy Developer', status: 'disabled', sort: 2 },
+            ],
+          },
+        }
+      else if (config.url === '/users')
+        data = { code: 'OK', message: 'ok', data: { list: [target], total: 1, page: 1, pageSize: 10 } }
+      else if (config.url === '/users/42/permissions' && config.method === 'get')
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            roleIds: [2, 3],
+            directPermissions: [],
+            effectivePermissions: [
+              {
+                permission: 'system:user:list',
+                direct: false,
+                roles: [{ id: 2, code: 'developer', name: 'Developer' }],
+              },
+            ],
+            catalog: [
+              {
+                permission: 'system:user:create',
+                title: 'Create user',
+                menuType: 'action',
+                status: 'enabled',
+                effectivelyEnabled: true,
+                owningPageId: 11,
+                owningPageTitle: 'Users',
+                pageVisible: false,
+              },
+            ],
+          },
+        }
+      else if (config.url === '/users/42/permissions' && config.method === 'put') {
+        savedDirect = JSON.parse(String(config.data)).permissions
+        data = { code: 'OK', message: 'saved' }
+      } else throw new Error(`Unexpected request: ${config.method} ${config.url}`)
+      return { data, status: 200, statusText: 'OK', headers: {}, config }
+    }) as AxiosAdapter
+    window.history.replaceState({}, '', '/users')
+    render(<Application />)
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Access' }))
+    expect(await screen.findByRole('tab', { name: 'Assigned Roles' })).toBeInTheDocument()
+    expect(screen.getByText('Protected')).toBeInTheDocument()
+    expect(screen.getByText('Dormant')).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Direct Permissions' }))
+    const directPanel = await screen.findByRole('tabpanel')
+    await user.click(within(directPanel).getByRole('checkbox'))
+    expect(within(directPanel).getByText('Page not visible')).toBeInTheDocument()
+    await user.click(within(directPanel).getByRole('button', { name: 'Save direct permissions' }))
+    await waitFor(() => expect(savedDirect).toEqual(['system:user:create']))
+
+    await user.click(screen.getByRole('tab', { name: 'Effective Permissions' }))
+    expect(await screen.findByText('system:user:list')).toBeInTheDocument()
   })
 })

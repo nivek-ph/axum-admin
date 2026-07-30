@@ -4,24 +4,7 @@ use sqlx::{FromRow, PgPool};
 
 use crate::IamInitError;
 
-#[derive(Debug, FromRow)]
-struct CatalogNodeRow {
-    id: i64,
-    parent_id: Option<i64>,
-    title: String,
-    menu_type: String,
-    status: String,
-    permission: Option<String>,
-}
-
-#[derive(Debug, FromRow)]
-struct CatalogBindingRow {
-    menu_id: i64,
-    method: String,
-    path_pattern: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct AccessNode {
     pub id: i64,
     pub parent_id: Option<i64>,
@@ -43,7 +26,7 @@ pub struct PermissionCatalogEntry {
     pub page_visible: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct AccessBinding {
     pub menu_id: i64,
     pub method: String,
@@ -78,38 +61,20 @@ pub struct AccessCatalog {
     enabled_menu_ids: HashSet<i64>,
     enabled_permissions: HashSet<String>,
     permissions_by_menu_id: HashMap<i64, String>,
-    parents: HashMap<i64, Option<i64>>,
 }
 
 impl AccessCatalog {
     pub(crate) async fn load(pool: &PgPool) -> Result<Self, IamInitError> {
-        let nodes = sqlx::query_as::<_, CatalogNodeRow>(
+        let nodes = sqlx::query_as::<_, AccessNode>(
             "select id, parent_id, title, menu_type, status, permission from sys_menus order by id",
         )
         .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|row| AccessNode {
-            id: row.id,
-            parent_id: row.parent_id,
-            title: row.title,
-            menu_type: row.menu_type,
-            status: row.status,
-            permission: row.permission,
-        })
-        .collect();
-        let bindings = sqlx::query_as::<_, CatalogBindingRow>(
-            "select menu_id, method, path_pattern from sys_menu_apis order by method, path_pattern",
+        .await?;
+        let bindings = sqlx::query_as::<_, AccessBinding>(
+            "select menu_id, method, path_pattern as path from sys_menu_apis order by method, path_pattern",
         )
         .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|row| AccessBinding {
-            menu_id: row.menu_id,
-            method: row.method,
-            path: row.path_pattern,
-        })
-        .collect();
+        .await?;
         Ok(Self::from_parts(nodes, bindings)?)
     }
 
@@ -162,16 +127,11 @@ impl AccessCatalog {
                     .then_some(Ok(binding))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let parents = node_map
-            .values()
-            .map(|node| (node.id, node.parent_id))
-            .collect();
         Self::build(
             active_bindings,
             enabled_menu_ids,
             enabled_permissions,
             permissions_by_menu_id,
-            parents,
             node_map,
         )
     }
@@ -181,7 +141,6 @@ impl AccessCatalog {
         enabled_menu_ids: HashSet<i64>,
         enabled_permissions: HashSet<String>,
         permissions_by_menu_id: HashMap<i64, String>,
-        parents: HashMap<i64, Option<i64>>,
         nodes: HashMap<i64, AccessNode>,
     ) -> Result<Self, CatalogError> {
         let mut exact = HashMap::new();
@@ -213,7 +172,6 @@ impl AccessCatalog {
             enabled_menu_ids,
             enabled_permissions,
             permissions_by_menu_id,
-            parents,
         })
     }
 
@@ -294,12 +252,12 @@ impl AccessCatalog {
             if node.menu_type == "action" {
                 return Err(CatalogError::InvalidTree);
             }
-            let mut parent_id = self.parents.get(menu_id).copied().flatten();
+            let mut parent_id = node.parent_id;
             while let Some(parent) = parent_id {
                 if !menu_ids.contains(&parent) {
                     return Err(CatalogError::InvalidTree);
                 }
-                parent_id = self.parents.get(&parent).copied().flatten();
+                parent_id = self.nodes.get(&parent).and_then(|item| item.parent_id);
             }
         }
         Ok(())
@@ -332,16 +290,6 @@ impl AccessCatalog {
             }
         }
         effective
-    }
-
-    pub fn system_page_access(&self) -> BTreeSet<i64> {
-        let configured = self
-            .nodes
-            .values()
-            .filter(|node| node.menu_type != "action")
-            .map(|node| node.id)
-            .collect::<HashSet<_>>();
-        self.effective_page_access(&configured, true)
     }
 }
 
@@ -387,6 +335,15 @@ fn validate_node(node: &AccessNode, nodes: &HashMap<i64, AccessNode>) -> Result<
             return Err(CatalogError::InvalidTree);
         }
         _ => {}
+    }
+
+    let mut ancestors = HashSet::new();
+    let mut parent_id = node.parent_id;
+    while let Some(parent) = parent_id {
+        if !ancestors.insert(parent) || parent == node.id {
+            return Err(CatalogError::InvalidTree);
+        }
+        parent_id = nodes.get(&parent).and_then(|item| item.parent_id);
     }
     Ok(())
 }
@@ -470,7 +427,6 @@ mod tests {
             bindings,
             HashSet::new(),
             HashSet::new(),
-            HashMap::new(),
             HashMap::new(),
             HashMap::new(),
         )
@@ -561,6 +517,33 @@ mod tests {
                 status: "enabled".to_string(),
                 permission: Some("system:user:create".to_string()),
             }],
+            vec![],
+        );
+
+        assert_eq!(result, Err(CatalogError::InvalidTree));
+    }
+
+    #[test]
+    fn rejects_directory_cycles() {
+        let result = AccessCatalog::from_parts(
+            vec![
+                AccessNode {
+                    id: 1,
+                    parent_id: Some(2),
+                    title: "First".to_string(),
+                    menu_type: "directory".to_string(),
+                    status: "enabled".to_string(),
+                    permission: None,
+                },
+                AccessNode {
+                    id: 2,
+                    parent_id: Some(1),
+                    title: "Second".to_string(),
+                    menu_type: "directory".to_string(),
+                    status: "enabled".to_string(),
+                    permission: None,
+                },
+            ],
             vec![],
         );
 

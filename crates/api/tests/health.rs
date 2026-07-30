@@ -2,10 +2,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, header},
 };
-use iam::{
-    accounts::Accounts, authorization::Authorization, departments::DepartmentService,
-    roles::RoleService,
-};
+use iam::departments::DepartmentService;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde_json::json;
 use tower::ServiceExt;
@@ -14,27 +11,23 @@ async fn test_state(pool: sqlx::PgPool) -> api::AppState {
     let passwords = auth::password::PasswordService::new();
     let tokens = auth::token::TokenService::without_session_store("test-secret");
     let captcha = auth::captcha::CaptchaService::without_store();
-    let authorization = Authorization::new(pool.clone());
-    let (access, menus) = iam::load_access_and_menus(pool.clone(), authorization.clone())
+    let iam = iam::Iam::load(pool.clone())
         .await
-        .expect("IAM test state should load the access catalog");
+        .expect("IAM test state should load");
     let audits = audit::AuditService::new(pool.clone());
-    let accounts = Accounts::new(pool.clone(), authorization.clone());
-    let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
     let departments = DepartmentService::new(pool.clone());
     api::AppState {
         public_base_url: "http://127.0.0.1:3000".to_string(),
         tokens,
         captcha,
         passwords,
-        accounts,
-        authorization,
-        roles,
+        accounts: iam.accounts,
+        roles: iam.roles,
         departments,
-        access,
+        access: iam.access,
         dictionaries: metadata::dictionaries::DictionaryService::new(pool.clone()),
         parameters: metadata::parameters::ParameterService::new(pool.clone()),
-        menus,
+        menus: iam.menus,
         audits,
         audit_analyzer: audit::AuditAnalyzer::new("http://127.0.0.1:9/v1", "test"),
         files: file_storage::files::FileService::new(pool, "./uploads"),

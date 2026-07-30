@@ -1,14 +1,12 @@
 use std::ops::Deref;
 
 use axum::{extract::FromRequestParts, http::request::Parts};
-use iam::access::ResolvedDataScope;
 
 use crate::{AppError, mappings::LOGIN_REQUIRED};
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
     pub id: i64,
-    pub data_scope: ResolvedDataScope,
 }
 
 #[derive(Debug, Clone)]

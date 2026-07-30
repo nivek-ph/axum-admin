@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     sync::Arc,
 };
 
@@ -30,59 +30,32 @@ impl MenuService {
 
     pub async fn current(&self, user_id: i64) -> Result<(Vec<MenuView>, Vec<String>), MenuError> {
         let active_role_ids = self.authorization.active_user_role_ids(user_id).await?;
-        let system_managed = sqlx::query_scalar::<_, bool>(
+        let configured = sqlx::query_scalar::<_, i64>(
             r#"
-            select exists(
-                select 1
-                from sys_roles
-                where id = any($1) and is_system
-            )
+            select distinct menu_id
+            from sys_role_menus
+            where role_id = any($1)
+            order by menu_id
             "#,
         )
         .bind(&active_role_ids)
-        .fetch_one(&self.pool)
-        .await?;
-        let menu_ids = if system_managed {
-            self.catalog.system_page_access()
-        } else {
-            let configured = sqlx::query_scalar::<_, i64>(
-                r#"
-                select distinct menu_id
-                from sys_role_menus
-                where role_id = any($1)
-                order by menu_id
-                "#,
-            )
-            .bind(&active_role_ids)
-            .fetch_all(&self.pool)
-            .await?
-            .into_iter()
-            .collect::<HashSet<_>>();
-            self.catalog.effective_page_access(&configured, true)
-        };
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .collect::<HashSet<_>>();
+        let menu_ids = self.catalog.effective_page_access(&configured, true);
         let effective_permissions = self
             .authorization
             .effective_permissions_for(user_id, &active_role_ids)
             .await?;
-        let permissions = if system_managed {
-            self.catalog
-                .enabled_permissions()
-                .iter()
-                .cloned()
-                .collect::<BTreeSet<_>>()
-        } else {
-            let enabled_permissions = self.catalog.enabled_permissions();
-            effective_permissions
-                .into_iter()
-                .filter(|permission| enabled_permissions.contains(permission))
-                .collect()
-        };
+        let enabled_permissions = self.catalog.enabled_permissions();
+        let permissions = effective_permissions
+            .into_iter()
+            .filter(|permission| enabled_permissions.contains(permission))
+            .collect::<Vec<_>>();
         let allowed = menu_ids.into_iter().collect::<HashSet<_>>();
         let records = load_records(&self.pool).await?;
-        Ok((
-            build_tree(records, Some(&allowed), false),
-            permissions.into_iter().collect(),
-        ))
+        Ok((build_tree(records, Some(&allowed), false), permissions))
     }
 
     pub async fn tree(&self) -> Result<Vec<MenuView>, MenuError> {
@@ -239,16 +212,16 @@ mod tests {
             r#"
             insert into sys_users (
                 id, uuid, username, password_hash, nick_name, header_img,
-                enable, dept_id, is_system
+                enable, dept_id
             )
-            values (9001, 'menu-user', 'menu-user', 'hash', 'Menu User', '', true, 1, false)
+            values (9001, 'menu-user', 'menu-user', 'hash', 'Menu User', '', true, 1)
             "#,
         )
         .execute(&pool)
         .await
         .unwrap();
         sqlx::query(
-            "insert into sys_roles (id, name, code, status, is_system) values (9001, 'Menu Role', 'menu-role', 'enabled', false)",
+            "insert into sys_roles (id, name, code, status) values (9001, 'Menu Role', 'menu-role', 'enabled')",
         )
         .execute(&pool)
         .await
@@ -272,9 +245,8 @@ mod tests {
         let authorization = crate::authorization::Authorization::load(pool.clone())
             .await
             .unwrap();
-        let (_, menus) = crate::load_access_and_menus(pool, authorization)
-            .await
-            .unwrap();
+        let catalog = Arc::new(AccessCatalog::load(&pool).await.unwrap());
+        let menus = MenuService::from_catalog(pool, authorization, catalog);
 
         let (tree, permissions) = menus.current(9001).await.unwrap();
 

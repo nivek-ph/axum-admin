@@ -1,190 +1,412 @@
-use audit::{AuditActor, AuditContext, AuditSource};
-use iam::{
-    access::ResolvedDataScope,
-    authorization::{Authorization, PolicyAdministrationError, ReplaceUserRoles},
-};
+use std::time::Duration;
 
-fn audit_context() -> AuditContext {
+use audit::{AuditActor, AuditContext, AuditSource};
+use iam::{Iam, access::AccessEvaluationError, accounts::AccountError};
+
+fn audit_context(actor_id: i64) -> AuditContext {
     AuditContext {
-        req_id: "req-authorization-user-roles".to_string(),
+        req_id: format!("req-{actor_id}"),
         actor: AuditActor {
-            id: Some(100),
-            label: "actor".to_string(),
+            id: Some(actor_id),
+            label: format!("user-{actor_id}"),
         },
         source: AuditSource {
             ip: "127.0.0.1".to_string(),
-            user_agent: "authorization-test".to_string(),
+            user_agent: "iam-integration-test".to_string(),
         },
     }
 }
 
-async fn seed_membership_accounts(pool: &sqlx::PgPool) {
+async fn insert_user(pool: &sqlx::PgPool, id: i64, name: &str) {
     sqlx::query(
         r#"
-        insert into sys_users (
-            id, uuid, username, password_hash, nick_name, header_img, home_route,
-            enable, dept_id, is_system
-        ) values
-            (100, 'authorization-actor', 'authorization-actor', 'hash', 'Actor', '',
-             'dashboard', true, 1, false),
-            (101, 'authorization-target', 'authorization-target', 'hash', 'Target', '',
-             'dashboard', true, 1, false)
+        insert into sys_users (id, uuid, username, password_hash, nick_name, header_img, dept_id)
+        values ($1, $2, $2, 'hash', $2, '', 1)
         "#,
     )
+    .bind(id)
+    .bind(name)
     .execute(pool)
     .await
     .unwrap();
+}
+
+async fn assign_role(pool: &sqlx::PgPool, user_id: i64, role_id: i64) {
     sqlx::query(
-        "insert into sys_roles (id, code, name, status, sort, data_scope, is_system)
-         values (2, 'operator', 'Operator', 'enabled', 10, 'self', false)",
+        r#"
+        insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+        values ('g', 'user:' || $1::text, 'role:' || $2::text, '', '', '', '')
+        "#,
     )
+    .bind(user_id)
+    .bind(role_id)
     .execute(pool)
     .await
     .unwrap();
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn user_role_replacement_and_success_audit_commit_together(pool: sqlx::PgPool) {
-    seed_membership_accounts(&pool).await;
-    let authorization = Authorization::new(pool.clone());
-
-    authorization
-        .replace_user_roles(ReplaceUserRoles {
-            actor_user_id: 100,
-            user_id: 101,
-            role_ids: vec![2],
-            data_scope: ResolvedDataScope::All,
-            audit_context: audit_context(),
-        })
-        .await
-        .unwrap();
-
-    assert_eq!(authorization.user_role_ids(101).await.unwrap(), vec![2]);
-    let event = sqlx::query_as::<_, (String, String, String)>(
-        "select action, result, changes::text from sys_audit_events where req_id = $1",
-    )
-    .bind("req-authorization-user-roles")
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(event.0, "user.assign_roles");
-    assert_eq!(event.1, "succeeded");
-    assert!(event.2.contains("\"after\""));
-}
-
-#[sqlx::test(migrations = "../../migrations")]
-async fn user_role_replacement_rolls_back_when_success_audit_fails(pool: sqlx::PgPool) {
-    seed_membership_accounts(&pool).await;
+async fn direct_permission_is_enforced_without_role_or_page_access(pool: sqlx::PgPool) {
+    insert_user(&pool, 100, "direct-user").await;
     sqlx::query(
-        "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
-         values ('g', 'user:101', 'role:1', '', '', '', '')",
+        r#"
+        insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+        values ('p', 'user:100', 'system:user:list', '', '', '', '')
+        "#,
     )
     .execute(&pool)
     .await
     .unwrap();
+    let iam = Iam::load(pool).await.unwrap();
+
+    assert!(iam.access.evaluate(100, "GET", "/api/users").await.is_ok());
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn disabled_role_grant_is_dormant(pool: sqlx::PgPool) {
+    insert_user(&pool, 101, "dormant-user").await;
+    sqlx::query(
+        "insert into sys_roles (id, code, name, status, sort) values (2, 'dormant', 'Dormant', 'disabled', 10)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assign_role(&pool, 101, 2).await;
+    sqlx::query(
+        r#"
+        insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+        values ('p', 'role:2', 'system:user:list', '', '', '', '')
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let iam = Iam::load(pool).await.unwrap();
+
+    assert!(matches!(
+        iam.access.evaluate(101, "GET", "/api/users").await,
+        Err(AccessEvaluationError::PermissionDenied { .. })
+    ));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn only_active_super_admin_can_manage_employee_access(pool: sqlx::PgPool) {
+    insert_user(&pool, 102, "super-user").await;
+    insert_user(&pool, 103, "ordinary-user").await;
+    insert_user(&pool, 104, "target-user").await;
+    assign_role(&pool, 102, 1).await;
+    let iam = Iam::load(pool).await.unwrap();
+
+    iam.accounts
+        .replace_roles(102, 104, Vec::new(), audit_context(102))
+        .await
+        .unwrap();
+    assert!(matches!(
+        iam.accounts
+            .replace_roles(103, 104, Vec::new(), audit_context(103))
+            .await,
+        Err(AccountError::AccessDenied)
+    ));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn final_active_super_admin_membership_cannot_be_removed(pool: sqlx::PgPool) {
+    insert_user(&pool, 105, "last-super").await;
+    assign_role(&pool, 105, 1).await;
+    let iam = Iam::load(pool).await.unwrap();
+
+    assert!(matches!(
+        iam.accounts
+            .replace_roles(105, 105, Vec::new(), audit_context(105))
+            .await,
+        Err(AccountError::LastSuperAdmin)
+    ));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn missing_employee_access_target_is_not_found(pool: sqlx::PgPool) {
+    insert_user(&pool, 106, "super-user").await;
+    assign_role(&pool, 106, 1).await;
+    let iam = Iam::load(pool).await.unwrap();
+
+    assert!(matches!(
+        iam.accounts
+            .replace_roles(106, 999, Vec::new(), audit_context(106))
+            .await,
+        Err(AccountError::NotFound)
+    ));
+    assert!(matches!(
+        iam.accounts
+            .replace_direct_permissions(106, 999, Vec::new(), audit_context(106))
+            .await,
+        Err(AccountError::NotFound)
+    ));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn dormant_role_membership_is_visible_and_replaceable(pool: sqlx::PgPool) {
+    insert_user(&pool, 107, "super-user").await;
+    insert_user(&pool, 108, "dormant-target").await;
+    assign_role(&pool, 107, 1).await;
+    sqlx::query(
+        "insert into sys_roles (id, code, name, status, sort) values (2, 'dormant', 'Dormant', 'disabled', 10)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assign_role(&pool, 108, 2).await;
+    sqlx::query(
+        r#"
+        insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+        values ('p', 'role:2', 'system:user:list', '', '', '', '')
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let iam = Iam::load(pool).await.unwrap();
+
+    let access = iam.accounts.access(107, 108).await.unwrap();
+    assert_eq!(access.role_ids, vec![2]);
+    assert!(access.effective_permissions.is_empty());
+    iam.accounts
+        .replace_roles(107, 108, vec![2], audit_context(107))
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn malformed_policy_prevents_authorization_startup(pool: sqlx::PgPool) {
+    sqlx::query(
+        r#"
+        insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+        values ('p', 'user:999', '*', '', '', '', '')
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(Iam::load(pool).await.is_err());
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn employee_access_survives_authorization_restart(pool: sqlx::PgPool) {
+    insert_user(&pool, 109, "super-user").await;
+    insert_user(&pool, 110, "restart-target").await;
+    assign_role(&pool, 109, 1).await;
+    let iam = Iam::load(pool.clone()).await.unwrap();
+    iam.accounts
+        .replace_direct_permissions(
+            109,
+            110,
+            vec!["system:user:list".to_string()],
+            audit_context(109),
+        )
+        .await
+        .unwrap();
+
+    let restarted = Iam::load(pool).await.unwrap();
+    assert!(
+        restarted
+            .access
+            .evaluate(110, "GET", "/api/users")
+            .await
+            .is_ok()
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn audit_failure_rolls_back_membership_final_set(pool: sqlx::PgPool) {
+    insert_user(&pool, 111, "super-user").await;
+    insert_user(&pool, 112, "rollback-target").await;
+    assign_role(&pool, 111, 1).await;
+    sqlx::query(
+        "insert into sys_roles (id, code, name, status, sort) values (2, 'operator', 'Operator', 'enabled', 10)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assign_role(&pool, 112, 2).await;
+    let iam = Iam::load(pool.clone()).await.unwrap();
     sqlx::query("drop table sys_audit_events")
         .execute(&pool)
         .await
         .unwrap();
-    let authorization = Authorization::new(pool.clone());
 
-    let error = authorization
-        .replace_user_roles(ReplaceUserRoles {
-            actor_user_id: 100,
-            user_id: 101,
-            role_ids: vec![2],
-            data_scope: ResolvedDataScope::All,
-            audit_context: audit_context(),
-        })
-        .await
-        .expect_err("audit persistence failure should fail membership replacement");
-
-    assert!(matches!(error, PolicyAdministrationError::Audit(_)));
-    assert_eq!(authorization.user_role_ids(101).await.unwrap(), vec![1]);
+    assert!(matches!(
+        iam.accounts
+            .replace_roles(111, 112, Vec::new(), audit_context(111))
+            .await,
+        Err(AccountError::Audit(_))
+    ));
+    assert_eq!(
+        iam.accounts.access(111, 112).await.unwrap().role_ids,
+        vec![2]
+    );
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn direct_user_permission_is_enforceable_without_role_membership(pool: sqlx::PgPool) {
-    seed_membership_accounts(&pool).await;
+async fn post_commit_reload_failure_is_successful_and_periodic_reload_recovers(pool: sqlx::PgPool) {
+    insert_user(&pool, 113, "super-user").await;
+    insert_user(&pool, 114, "reload-target").await;
+    assign_role(&pool, 113, 1).await;
     sqlx::query(
-        "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
-         values ('p', 'user:101', 'system:user:list', '', '', '', '')",
+        "insert into sys_roles (id, code, name, status, sort) values (2, 'operator', 'Operator', 'enabled', 10)",
     )
     .execute(&pool)
     .await
     .unwrap();
-    let authorization = Authorization::load(pool).await.unwrap();
+    sqlx::query(
+        r#"
+        insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+        values ('p', 'role:2', 'system:user:list', '', '', '', '')
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let iam = Iam::load(pool.clone()).await.unwrap();
+    sqlx::query(
+        r#"
+        create function inject_invalid_policy() returns trigger language plpgsql as $$
+        begin
+            insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+            values ('p', 'role:2', '*', '', '', '', '');
+            return new;
+        end
+        $$
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        create trigger inject_invalid_policy
+        after insert on sys_audit_events
+        for each row execute function inject_invalid_policy()
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
 
-    assert!(authorization.user_role_ids(101).await.unwrap().is_empty());
-    assert!(
-        authorization
-            .effective_permissions(101)
-            .await
-            .unwrap()
-            .contains("system:user:list")
-    );
-    assert!(
-        authorization
-            .enforce(101, "system:user:list")
-            .await
-            .unwrap()
-    );
-}
-
-#[sqlx::test(migrations = "../../migrations")]
-async fn role_user_replacement_is_a_validated_final_set(pool: sqlx::PgPool) {
-    seed_membership_accounts(&pool).await;
-    let authorization = Authorization::new(pool);
-
-    authorization
-        .replace_role_users(2, vec![101, 101, 0])
+    iam.accounts
+        .replace_roles(113, 114, vec![2], audit_context(113))
         .await
         .unwrap();
-    assert_eq!(authorization.role_user_ids(2).await.unwrap(), vec![101]);
-
-    let error = authorization
-        .replace_role_users(2, vec![999])
-        .await
-        .expect_err("unknown users should not replace the current final set");
     assert!(matches!(
-        error,
-        PolicyAdministrationError::InvalidUserAssignment
+        iam.access.evaluate(114, "GET", "/api/users").await,
+        Err(AccessEvaluationError::Authorization(
+            iam::AuthorizationError::StateUnavailable
+        ))
     ));
-    assert_eq!(authorization.role_user_ids(2).await.unwrap(), vec![101]);
 
-    authorization
-        .replace_role_users(2, Vec::new())
+    sqlx::query("delete from casbin_rule where ptype = 'p' and v0 = 'role:2' and v1 = '*'")
+        .execute(&pool)
         .await
         .unwrap();
-    assert!(authorization.role_user_ids(2).await.unwrap().is_empty());
-}
-
-#[sqlx::test(migrations = "../../migrations")]
-async fn concurrent_membership_final_sets_share_one_lock_order(pool: sqlx::PgPool) {
-    seed_membership_accounts(&pool).await;
-    let authorization = Authorization::new(pool);
-    let user_roles = authorization.clone();
-    let role_users = authorization.clone();
-
-    let user_write = tokio::spawn(async move {
-        user_roles
-            .replace_user_roles(ReplaceUserRoles {
-                actor_user_id: 100,
-                user_id: 101,
-                role_ids: vec![2],
-                data_scope: ResolvedDataScope::All,
-                audit_context: audit_context(),
-            })
-            .await
-    });
-    let role_write = tokio::spawn(async move { role_users.replace_role_users(2, vec![101]).await });
-
-    tokio::time::timeout(std::time::Duration::from_secs(3), async {
-        user_write.await.unwrap().unwrap();
-        role_write.await.unwrap().unwrap();
+    iam.start_periodic_reload(Duration::from_millis(20));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if iam.access.evaluate(114, "GET", "/api/users").await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     })
     .await
-    .expect("membership final-set mutations should not deadlock");
-    assert_eq!(authorization.user_role_ids(101).await.unwrap(), vec![2]);
-    assert_eq!(authorization.role_user_ids(2).await.unwrap(), vec![101]);
+    .expect("periodic reload should recover the failed state");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn concurrent_removals_preserve_one_active_super_admin(pool: sqlx::PgPool) {
+    insert_user(&pool, 115, "first-super").await;
+    insert_user(&pool, 116, "second-super").await;
+    assign_role(&pool, 115, 1).await;
+    assign_role(&pool, 116, 1).await;
+    let iam = Iam::load(pool.clone()).await.unwrap();
+    let first = iam.accounts.clone();
+    let second = iam.accounts.clone();
+
+    let first_remove = tokio::spawn(async move {
+        first
+            .replace_roles(115, 115, Vec::new(), audit_context(115))
+            .await
+    });
+    let second_remove = tokio::spawn(async move {
+        second
+            .replace_roles(116, 116, Vec::new(), audit_context(116))
+            .await
+    });
+    let (first_result, second_result) = tokio::time::timeout(Duration::from_secs(3), async {
+        (first_remove.await.unwrap(), second_remove.await.unwrap())
+    })
+    .await
+    .expect("concurrent membership final sets should not deadlock");
+
+    assert!(
+        matches!(
+            (&first_result, &second_result),
+            (Ok(()), Err(AccountError::LastSuperAdmin))
+                | (Err(AccountError::LastSuperAdmin), Ok(()))
+        ),
+        "exactly one final super_admin removal should succeed"
+    );
+    let active = sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)
+        from sys_users account
+        join casbin_rule membership
+          on membership.ptype = 'g'
+         and membership.v0 = 'user:' || account.id::text
+        where account.enable and membership.v1 = 'role:1'
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(active, 1);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn watcher_propagates_employee_access_changes(pool: sqlx::PgPool) {
+    insert_user(&pool, 117, "super-user").await;
+    insert_user(&pool, 118, "watcher-target").await;
+    assign_role(&pool, 117, 1).await;
+    let publisher = Iam::load(pool.clone()).await.unwrap();
+    let subscriber = Iam::load(pool).await.unwrap();
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    publisher.start_redis_watcher(&redis_url).unwrap();
+    subscriber.start_redis_watcher(&redis_url).unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    publisher
+        .accounts
+        .replace_direct_permissions(
+            117,
+            118,
+            vec!["system:user:list".to_string()],
+            audit_context(117),
+        )
+        .await
+        .unwrap();
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if subscriber
+                .access
+                .evaluate(118, "GET", "/api/users")
+                .await
+                .is_ok()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("watcher should reload the subscriber");
 }

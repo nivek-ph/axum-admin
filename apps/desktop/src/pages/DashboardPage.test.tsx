@@ -84,6 +84,11 @@ function renderDashboard() {
   )
 }
 
+const dashboardMenus = Object.keys(RESOURCE_RESPONSES)
+  .map((path) => path.slice(1))
+  .concat('audit-events')
+  .map((name) => ({ name, path: `/${name}` }))
+
 describe('Dashboard page', () => {
   const originalAdapter = http.defaults.adapter
 
@@ -102,7 +107,7 @@ describe('Dashboard page', () => {
     const requests: string[] = []
     const requestedDays: unknown[] = []
     setSession()
-    useMenuStore.getState().setAuthorizedMenus([], true)
+    useMenuStore.getState().setAuthorizedMenus(dashboardMenus)
     http.defaults.adapter = successAdapter(auditStats, requests, requestedDays)
 
     const view = renderDashboard()
@@ -144,7 +149,7 @@ describe('Dashboard page', () => {
 
   it('treats an all-zero response as successful chart data', async () => {
     setSession()
-    useMenuStore.getState().setAuthorizedMenus([], true)
+    useMenuStore.getState().setAuthorizedMenus(dashboardMenus)
     http.defaults.adapter = successAdapter({
       ...auditStats,
       eventCount: 0,
@@ -203,7 +208,7 @@ describe('Dashboard page', () => {
 
   it('shows loading placeholders without drawing zero charts', async () => {
     setSession()
-    useMenuStore.getState().setAuthorizedMenus([], true)
+    useMenuStore.getState().setAuthorizedMenus(dashboardMenus)
     http.defaults.adapter = (async (config) => {
       const url = config.url ?? ''
       if (url === '/audit/events/stats') return await new Promise(() => {})
@@ -228,7 +233,7 @@ describe('Dashboard page', () => {
 
   it('shows one shared error block and dashes when audit statistics fail', async () => {
     setSession()
-    useMenuStore.getState().setAuthorizedMenus([], true)
+    useMenuStore.getState().setAuthorizedMenus(dashboardMenus)
     http.defaults.adapter = (async (config) => {
       const url = config.url ?? ''
       if (url === '/audit/events/stats') throw new Error('stats failed')

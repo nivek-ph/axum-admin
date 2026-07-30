@@ -33,7 +33,8 @@ export interface CreateUserForm {
   phone?: string
   email?: string
   enable: number
-  roleIds: number[]
+  roleIds?: number[]
+  deptId?: number
 }
 
 export async function fetchUsers(filters: UserFilters = {}) {
@@ -61,7 +62,8 @@ export function createUser(form: CreateUserForm) {
       phone: form.phone?.trim() || undefined,
       email: form.email?.trim() || undefined,
       enable: form.enable,
-      roleIds: form.roleIds,
+      roleIds: form.roleIds?.length ? form.roleIds : undefined,
+      deptId: form.deptId,
     },
     withAuthHeaders(),
   )
@@ -69,6 +71,56 @@ export function createUser(form: CreateUserForm) {
 
 export function assignUserRoles(id: number, roleIds: number[]) {
   return http.put<never, ApiEnvelope>(`/users/${id}/roles`, { roleIds }, withAuthHeaders())
+}
+
+export interface EffectiveRoleSource {
+  id: number
+  code: string
+  name: string
+}
+
+export interface EffectivePermission {
+  permission: string
+  direct: boolean
+  roles: EffectiveRoleSource[]
+}
+
+export interface UserPermissionCatalogItem {
+  permission: string
+  title: string
+  menuType: 'page' | 'action'
+  status: 'enabled' | 'disabled'
+  effectivelyEnabled: boolean
+  owningPageId: number
+  owningPageTitle: string
+  pageVisible: boolean
+}
+
+export interface UserAccess {
+  roleIds: number[]
+  directPermissions: string[]
+  effectivePermissions: EffectivePermission[]
+  catalog: UserPermissionCatalogItem[]
+}
+
+export async function getUserAccess(id: number) {
+  const response = await http.get<never, ApiEnvelope<UserAccess>>(`/users/${id}/permissions`, withAuthHeaders())
+  return (
+    response.data ?? {
+      roleIds: [],
+      directPermissions: [],
+      effectivePermissions: [],
+      catalog: [],
+    }
+  )
+}
+
+export function setUserDirectPermissions(id: number, permissions: string[]) {
+  return http.put<never, ApiEnvelope>(
+    `/users/${id}/permissions`,
+    { permissions: [...new Set(permissions)].sort() },
+    withAuthHeaders(),
+  )
 }
 
 export function deleteUser(id: number) {

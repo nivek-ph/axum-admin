@@ -110,9 +110,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ ...emptySession(), permissions: [] })
   },
   can: (permission) => {
-    const state = get()
-    if (state.userInfo?.roles?.some((role) => role.code === 'super_admin')) return true
-    return state.permissions.includes(permission)
+    return get().permissions.includes(permission)
   },
 }))
 

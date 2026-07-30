@@ -4,9 +4,8 @@ use axum::{
 };
 
 use super::dto::{
-    RoleData, RoleDeptIdsData, RoleDeptRequest, RoleListData, RoleMenuIdsData, RoleMenuRequest,
-    RolePermissionRequest, RolePermissionsData, RoleRequest, RoleResponse, RoleUserIdsData,
-    RoleUsersRequest,
+    RoleData, RoleListData, RoleMenuIdsData, RoleMenuRequest, RolePermissionRequest,
+    RolePermissionsData, RoleRequest, RoleResponse,
 };
 use crate::{ApiResponse, AppResult, EmptyData, state::AppState};
 
@@ -101,7 +100,7 @@ pub async fn get_role_menus(
     Ok(Json(ApiResponse::ok(RoleMenuIdsData {
         menu_ids: access.menu_ids,
         effective_menu_ids: access.effective_menu_ids,
-        system_managed: access.system_managed,
+        protected: access.protected,
     })))
 }
 
@@ -136,7 +135,7 @@ pub async fn get_role_permissions(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<RolePermissionsData>>> {
-    let policy = state.authorization.role_permissions(id).await?;
+    let policy = state.roles.permissions(id).await?;
     let catalog = state.roles.permission_catalog(id).await?;
     Ok(Json(ApiResponse::ok((policy, catalog).into())))
 }
@@ -155,84 +154,6 @@ pub async fn set_role_permissions(
     Path(id): Path<i64>,
     Json(payload): Json<RolePermissionRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state
-        .authorization
-        .replace_role_permissions(id, payload.permissions)
-        .await?;
-    Ok(Json(ApiResponse::new("OK", "saved", None)))
-}
-
-#[utoipa::path(
-    get,
-    path = "/roles/{id}/depts",
-    tag = "role",
-    security(("bearer_auth" = [])),
-    params(("id" = i64, Path, description = "Role ID")),
-    responses((status = 200, description = "Role department IDs", body = ApiResponse<RoleDeptIdsData>))
-)]
-pub async fn get_role_depts(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<RoleDeptIdsData>>> {
-    let dept_ids = state.roles.dept_ids(id).await?;
-
-    Ok(Json(ApiResponse::ok(RoleDeptIdsData { dept_ids })))
-}
-
-#[utoipa::path(
-    put,
-    path = "/roles/{id}/depts",
-    tag = "role",
-    security(("bearer_auth" = [])),
-    params(("id" = i64, Path, description = "Role ID")),
-    request_body = RoleDeptRequest,
-    responses((status = 200, description = "Role departments saved", body = ApiResponse<EmptyData>))
-)]
-pub async fn set_role_depts(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    Json(payload): Json<RoleDeptRequest>,
-) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.roles.set_dept_ids(id, payload.dept_ids).await?;
-
-    Ok(Json(ApiResponse::new("OK", "saved", None)))
-}
-
-#[utoipa::path(
-    get,
-    path = "/roles/{id}/users",
-    tag = "role",
-    security(("bearer_auth" = [])),
-    params(("id" = i64, Path, description = "Role ID")),
-    responses((status = 200, description = "Role user IDs", body = ApiResponse<RoleUserIdsData>))
-)]
-pub async fn get_role_users(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> AppResult<Json<ApiResponse<RoleUserIdsData>>> {
-    let user_ids = state.authorization.role_user_ids(id).await?;
-
-    Ok(Json(ApiResponse::ok(RoleUserIdsData(user_ids))))
-}
-
-#[utoipa::path(
-    put,
-    path = "/roles/{id}/users",
-    tag = "role",
-    security(("bearer_auth" = [])),
-    params(("id" = i64, Path, description = "Role ID")),
-    request_body = RoleUsersRequest,
-    responses((status = 200, description = "Role users saved", body = ApiResponse<EmptyData>))
-)]
-pub async fn set_role_users(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    Json(payload): Json<RoleUsersRequest>,
-) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state
-        .authorization
-        .replace_role_users(id, payload.user_ids)
-        .await?;
-
+    state.roles.set_permissions(id, payload.permissions).await?;
     Ok(Json(ApiResponse::new("OK", "saved", None)))
 }

@@ -1,7 +1,5 @@
 import { create } from 'zustand'
 
-import { isSuperAdmin, useAuthStore } from './auth'
-
 export interface MenuItem {
   key: string
   label: string
@@ -65,7 +63,7 @@ export function flattenMenuItems(items: MenuItem[]): MenuItem[] {
 interface MenuState {
   items: MenuItem[]
   accessLoaded: boolean
-  setAuthorizedMenus: (menus: RemoteMenuItem[], allowAll?: boolean) => void
+  setAuthorizedMenus: (menus: RemoteMenuItem[]) => void
   resetAccess: () => void
   canAccess: (routeName: string) => boolean
   firstAuthorizedPath: () => string
@@ -74,15 +72,11 @@ interface MenuState {
 export const useMenuStore = create<MenuState>((set, get) => ({
   items: coreMenuItems,
   accessLoaded: false,
-  setAuthorizedMenus: (menus, allowAll = false) => {
-    const items = buildMenuItems(menus)
-    set({ items: allowAll && items.length === 0 ? coreMenuItems : items, accessLoaded: true })
-  },
+  setAuthorizedMenus: (menus) => set({ items: buildMenuItems(menus), accessLoaded: true }),
   resetAccess: () => set({ items: coreMenuItems, accessLoaded: false }),
   canAccess: (routeName) => {
     if (routeName === 'profile' || routeName === 'login') return true
     if (!get().accessLoaded) return true
-    if (isSuperAdmin(useAuthStore.getState().userInfo)) return true
     return flattenMenuItems(get().items).some((item) => item.key === routeName)
   },
   firstAuthorizedPath: () => flattenMenuItems(get().items).find((item) => item.path)?.path ?? '/profile',

@@ -37,16 +37,18 @@ const USER_ALREADY_EXISTS: ErrorSpec =
 pub(crate) const INVALID_PASSWORD: ErrorSpec =
     ErrorSpec::bad_request("INVALID_PASSWORD", "invalid password");
 const INVALID_ROLES: ErrorSpec =
-    ErrorSpec::validation("INVALID_ROLES", "at least one enabled role is required");
+    ErrorSpec::validation("INVALID_ROLES", "selected roles are invalid");
 const ROLE_NOT_FOUND: ErrorSpec = ErrorSpec::not_found("ROLE_NOT_FOUND", "role not found");
 const ROLE_IMMUTABLE: ErrorSpec =
     ErrorSpec::failed_precondition("ROLE_IMMUTABLE", "system role cannot be deleted");
+const LAST_SUPER_ADMIN: ErrorSpec = ErrorSpec::failed_precondition(
+    "LAST_SUPER_ADMIN",
+    "the final active super_admin cannot be removed",
+);
 const INVALID_PERMISSION_ASSIGNMENT: ErrorSpec = ErrorSpec::validation(
     "INVALID_PERMISSION_ASSIGNMENT",
     "selected permissions must exist in the access catalog",
 );
-const INVALID_USER_ASSIGNMENT: ErrorSpec =
-    ErrorSpec::validation("INVALID_USER_ASSIGNMENT", "selected users must exist");
 const INVALID_AUDIT_TIME_RANGE: ErrorSpec = ErrorSpec::validation(
     "INVALID_AUDIT_TIME_RANGE",
     "audit time range must use RFC 3339 timestamps",
@@ -102,10 +104,10 @@ impl From<iam::access::AccessEvaluationError> for AppError {
     }
 }
 
-impl From<iam::authorization::AuthorizationError> for AppError {
-    fn from(error: iam::authorization::AuthorizationError) -> Self {
+impl From<iam::AuthorizationError> for AppError {
+    fn from(error: iam::AuthorizationError) -> Self {
         match error {
-            iam::authorization::AuthorizationError::Configuration(_) => {
+            iam::AuthorizationError::Configuration(_) => {
                 AUTHORIZATION_CONFIG_INVALID.into_error().with_source(error)
             }
             _ => AUTHORIZATION_UNAVAILABLE.into_error().with_source(error),
@@ -205,6 +207,10 @@ impl From<iam::accounts::AccountError> for AppError {
             AccountError::NotFound => USER_NOT_FOUND.into(),
             AccountError::AlreadyExists => USER_ALREADY_EXISTS.into(),
             AccountError::InvalidRoles => INVALID_ROLES.into(),
+            AccountError::InvalidPermissions => INVALID_PERMISSION_ASSIGNMENT.into(),
+            AccountError::AccessDenied => PERMISSION_DENIED.into(),
+            AccountError::LastSuperAdmin => LAST_SUPER_ADMIN.into(),
+            AccountError::Audit(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
             AccountError::Database(source) => {
                 INTERNAL_SERVER_ERROR.into_error().with_source(source)
             }
@@ -244,31 +250,8 @@ impl From<iam::roles::RoleError> for AppError {
             .into_error()
             .with_source(source),
             RoleError::Authorization(source) => source.into(),
+            RoleError::InvalidPermissions => INVALID_PERMISSION_ASSIGNMENT.into(),
             RoleError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-        }
-    }
-}
-
-impl From<iam::authorization::PolicyAdministrationError> for AppError {
-    fn from(error: iam::authorization::PolicyAdministrationError) -> Self {
-        use iam::authorization::PolicyAdministrationError;
-
-        match error {
-            PolicyAdministrationError::RoleNotFound => ROLE_NOT_FOUND.into(),
-            PolicyAdministrationError::UserNotFound => USER_NOT_FOUND.into(),
-            PolicyAdministrationError::RoleImmutable => ROLE_IMMUTABLE.into(),
-            PolicyAdministrationError::InvalidPermissionAssignment => {
-                INVALID_PERMISSION_ASSIGNMENT.into()
-            }
-            PolicyAdministrationError::InvalidRoleAssignment => INVALID_ROLES.into(),
-            PolicyAdministrationError::InvalidUserAssignment => INVALID_USER_ASSIGNMENT.into(),
-            PolicyAdministrationError::Database(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-            PolicyAdministrationError::Audit(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-            PolicyAdministrationError::Authorization(source) => source.into(),
         }
     }
 }
@@ -390,13 +373,25 @@ mod tests {
 
     #[test]
     fn authorization_configuration_error_has_a_stable_internal_contract() {
-        let error = AppError::from(iam::authorization::AuthorizationError::Configuration(
+        let error = AppError::from(iam::AuthorizationError::Configuration(
             "invalid test policy".to_string(),
         ));
 
         assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(error.code(), "AUTHORIZATION_CONFIG_INVALID");
         assert_eq!(error.message(), "authorization configuration is invalid");
+    }
+
+    #[test]
+    fn final_super_admin_has_a_specific_precondition_contract() {
+        let error = AppError::from(iam::accounts::AccountError::LastSuperAdmin);
+
+        assert_eq!(error.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(error.code(), "LAST_SUPER_ADMIN");
+        assert_eq!(
+            error.message(),
+            "the final active super_admin cannot be removed"
+        );
     }
 
     #[test]

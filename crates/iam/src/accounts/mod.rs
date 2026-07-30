@@ -11,8 +11,16 @@ pub enum AccountError {
     NotFound,
     #[error("user already exists")]
     AlreadyExists,
-    #[error("at least one enabled role is required")]
+    #[error("selected roles are invalid")]
     InvalidRoles,
+    #[error("only an active super_admin may perform this operation")]
+    AccessDenied,
+    #[error("the final active super_admin cannot be removed")]
+    LastSuperAdmin,
+    #[error("selected permissions are invalid")]
+    InvalidPermissions,
+    #[error(transparent)]
+    Audit(#[from] audit::AuditError),
     #[error("{0}")]
     Database(#[from] sqlx::Error),
     #[error(transparent)]
@@ -62,6 +70,40 @@ pub struct UserInfoView {
     pub dept_name: String,
     pub roles: Vec<RoleSummary>,
     pub role_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveRoleSource {
+    pub id: i64,
+    pub code: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectivePermissionSource {
+    pub permission: String,
+    pub direct: bool,
+    pub roles: Vec<EffectiveRoleSource>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountPermissionCatalogItem {
+    pub permission: String,
+    pub title: String,
+    pub menu_type: String,
+    pub status: String,
+    pub effectively_enabled: bool,
+    pub owning_page_id: i64,
+    pub owning_page_title: String,
+    pub page_visible: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountAccessView {
+    pub role_ids: Vec<i64>,
+    pub direct_permissions: Vec<String>,
+    pub effective_permissions: Vec<EffectivePermissionSource>,
+    pub catalog: Vec<AccountPermissionCatalogItem>,
 }
 
 #[derive(Debug, Clone)]

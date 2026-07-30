@@ -101,10 +101,10 @@ mod tests {
             r#"
             insert into sys_users (
                 id, uuid, username, password_hash, nick_name, header_img, home_route,
-                enable, dept_id, is_system
+                enable, dept_id
             ) values
-                (401, 'refresh-route-enabled', 'enabled-user', 'hash', 'Enabled', '', 'dashboard', true, 1, false),
-                (402, 'refresh-route-disabled', 'disabled-user', 'hash', 'Disabled', '', 'dashboard', false, 1, false)
+                (401, 'refresh-route-enabled', 'enabled-user', 'hash', 'Enabled', '', 'dashboard', true, 1),
+                (402, 'refresh-route-disabled', 'disabled-user', 'hash', 'Disabled', '', 'dashboard', false, 1)
             "#,
         )
         .execute(&pool)

@@ -52,19 +52,18 @@ pub async fn require_auth(
             user_agent: agent,
         },
     };
-    let context = match state.access.evaluate(claims.user_id, method, path).await {
-        Ok(context) => context,
+    match state.access.evaluate(claims.user_id, method, path).await {
+        Ok(()) => {}
         Err(iam::access::AccessEvaluationError::PermissionDenied { path }) => {
             record_access_denied(&state.audits, &audit_context, path.clone()).await;
             return Err(iam::access::AccessEvaluationError::PermissionDenied { path }.into());
         }
         Err(error) => return Err(error.into()),
-    };
+    }
 
-    request.extensions_mut().insert(AuthenticatedUser {
-        id: claims.user_id,
-        data_scope: context.data_scope(),
-    });
+    request
+        .extensions_mut()
+        .insert(AuthenticatedUser { id: claims.user_id });
     request.extensions_mut().insert(audit_context);
     Ok(next.run(request).await)
 }
@@ -142,8 +141,8 @@ mod tests {
             r#"
             insert into sys_users (
                 id, uuid, username, password_hash, nick_name, header_img, home_route,
-                enable, dept_id, is_system
-            ) values ($1, $2, $2, 'hash', $2, '', 'dashboard', $3, 1, false)
+                enable, dept_id
+            ) values ($1, $2, $2, 'hash', $2, '', 'dashboard', $3, 1)
             "#,
         )
         .bind(user_id)
@@ -205,42 +204,13 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let authorization = iam::authorization::Authorization::load(pool.clone())
-            .await
-            .unwrap();
-        let (access, _) = iam::load_access_and_menus(pool.clone(), authorization)
-            .await
-            .unwrap();
-        let (mut state, tokens, access_token) =
-            authenticated_state(pool, 101, "ambiguous-user").await;
-        state.access = access;
+        let (state, tokens, access_token) = authenticated_state(pool, 101, "ambiguous-user").await;
 
         let (status, body) =
             protected_response(state, &access_token, "/api/roles/2/permissions").await;
 
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body["code"], "AUTHORIZATION_CONFIG_INVALID");
-        tokens.revoke(&access_token).await.unwrap();
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn unavailable_authorization_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
-        insert_user(&pool, 102, "unavailable-user", true).await;
-        let unavailable_pool =
-            sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1/ava").unwrap();
-        unavailable_pool.close().await;
-        let authorization = iam::authorization::Authorization::new(unavailable_pool);
-        let (access, _) = iam::load_access_and_menus(pool.clone(), authorization)
-            .await
-            .unwrap();
-        let (mut state, tokens, access_token) =
-            authenticated_state(pool, 102, "unavailable-user").await;
-        state.access = access;
-
-        let (status, body) = protected_response(state, &access_token, "/api/roles").await;
-
-        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(body["code"], "AUTHORIZATION_UNAVAILABLE");
         tokens.revoke(&access_token).await.unwrap();
     }
 

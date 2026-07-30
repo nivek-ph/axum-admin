@@ -1,8 +1,8 @@
 INSERT INTO sys_depts (id, parent_id, name, code, sort, status)
 VALUES (1, NULL, 'Head Office', 'head_office', 0, 'enabled');
 
-INSERT INTO sys_roles (id, code, name, status, sort, data_scope, is_system)
-VALUES (1, 'super_admin', 'Super Admin', 'enabled', 0, 'all', true);
+INSERT INTO sys_roles (id, code, name, status, sort)
+VALUES (1, 'super_admin', 'Super Admin', 'enabled', 0);
 
 SELECT setval(pg_get_serial_sequence('sys_depts', 'id'), 1);
 SELECT setval(pg_get_serial_sequence('sys_roles', 'id'), 1);
@@ -28,12 +28,8 @@ VALUES
     (1203, 12, '', 'roles:delete', true, '', 30, 'Delete role', '', 'action', 'enabled', 'system:role:delete'),
     (1204, 12, '', 'roles:menus-read', true, '', 40, 'Read role menus', '', 'action', 'enabled', 'system:role:menus-read'),
     (1205, 12, '', 'roles:menus-update', true, '', 50, 'Update role menus', '', 'action', 'enabled', 'system:role:update-permission'),
-    (1206, 12, '', 'roles:depts-read', true, '', 60, 'Read role departments', '', 'action', 'enabled', 'system:role:depts-read'),
-    (1207, 12, '', 'roles:depts-update', true, '', 70, 'Update role departments', '', 'action', 'enabled', 'system:role:depts-update'),
-    (1208, 12, '', 'roles:users-read', true, '', 80, 'Read role users', '', 'action', 'enabled', 'system:role:list-users'),
-    (1209, 12, '', 'roles:users-update', true, '', 90, 'Assign role users', '', 'action', 'enabled', 'system:role:assign-users'),
-    (1210, 12, '', 'roles:permissions-read', true, '', 100, 'Read role permissions', '', 'action', 'enabled', 'system:role:permissions-read'),
-    (1211, 12, '', 'roles:permissions-update', true, '', 110, 'Update role permissions', '', 'action', 'enabled', 'system:role:permissions-update'),
+    (1210, 12, '', 'roles:permissions-read', true, '', 60, 'Read role permissions', '', 'action', 'enabled', 'system:role:permissions-read'),
+    (1211, 12, '', 'roles:permissions-update', true, '', 70, 'Update role permissions', '', 'action', 'enabled', 'system:role:permissions-update'),
     (13, 10, '/departments', 'departments', false, '', 30, 'Departments', 'building', 'page', 'enabled', 'system:dept:list'),
     (1301, 13, '', 'departments:create', true, '', 10, 'Create department', '', 'action', 'enabled', 'system:dept:create'),
     (1302, 13, '', 'departments:get', true, '', 20, 'Get department', '', 'action', 'enabled', 'system:dept:get'),
@@ -85,10 +81,6 @@ VALUES
     (1203, 'DELETE', '/api/roles/{id}'),
     (1204, 'GET', '/api/roles/{id}/menus'),
     (1205, 'PUT', '/api/roles/{id}/menus'),
-    (1206, 'GET', '/api/roles/{id}/depts'),
-    (1207, 'PUT', '/api/roles/{id}/depts'),
-    (1208, 'GET', '/api/roles/{id}/users'),
-    (1209, 'PUT', '/api/roles/{id}/users'),
     (1210, 'GET', '/api/roles/{id}/permissions'),
     (1211, 'PUT', '/api/roles/{id}/permissions'),
 
@@ -134,5 +126,12 @@ VALUES
     (41, 'POST', '/api/audit/events/analyze'),
     (41, 'GET', '/api/audit/events/stats');
 
+INSERT INTO sys_role_menus (role_id, menu_id)
+SELECT 1, id
+FROM sys_menus
+WHERE menu_type IN ('directory', 'page');
+
 INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
-VALUES ('p', 'role:1', '*', '', '', '', '');
+SELECT 'p', 'role:1', permission, '', '', '', ''
+FROM sys_menus
+WHERE permission IS NOT NULL;

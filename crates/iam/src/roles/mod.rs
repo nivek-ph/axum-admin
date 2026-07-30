@@ -1,7 +1,6 @@
 mod service;
 
 pub use service::RoleService;
-pub(crate) use service::find;
 use sqlx::FromRow;
 
 use crate::{access::CatalogError, authorization::AuthorizationError};
@@ -18,6 +17,8 @@ pub enum RoleError {
     InvalidMenuAssignment(#[from] CatalogError),
     #[error(transparent)]
     Authorization(#[from] AuthorizationError),
+    #[error("selected permissions are invalid")]
+    InvalidPermissions,
 }
 
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
@@ -27,15 +28,19 @@ pub struct RoleSummary {
     pub name: String,
     pub status: String,
     pub sort: i32,
-    pub data_scope: String,
-    pub is_system: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoleMenuAccess {
     pub menu_ids: Vec<i64>,
     pub effective_menu_ids: Vec<i64>,
-    pub system_managed: bool,
+    pub protected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RolePermissionView {
+    pub permissions: Vec<String>,
+    pub protected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,5 +61,4 @@ pub struct RolePayload {
     pub name: String,
     pub status: Option<String>,
     pub sort: Option<i32>,
-    pub data_scope: Option<String>,
 }

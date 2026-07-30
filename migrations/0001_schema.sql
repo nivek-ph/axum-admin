@@ -15,21 +15,9 @@ CREATE TABLE sys_roles (
     name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),
     sort INTEGER NOT NULL DEFAULT 0,
-    data_scope TEXT NOT NULL DEFAULT 'self' CHECK (
-        data_scope IN (
-            'all',
-            'dept',
-            'dept_and_children',
-            'self',
-            'custom_depts'
-        )
-    ),
-    is_system BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX idx_sys_roles_single_system ON sys_roles (is_system)
-WHERE is_system;
 CREATE TABLE sys_users (
     id BIGSERIAL PRIMARY KEY,
     uuid TEXT NOT NULL UNIQUE,
@@ -44,16 +32,10 @@ CREATE TABLE sys_users (
     origin_setting JSONB,
     dept_id BIGINT REFERENCES sys_depts(id) ON DELETE
     SET NULL,
-        is_system BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_sys_users_username ON sys_users(username);
-CREATE TABLE IF NOT EXISTS sys_role_depts (
-    role_id BIGINT NOT NULL REFERENCES sys_roles(id) ON DELETE CASCADE,
-    dept_id BIGINT NOT NULL REFERENCES sys_depts(id) ON DELETE CASCADE,
-    PRIMARY KEY (role_id, dept_id)
-);
 CREATE TABLE IF NOT EXISTS casbin_rule (
     id BIGSERIAL PRIMARY KEY,
     ptype VARCHAR NOT NULL,

@@ -432,10 +432,10 @@ mod tests {
             r#"
             insert into sys_users (
                 id, uuid, username, password_hash, nick_name, header_img, home_route,
-                enable, dept_id, is_system
+                enable, dept_id
             )
             values (711, 'login-non-enumeration', 'known-user', $1, 'Known User', '',
-                    'dashboard', true, 1, false)
+                    'dashboard', true, 1)
             "#,
         )
         .bind(password_hash)
@@ -494,10 +494,10 @@ mod tests {
             r#"
             insert into sys_users (
                 id, uuid, username, password_hash, nick_name, header_img, home_route,
-                enable, dept_id, is_system
+                enable, dept_id
             )
             values (712, 'login-identity-failure', 'identity-failure', $1, 'Identity Failure', '',
-                    'dashboard', true, 1, false)
+                    'dashboard', true, 1)
             "#,
         )
         .bind(password_hash)
