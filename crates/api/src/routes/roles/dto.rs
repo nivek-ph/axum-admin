@@ -1,11 +1,50 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub type RoleRequest = iam::roles::RolePayload;
-pub type RoleMenuRequest = iam::roles::RoleMenuPayload;
-pub type RolePermissionRequest = iam::roles::RolePermissionPayload;
-pub type RoleDeptRequest = iam::roles::RoleDeptPayload;
-pub type RoleUsersRequest = iam::roles::RoleUsersPayload;
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RoleRequest {
+    pub code: String,
+    pub name: String,
+    pub status: Option<String>,
+    pub sort: Option<i32>,
+    #[serde(alias = "dataScope")]
+    pub data_scope: Option<String>,
+}
+
+impl From<RoleRequest> for iam::roles::RolePayload {
+    fn from(value: RoleRequest) -> Self {
+        Self {
+            code: value.code,
+            name: value.name,
+            status: value.status,
+            sort: value.sort,
+            data_scope: value.data_scope,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RoleMenuRequest {
+    #[serde(rename = "menuIds", alias = "menu_ids")]
+    pub menu_ids: Vec<i64>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RoleDeptRequest {
+    #[serde(rename = "deptIds", alias = "dept_ids")]
+    pub dept_ids: Vec<i64>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RolePermissionRequest {
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RoleUsersRequest {
+    #[serde(rename = "userIds", alias = "user_ids")]
+    pub user_ids: Vec<i64>,
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RoleResponse {
@@ -80,12 +119,21 @@ impl From<iam::roles::RoleSummary> for RoleResponse {
     }
 }
 
-impl From<iam::roles::RolePermissions> for RolePermissionsData {
-    fn from(value: iam::roles::RolePermissions) -> Self {
+impl
+    From<(
+        iam::authorization::RolePermissionPolicy,
+        Vec<iam::roles::PermissionCatalogItem>,
+    )> for RolePermissionsData
+{
+    fn from(
+        (policy, catalog): (
+            iam::authorization::RolePermissionPolicy,
+            Vec<iam::roles::PermissionCatalogItem>,
+        ),
+    ) -> Self {
         Self {
-            permissions: value.permissions,
-            catalog: value
-                .catalog
+            permissions: policy.permissions,
+            catalog: catalog
                 .into_iter()
                 .map(|item| PermissionCatalogItem {
                     permission: item.permission,
@@ -98,7 +146,7 @@ impl From<iam::roles::RolePermissions> for RolePermissionsData {
                     page_visible: item.page_visible,
                 })
                 .collect(),
-            system_managed: value.system_managed,
+            system_managed: policy.system_managed,
         }
     }
 }

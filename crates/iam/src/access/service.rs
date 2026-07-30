@@ -2,11 +2,24 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use sqlx::PgPool;
 
-use super::{
-    AccessEvaluationError,
-    catalog::{AccessCatalog, CatalogError, PermissionCatalogEntry},
-};
+use super::catalog::{AccessCatalog, CatalogError, PermissionCatalogEntry};
 use crate::{access::scope::ResolvedDataScope, authorization::Authorization};
+
+#[derive(Debug, thiserror::Error)]
+pub enum AccessEvaluationError {
+    #[error("authorization policy evaluation failed")]
+    Authorization(#[from] crate::authorization::AuthorizationError),
+    #[error("authorization database operation failed")]
+    Database(#[from] sqlx::Error),
+    #[error("authorization catalog is invalid")]
+    Catalog(#[from] CatalogError),
+    #[error("authorization user does not exist")]
+    UserNotFound,
+    #[error("authorization user is disabled")]
+    UserDisabled,
+    #[error("request permission is denied")]
+    PermissionDenied { path: String },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccessContext {
@@ -36,19 +49,6 @@ impl AccessService {
             authorization,
             pool,
             catalog,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_catalog(
-        pool: PgPool,
-        authorization: Authorization,
-        catalog: AccessCatalog,
-    ) -> Self {
-        Self {
-            authorization,
-            pool,
-            catalog: Arc::new(catalog),
         }
     }
 
@@ -112,17 +112,6 @@ impl AccessService {
         }
     }
 
-    pub(crate) fn validate_permission_assignment(
-        &self,
-        permissions: &BTreeSet<String>,
-    ) -> Result<(), CatalogError> {
-        self.catalog.validate_permission_assignment(permissions)
-    }
-
-    pub(crate) fn enabled_permissions(&self) -> BTreeSet<String> {
-        self.catalog.enabled_permissions().iter().cloned().collect()
-    }
-
     pub(crate) fn permission_catalog(
         &self,
         visible_page_ids: &BTreeSet<i64>,
@@ -159,8 +148,18 @@ fn normalize_request_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{super::catalog::AccessBinding, *};
-    use crate::access::{AccessNode, CatalogError};
+    use crate::access::{CatalogError, tests::AccessNode};
+
+    fn access_service(
+        pool: PgPool,
+        authorization: Authorization,
+        catalog: AccessCatalog,
+    ) -> AccessService {
+        AccessService::from_catalog(pool, authorization, Arc::new(catalog))
+    }
 
     async fn insert_user(pool: &PgPool, user_id: i64, enabled: bool) {
         sqlx::query(
@@ -206,10 +205,10 @@ mod tests {
     async fn self_service_evaluation_returns_the_users_data_scope(pool: PgPool) {
         let user_id = 901_231_i64;
         insert_user(&pool, user_id, true).await;
-        let access = AccessService::with_catalog(
+        let access = access_service(
             pool.clone(),
             Authorization::new(pool),
-            AccessCatalog::new(Vec::new()).unwrap(),
+            AccessCatalog::from_parts(Vec::new(), Vec::new()).unwrap(),
         );
 
         let context = access
@@ -235,7 +234,7 @@ mod tests {
         .await
         .unwrap();
         let authorization = Authorization::load(pool.clone()).await.unwrap();
-        let access = AccessService::with_catalog(pool, authorization, protected_catalog());
+        let access = access_service(pool, authorization, protected_catalog());
 
         let context = access.evaluate(user_id, "GET", "/api/users").await.unwrap();
 
@@ -272,7 +271,7 @@ mod tests {
         .await
         .unwrap();
         let authorization = Authorization::load(pool.clone()).await.unwrap();
-        let access = AccessService::with_catalog(pool, authorization, protected_catalog());
+        let access = access_service(pool, authorization, protected_catalog());
 
         let context = access.evaluate(user_id, "GET", "/api/users").await.unwrap();
 
@@ -284,7 +283,7 @@ mod tests {
         let user_id = 901_233_i64;
         insert_user(&pool, user_id, true).await;
         let authorization = Authorization::load(pool.clone()).await.unwrap();
-        let access = AccessService::with_catalog(pool, authorization, protected_catalog());
+        let access = access_service(pool, authorization, protected_catalog());
 
         assert!(matches!(
             access.evaluate(user_id, "GET", "/api/users").await,
@@ -302,7 +301,7 @@ mod tests {
         let unavailable_pool =
             PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1/ava").unwrap();
         unavailable_pool.close().await;
-        let access = AccessService::with_catalog(
+        let access = access_service(
             pool,
             Authorization::new(unavailable_pool),
             protected_catalog(),
@@ -320,10 +319,10 @@ mod tests {
     async fn protected_route_evaluation_fails_closed_for_missing_binding(pool: PgPool) {
         let user_id = 901_235_i64;
         insert_user(&pool, user_id, true).await;
-        let access = AccessService::with_catalog(
+        let access = access_service(
             pool.clone(),
             Authorization::new(pool),
-            AccessCatalog::new(Vec::new()).unwrap(),
+            AccessCatalog::from_parts(Vec::new(), Vec::new()).unwrap(),
         );
 
         assert!(matches!(
@@ -369,7 +368,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let access = AccessService::with_catalog(pool.clone(), Authorization::new(pool), catalog);
+        let access = access_service(pool.clone(), Authorization::new(pool), catalog);
 
         assert!(matches!(
             access.evaluate(user_id, "GET", "/api/admin/settings").await,
@@ -379,10 +378,10 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn missing_user_is_rejected_before_access_is_evaluated(pool: PgPool) {
-        let access = AccessService::with_catalog(
+        let access = access_service(
             pool.clone(),
             Authorization::new(pool),
-            AccessCatalog::new(Vec::new()).unwrap(),
+            AccessCatalog::from_parts(Vec::new(), Vec::new()).unwrap(),
         );
 
         assert!(matches!(

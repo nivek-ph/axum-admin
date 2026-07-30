@@ -9,7 +9,7 @@ use iam::{
     roles::RoleService,
 };
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::ServeConfig;
 
@@ -70,13 +70,16 @@ async fn build_state(
     let (access, menus) = iam::load_access_and_menus(pool.clone(), authorization.clone())
         .await
         .context("IAM access catalog should initialize")?;
-    authorization
-        .start_redis_watcher(&config.redis_url)
-        .context("Casbin Redis watcher should initialize")?;
     authorization.start_periodic_reload(Duration::from_secs(30));
+    if let Err(error) = authorization.start_redis_watcher(&config.redis_url) {
+        warn!(
+            error = ?error,
+            "Casbin Redis watcher unavailable; periodic policy reload remains active"
+        );
+    }
 
-    // 3. IAM services that depend on access / audit
-    let accounts = Accounts::new(pool.clone(), authorization.clone(), audits.clone());
+    // 3. IAM services that depend on access
+    let accounts = Accounts::new(pool.clone(), authorization.clone());
     let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
     let departments = DepartmentService::new(pool);
 
@@ -86,6 +89,7 @@ async fn build_state(
         captcha,
         passwords: password_service,
         accounts,
+        authorization,
         roles,
         departments,
         access,

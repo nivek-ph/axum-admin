@@ -46,15 +46,3 @@ pub async fn load_access_and_menus(
         MenuService::from_catalog(pool, authorization, catalog),
     ))
 }
-
-#[doc(hidden)]
-pub fn access_and_menus_without_catalog_for_tests(
-    pool: PgPool,
-    authorization: Authorization,
-) -> (AccessService, MenuService) {
-    let catalog = Arc::new(AccessCatalog::new(Vec::new()).expect("empty catalog is valid"));
-    (
-        AccessService::from_catalog(pool.clone(), authorization.clone(), catalog.clone()),
-        MenuService::from_catalog(pool, authorization, catalog),
-    )
-}

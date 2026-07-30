@@ -4,10 +4,14 @@ use uuid::Uuid;
 
 use super::{
     AccountError, CreateAccountInput, GetUserListRequest, LoginAccount, PreparedPasswordUpdate,
-    RefreshIdentity, RefreshIdentityError, SetSelfInfoRequest, SetSelfSettingRequest, UpdateUserInput,
-    UserInfoView, UserRecord,
+    RefreshIdentity, RefreshIdentityError, SetSelfInfoRequest, SetSelfSettingRequest,
+    UpdateUserInput, UserInfoView, UserRecord,
 };
-use crate::{access::ResolvedDataScope, authorization::Authorization, roles::RoleSummary};
+use crate::{
+    access::ResolvedDataScope,
+    authorization::{Authorization, InitialMembershipError},
+    roles::RoleSummary,
+};
 
 /// Default avatar when none is provided. Empty so the UI falls back to initials
 const HEADER_IMG: &str = "";
@@ -20,15 +24,10 @@ pub struct Accounts {
 
 impl Accounts {
     pub fn new(pool: sqlx::PgPool, authorization: Authorization) -> Self {
-        Self { pool, authorization }
-    }
-
-    pub async fn list(
-        &self,
-        query: GetUserListRequest,
-        actor_user_id: i64,
-    ) -> Result<(Vec<UserInfoView>, i64), AccountError> {
-        get_user_list(&self.pool, &self.authorization, query, actor_user_id).await
+        Self {
+            pool,
+            authorization,
+        }
     }
 
     pub async fn list_with_scope(
@@ -70,10 +69,7 @@ impl Accounts {
         {
             return Err(AccountError::AlreadyExists);
         }
-        let role_ids = normalize_role_ids(payload.role_ids.as_ref())?;
-        ensure_role_assignment_actor(&self.pool, &self.authorization, actor_user_id, &role_ids)
-            .await?;
-        ensure_assignable_roles(&self.pool, &role_ids).await?;
+        let role_ids = payload.role_ids.unwrap_or_default();
         let mut mutation = self.authorization.begin_mutation().await?;
         let user_id: i64 = sqlx::query_scalar(
             r#"
@@ -95,9 +91,18 @@ impl Accounts {
         .bind(payload.dept_id.or(Some(1)))
         .fetch_one(mutation.connection())
         .await?;
-        mutation
-            .replace_user_roles(user_id, role_ids.into_iter().collect())
-            .await?;
+        match mutation
+            .replace_initial_user_roles(actor_user_id, user_id, &role_ids)
+            .await
+        {
+            Ok(()) => {}
+            Err(InitialMembershipError::InvalidRoles) => {
+                return Err(AccountError::InvalidRoles);
+            }
+            Err(InitialMembershipError::Database(source)) => {
+                return Err(AccountError::Database(source));
+            }
+        }
         mutation.commit().await?;
         Ok(())
     }
@@ -231,7 +236,7 @@ impl Accounts {
     }
 }
 
-pub(crate) async fn ensure_admin_user(
+async fn ensure_admin_user(
     pool: &sqlx::PgPool,
     username: &str,
     password_hash: String,
@@ -302,18 +307,6 @@ async fn ensure_user(
     };
 
     Ok(user_id)
-}
-
-pub(crate) async fn get_user_list(
-    pool: &sqlx::PgPool,
-    authorization: &Authorization,
-    query: GetUserListRequest,
-    actor_user_id: i64,
-) -> Result<(Vec<UserInfoView>, i64), AccountError> {
-    let role_ids = authorization.active_user_role_ids(actor_user_id).await?;
-    let scope_filter =
-        crate::access::resolve_user_data_scope(pool, actor_user_id, &role_ids).await?;
-    get_user_list_with_scope_and_authorization(pool, authorization, query, scope_filter).await
 }
 
 async fn get_user_list_with_scope_and_authorization(
@@ -455,7 +448,7 @@ fn scope_sql_clause(filter: &ResolvedDataScope) -> &'static str {
     }
 }
 
-pub(crate) async fn ensure_user_in_scope(
+async fn ensure_user_in_scope(
     pool: &sqlx::PgPool,
     authorization: &Authorization,
     actor_user_id: i64,
@@ -493,7 +486,7 @@ pub(crate) async fn ensure_user_in_scope(
     }
 }
 
-pub(crate) async fn update_user(
+async fn update_user(
     pool: &sqlx::PgPool,
     user_id: i64,
     payload: UpdateUserInput,
@@ -528,7 +521,7 @@ pub(crate) async fn update_user(
     }
 }
 
-pub(crate) async fn persist_password_update(
+async fn persist_password_update(
     pool: &sqlx::PgPool,
     prepared: PreparedPasswordUpdate,
 ) -> Result<(), AccountError> {
@@ -548,7 +541,7 @@ pub(crate) async fn persist_password_update(
     Ok(())
 }
 
-pub(crate) async fn set_self_info(
+async fn set_self_info(
     pool: &sqlx::PgPool,
     user_id: i64,
     payload: SetSelfInfoRequest,
@@ -575,7 +568,7 @@ pub(crate) async fn set_self_info(
     Ok(())
 }
 
-pub(crate) async fn update_setting_by_user_id(
+async fn update_setting_by_user_id(
     pool: &sqlx::PgPool,
     user_id: i64,
     payload: SetSelfSettingRequest,
@@ -737,118 +730,9 @@ async fn get_roles_by_user_id(
         .unwrap_or_default())
 }
 
-fn normalize_role_ids(role_ids: Option<&Vec<i64>>) -> Result<Vec<i64>, AccountError> {
-    let ids = role_ids.cloned().unwrap_or_default();
-    let ids = ids
-        .into_iter()
-        .filter(|id| *id > 0)
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
-    if ids.is_empty() {
-        return Err(AccountError::InvalidRoles);
-    }
-    Ok(ids)
-}
-
-async fn ensure_assignable_roles(
-    pool: &sqlx::PgPool,
-    role_ids: &[i64],
-) -> Result<(), AccountError> {
-    let count = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM sys_roles WHERE id = ANY($1) AND status = 'enabled'",
-    )
-    .bind(role_ids)
-    .fetch_one(pool)
-    .await?;
-    if count != role_ids.len() as i64 {
-        return Err(AccountError::InvalidRoles);
-    }
-    Ok(())
-}
-
-async fn ensure_role_assignment_actor(
-    pool: &sqlx::PgPool,
-    authorization: &Authorization,
-    actor_user_id: i64,
-    role_ids: &[i64],
-) -> Result<(), AccountError> {
-    let assigns_super = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM sys_roles WHERE id = ANY($1) AND is_system)",
-    )
-    .bind(role_ids)
-    .fetch_one(pool)
-    .await?;
-    if !assigns_super {
-        return Ok(());
-    }
-    let actor_role_ids = authorization.active_user_role_ids(actor_user_id).await?;
-    let actor_is_super = sqlx::query_scalar::<_, bool>(
-        "select exists(select 1 from sys_roles where id = any($1) and is_system)",
-    )
-    .bind(&actor_role_ids)
-    .fetch_one(pool)
-    .await?;
-    if actor_is_super {
-        Ok(())
-    } else {
-        Err(AccountError::InvalidRoles)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    async fn seed_role_assignment(pool: &sqlx::PgPool) {
-        sqlx::query(
-            r#"
-            insert into sys_users (
-                id, uuid, username, password_hash, nick_name, header_img, home_route,
-                enable, dept_id, is_system
-            ) values
-                (100, 'actor-uuid', 'actor', 'hash', 'Actor', '', 'dashboard', true, 1, false),
-                (101, 'target-uuid', 'target', 'hash', 'Target', '', 'dashboard', true, 1, false)
-            "#,
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r#"
-            insert into sys_roles (id, code, name, status, sort, data_scope, is_system)
-            values (2, 'audited_role', 'Audited Role', 'enabled', 10, 'self', false)
-            "#,
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r#"
-            insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
-            values
-                ('g', 'user:100', 'role:1', '', '', '', ''),
-                ('g', 'user:101', 'role:1', '', '', '', '')
-            "#,
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-    }
-
-    fn audit_context() -> AuditContext {
-        AuditContext {
-            req_id: "req-role-assignment-1".to_string(),
-            actor: audit::AuditActor {
-                id: Some(100),
-                label: "actor".to_string(),
-            },
-            source: audit::AuditSource {
-                ip: "127.0.0.1".to_string(),
-                user_agent: "iam-test".to_string(),
-            },
-        }
-    }
 
     #[test]
     fn scope_sql_clause_matches_filter_shape() {
@@ -860,18 +744,6 @@ mod tests {
         assert_eq!(
             scope_sql_clause(&ResolvedDataScope::Owner(7)),
             "and u.id = $6"
-        );
-    }
-
-    #[test]
-    fn normalize_role_ids_requires_explicit_roles() {
-        assert!(matches!(
-            normalize_role_ids(None),
-            Err(AccountError::InvalidRoles)
-        ));
-        assert_eq!(
-            normalize_role_ids(Some(&vec![2, 1, 2])).unwrap(),
-            vec![1, 2]
         );
     }
 
@@ -890,10 +762,12 @@ mod tests {
         .await
         .unwrap();
         let authorization = Authorization::load(pool.clone()).await.unwrap();
-        authorization
+        let mut mutation = authorization.begin_mutation().await.unwrap();
+        mutation
             .replace_user_roles(100, [1].into_iter().collect())
             .await
             .unwrap();
+        mutation.commit().await.unwrap();
         sqlx::query(
             "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5) values ('p', 'user:100', 'system:user:list', '', '', '', '')",
         )
@@ -901,7 +775,7 @@ mod tests {
         .await
         .unwrap();
         let authorization = Authorization::load(pool.clone()).await.unwrap();
-        let service = Accounts::new(pool.clone(), authorization.clone(), AuditService::new(pool));
+        let service = Accounts::new(pool.clone(), authorization.clone());
 
         let error = service.delete(100, 100).await.unwrap_err();
         assert!(matches!(error, AccountError::NotFound));
@@ -957,8 +831,7 @@ mod tests {
         .unwrap();
 
         let authorization = Authorization::new(pool.clone());
-        let audit = AuditService::new(pool.clone());
-        let service = Accounts::new(pool.clone(), authorization, audit);
+        let service = Accounts::new(pool.clone(), authorization);
         let first_page = GetUserListRequest {
             page: 1,
             page_size: 2,
@@ -1024,8 +897,7 @@ mod tests {
         .unwrap();
 
         let authorization = Authorization::new(pool.clone());
-        let audit = AuditService::new(pool.clone());
-        let service = Accounts::new(pool.clone(), authorization, audit);
+        let service = Accounts::new(pool.clone(), authorization);
         let (accounts, total) = service
             .list_with_scope(
                 GetUserListRequest {
@@ -1049,73 +921,6 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn role_assignment_and_audit_event_commit_together(pool: sqlx::PgPool) {
-        seed_role_assignment(&pool).await;
-        let authorization = Authorization::new(pool.clone());
-        let service = Accounts::new(pool.clone(), authorization, AuditService::new(pool.clone()));
-
-        service
-            .set_user_roles_by_id(
-                100,
-                101,
-                SetUserRolesRequest { role_ids: vec![2] },
-                audit_context(),
-            )
-            .await
-            .unwrap();
-
-        let role_ids = sqlx::query_scalar::<_, i64>(
-            "select split_part(v1, ':', 2)::bigint from casbin_rule where ptype = 'g' and v0 = 'user:101' order by v1",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-        assert_eq!(role_ids, vec![2]);
-
-        let (action, result, changes): (String, String, serde_json::Value) = sqlx::query_as(
-            "select action, result, changes from sys_audit_events where resource_type = 'user' and resource_id = '101'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(action, "user.assign_roles");
-        assert_eq!(result, "succeeded");
-        assert_eq!(changes[0]["field"], "role_ids");
-        assert_eq!(changes[0]["before"]["value"], serde_json::json!([1]));
-        assert_eq!(changes[0]["after"]["value"], serde_json::json!([2]));
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn role_assignment_rolls_back_when_audit_insert_fails(pool: sqlx::PgPool) {
-        seed_role_assignment(&pool).await;
-        let authorization = Authorization::new(pool.clone());
-        let service = Accounts::new(pool.clone(), authorization, AuditService::new(pool.clone()));
-        sqlx::query("drop table sys_audit_events")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let error = service
-            .set_user_roles_by_id(
-                100,
-                101,
-                SetUserRolesRequest { role_ids: vec![2] },
-                audit_context(),
-            )
-            .await
-            .expect_err("missing audit store should fail the role assignment");
-        assert!(matches!(error, AccountError::Audit(_)));
-
-        let role_ids = sqlx::query_scalar::<_, i64>(
-            "select split_part(v1, ':', 2)::bigint from casbin_rule where ptype = 'g' and v0 = 'user:101' order by v1",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-        assert_eq!(role_ids, vec![1]);
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
     async fn refresh_identity_distinguishes_enabled_disabled_and_missing_users(pool: sqlx::PgPool) {
         sqlx::query(
             r#"
@@ -1131,8 +936,7 @@ mod tests {
         .await
         .unwrap();
         let authorization = Authorization::new(pool.clone());
-        let audit = AuditService::new(pool.clone());
-        let service = Accounts::new(pool.clone(), authorization, audit);
+        let service = Accounts::new(pool.clone(), authorization);
 
         let identity = service
             .refresh_identity(301)

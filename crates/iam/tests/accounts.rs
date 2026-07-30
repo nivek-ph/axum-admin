@@ -1,4 +1,3 @@
-use audit::AuditService;
 use iam::{
     accounts::{Accounts, CreateAccountInput, PreparedPasswordUpdate},
     authorization::Authorization,
@@ -18,12 +17,8 @@ async fn accounts_persists_a_prepared_password_hash(pool: sqlx::PgPool) {
     )
     .execute(&pool)
     .await
-    .unwrap();
-    let accounts = Accounts::new(
-        pool.clone(),
-        Authorization::new(pool.clone()),
-        AuditService::new(pool.clone()),
-    );
+    .expect("failed to insert prepared password user");
+    let accounts = Accounts::new(pool.clone(), Authorization::new(pool.clone()));
 
     accounts
         .persist_password_update(PreparedPasswordUpdate::new(
@@ -37,7 +32,7 @@ async fn accounts_persists_a_prepared_password_hash(pool: sqlx::PgPool) {
         sqlx::query_scalar::<_, String>("select password_hash from sys_users where id = 701")
             .fetch_one(&pool)
             .await
-            .unwrap();
+            .expect("failed to fetch stored hash");
     assert_eq!(stored_hash, "prepared-password-hash");
 }
 
@@ -65,30 +60,44 @@ async fn account_creation_persists_the_prepared_hash_and_initial_membership_atom
     )
     .execute(&pool)
     .await
-    .unwrap();
+    .expect("failed to insert account creator role");
     let authorization = Authorization::new(pool.clone());
-    let accounts = Accounts::new(
-        pool.clone(),
-        authorization.clone(),
-        AuditService::new(pool.clone()),
-    );
+    let accounts = Accounts::new(pool.clone(), authorization.clone());
 
     accounts
         .create(1, create_account_input("created-account"))
         .await
-        .unwrap();
+        .expect("failed to create account");
 
     let created = sqlx::query_as::<_, (i64, String)>(
         "select id, password_hash from sys_users where username = 'created-account'",
     )
     .fetch_one(&pool)
     .await
-    .unwrap();
+    .expect("failed to fetch created account");
     assert_eq!(created.1, "prepared-create-hash");
     assert_eq!(
-        authorization.user_role_ids(created.0).await.unwrap(),
+        authorization
+            .user_role_ids(created.0)
+            .await
+            .expect("failed to fetch user role ids"),
         vec![2]
     );
+
+    let mut system_role_input = create_account_input("unauthorized-system-account");
+    system_role_input.role_ids = Some(vec![1]);
+    let error = accounts
+        .create(created.0, system_role_input)
+        .await
+        .expect_err("ordinary role members must not assign the system role");
+    assert!(matches!(error, iam::accounts::AccountError::InvalidRoles));
+    let exists = sqlx::query_scalar::<_, bool>(
+        "select exists(select 1 from sys_users where username = 'unauthorized-system-account')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("failed to fetch exists");
+    assert!(!exists);
 
     sqlx::query(
         r#"
@@ -104,14 +113,14 @@ async fn account_creation_persists_the_prepared_hash_and_initial_membership_atom
     )
     .execute(&pool)
     .await
-    .unwrap();
+    .expect("failed to create fail_initial_membership function");
     sqlx::query(
         "create trigger fail_initial_membership before insert on casbin_rule
          for each row execute function fail_initial_membership()",
     )
     .execute(&pool)
     .await
-    .unwrap();
+    .expect("failed to create fail_initial_membership trigger");
 
     accounts
         .create(1, create_account_input("rolled-back-account"))
@@ -122,6 +131,6 @@ async fn account_creation_persists_the_prepared_hash_and_initial_membership_atom
     )
     .fetch_one(&pool)
     .await
-    .unwrap();
+    .expect("failed to fetch exists");
     assert!(!exists);
 }

@@ -5,7 +5,7 @@ use std::{
 
 use sqlx::PgPool;
 
-use super::{ApiBinding, MenuError, MenuMeta, MenuRecord, MenuView};
+use super::{ApiBinding, MenuError, MenuMeta, MenuView, model::MenuRecord};
 use crate::{access::AccessCatalog, authorization::Authorization};
 
 #[derive(Clone)]

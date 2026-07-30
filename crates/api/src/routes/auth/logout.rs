@@ -31,11 +31,8 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn logout_ends_only_the_current_login_session() {
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://postgres:postgres@127.0.0.1/ava")
-            .expect("lazy test pool should construct");
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn logout_ends_only_the_current_login_session(pool: sqlx::PgPool) {
         let redis_url =
             std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
         let redis = redis::Client::open(redis_url)
@@ -43,7 +40,7 @@ mod tests {
             .get_multiplexed_async_connection()
             .await
             .expect("Redis test connection should open");
-        let mut state = crate::state::test_state(pool);
+        let mut state = crate::state::tests::test_state(pool).await;
         state.tokens = auth::token::TokenService::new("test-secret", redis);
 
         let first = state

@@ -31,7 +31,7 @@ mod tests {
         let authorization = iam::authorization::Authorization::load(pool.clone())
             .await
             .unwrap();
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         let (access, menus) = iam::load_access_and_menus(pool, authorization)
             .await
             .unwrap();

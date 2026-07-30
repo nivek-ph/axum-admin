@@ -45,7 +45,7 @@ pub async fn get_user_list_by_query(
 
     let (list, total) = state
         .accounts
-        .list_with_scope(payload, user.data_scope.clone())
+        .list_with_scope(payload.into(), user.data_scope.clone())
         .await?;
 
     let list = list.into_iter().map(UserResponse::from).collect::<Vec<_>>();
@@ -140,7 +140,10 @@ pub async fn set_self_info(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<UpdateSelfRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.accounts.set_self_info(user.id, payload).await?;
+    state
+        .accounts
+        .set_self_info(user.id, payload.into())
+        .await?;
 
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -158,7 +161,10 @@ pub async fn set_self_setting(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<UpdateSelfSettingsRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.accounts.set_self_setting(user.id, payload).await?;
+    state
+        .accounts
+        .set_self_setting(user.id, payload.into())
+        .await?;
 
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -234,8 +240,14 @@ pub async fn set_user_roles_by_id(
     Json(payload): Json<SetUserRolesRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     state
-        .accounts
-        .set_user_roles_by_id(user.id, id, payload, audit_context)
+        .authorization
+        .replace_user_roles(iam::authorization::ReplaceUserRoles {
+            actor_user_id: user.id,
+            user_id: id,
+            role_ids: payload.role_ids,
+            data_scope: user.data_scope,
+            audit_context,
+        })
         .await?;
 
     Ok(Json(ApiResponse::new("OK", "roles updated", None)))
@@ -328,7 +340,7 @@ mod tests {
         let tokens = redis_tokens().await;
         let first = tokens.create_session(601, "password-actor").await.unwrap();
         let second = tokens.create_session(601, "password-actor").await.unwrap();
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.tokens = tokens.clone();
 
         let error = change_password(
@@ -371,7 +383,7 @@ mod tests {
         pool: sqlx::PgPool,
     ) {
         let passwords = seed_password_users(&pool, 601, 602).await;
-        let state = crate::state::test_state(pool.clone());
+        let state = crate::state::tests::test_state(pool.clone()).await;
 
         let error = change_password(
             State(state),
@@ -396,7 +408,7 @@ mod tests {
         let passwords = seed_password_users(&pool, 611, 612).await;
         let tokens = redis_tokens().await;
         let session = tokens.create_session(611, "password-actor").await.unwrap();
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.tokens = tokens.clone();
         sqlx::query(
             r#"
@@ -448,7 +460,7 @@ mod tests {
         let admin = tokens.create_session(621, "password-actor").await.unwrap();
         let first_target = tokens.create_session(622, "password-target").await.unwrap();
         let second_target = tokens.create_session(622, "password-target").await.unwrap();
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.tokens = tokens.clone();
 
         let _ = reset_password_by_id(

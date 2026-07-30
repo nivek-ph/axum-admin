@@ -346,7 +346,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn missing_captcha_records_a_denied_login_event(pool: sqlx::PgPool) {
-        let state = crate::state::test_state(pool.clone());
+        let state = crate::state::tests::test_state(pool.clone()).await;
         let error = execute_login(
             &state,
             LoginInput {
@@ -445,7 +445,7 @@ mod tests {
         let mut redis = redis_connection().await;
         seed_captcha(&mut redis, "missing-account", "ABCD").await;
         seed_captcha(&mut redis, "wrong-password", "ABCD").await;
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.captcha = auth::captcha::CaptchaService::new(redis);
 
         let missing = execute_login(
@@ -506,7 +506,7 @@ mod tests {
         .unwrap();
         let mut redis = redis_connection().await;
         seed_captcha(&mut redis, "identity-failure", "ABCD").await;
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.captcha = auth::captcha::CaptchaService::new(redis);
         sqlx::query("drop table casbin_rule")
             .execute(&pool)

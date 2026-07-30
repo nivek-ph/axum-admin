@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{CreateDeptPayload, Dept, DeptError, DeptNode, UpdateDeptPayload};
+
 #[derive(Clone)]
 pub struct DepartmentService {
     pool: sqlx::PgPool,
@@ -32,7 +33,7 @@ impl DepartmentService {
     }
 }
 
-pub fn build_dept_tree(rows: Vec<Dept>) -> Vec<DeptNode> {
+fn build_dept_tree(rows: Vec<Dept>) -> Vec<DeptNode> {
     let ids = rows.iter().map(|dept| dept.id).collect::<HashSet<_>>();
     let mut children_by_parent = HashMap::<i64, Vec<DeptNode>>::new();
     let mut roots = Vec::new();
@@ -61,7 +62,7 @@ pub fn build_dept_tree(rows: Vec<Dept>) -> Vec<DeptNode> {
     roots
 }
 
-pub(crate) async fn list(pool: &sqlx::PgPool) -> Result<Vec<Dept>, sqlx::Error> {
+async fn list(pool: &sqlx::PgPool) -> Result<Vec<Dept>, sqlx::Error> {
     sqlx::query_as::<_, Dept>(
         r#"
         select id, parent_id, name, code, sort, status
@@ -73,12 +74,12 @@ pub(crate) async fn list(pool: &sqlx::PgPool) -> Result<Vec<Dept>, sqlx::Error> 
     .await
 }
 
-pub(crate) async fn tree(pool: &sqlx::PgPool) -> Result<Vec<DeptNode>, sqlx::Error> {
+async fn tree(pool: &sqlx::PgPool) -> Result<Vec<DeptNode>, sqlx::Error> {
     let rows = list(pool).await?;
     Ok(build_dept_tree(rows))
 }
 
-pub(crate) async fn find(pool: &sqlx::PgPool, id: i64) -> Result<Option<Dept>, sqlx::Error> {
+async fn find(pool: &sqlx::PgPool, id: i64) -> Result<Option<Dept>, sqlx::Error> {
     sqlx::query_as::<_, Dept>(
         r#"
         select id, parent_id, name, code, sort, status
@@ -91,10 +92,7 @@ pub(crate) async fn find(pool: &sqlx::PgPool, id: i64) -> Result<Option<Dept>, s
     .await
 }
 
-pub(crate) async fn create(
-    pool: &sqlx::PgPool,
-    payload: CreateDeptPayload,
-) -> Result<(), sqlx::Error> {
+async fn create(pool: &sqlx::PgPool, payload: CreateDeptPayload) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         insert into sys_depts (parent_id, name, code, sort, status)
@@ -111,11 +109,7 @@ pub(crate) async fn create(
     Ok(())
 }
 
-pub(crate) async fn update(
-    pool: &sqlx::PgPool,
-    id: i64,
-    payload: UpdateDeptPayload,
-) -> Result<(), DeptError> {
+async fn update(pool: &sqlx::PgPool, id: i64, payload: UpdateDeptPayload) -> Result<(), DeptError> {
     if parent_is_self(id, payload.parent_id) {
         return Err(DeptError::InvalidParent);
     }
@@ -159,7 +153,7 @@ pub(crate) async fn update(
     Ok(())
 }
 
-pub(crate) async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<(), DeptError> {
+async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<(), DeptError> {
     let mut transaction = pool.begin().await?;
     sqlx::query("select id from sys_depts where id = $1 for update")
         .bind(id)

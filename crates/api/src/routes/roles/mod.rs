@@ -96,10 +96,11 @@ mod tests {
             .create_session(100, "permission-admin")
             .await
             .unwrap();
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.tokens = tokens.clone();
         state.access = access.clone();
-        state.roles = iam::roles::RoleService::new(pool.clone(), access, policy);
+        state.roles = iam::roles::RoleService::new(pool.clone(), access, policy.clone());
+        state.authorization = policy;
         let app = crate::router::router(state.clone());
         let authorization = format!("Bearer {}", session.access_token);
 
@@ -115,7 +116,11 @@ mod tests {
             .unwrap();
         assert_eq!(allowed.status(), StatusCode::OK);
 
-        state.roles.set_permissions(2, Vec::new()).await.unwrap();
+        state
+            .authorization
+            .replace_role_permissions(2, Vec::new())
+            .await
+            .unwrap();
         let denied = app
             .oneshot(
                 Request::get("/api/roles/2/permissions")

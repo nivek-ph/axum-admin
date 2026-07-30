@@ -66,7 +66,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn dictionary_routes_keep_transport_shape_and_derive_tree_fields(pool: sqlx::PgPool) {
-        let app = routes().with_state(crate::state::test_state(pool));
+        let app = routes().with_state(crate::state::tests::test_state(pool).await);
         let response = app
             .clone()
             .oneshot(

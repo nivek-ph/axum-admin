@@ -38,6 +38,15 @@ pub(crate) const INVALID_PASSWORD: ErrorSpec =
     ErrorSpec::bad_request("INVALID_PASSWORD", "invalid password");
 const INVALID_ROLES: ErrorSpec =
     ErrorSpec::validation("INVALID_ROLES", "at least one enabled role is required");
+const ROLE_NOT_FOUND: ErrorSpec = ErrorSpec::not_found("ROLE_NOT_FOUND", "role not found");
+const ROLE_IMMUTABLE: ErrorSpec =
+    ErrorSpec::failed_precondition("ROLE_IMMUTABLE", "system role cannot be deleted");
+const INVALID_PERMISSION_ASSIGNMENT: ErrorSpec = ErrorSpec::validation(
+    "INVALID_PERMISSION_ASSIGNMENT",
+    "selected permissions must exist in the access catalog",
+);
+const INVALID_USER_ASSIGNMENT: ErrorSpec =
+    ErrorSpec::validation("INVALID_USER_ASSIGNMENT", "selected users must exist");
 const INVALID_AUDIT_TIME_RANGE: ErrorSpec = ErrorSpec::validation(
     "INVALID_AUDIT_TIME_RANGE",
     "audit time range must use RFC 3339 timestamps",
@@ -199,7 +208,6 @@ impl From<iam::accounts::AccountError> for AppError {
             AccountError::Database(source) => {
                 INTERNAL_SERVER_ERROR.into_error().with_source(source)
             }
-            AccountError::Audit(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
             AccountError::Authorization(source) => source.into(),
         }
     }
@@ -216,10 +224,6 @@ impl From<iam::menus::MenuError> for AppError {
         use iam::menus::MenuError;
 
         match error {
-            MenuError::NotFound => ErrorSpec::not_found("MENU_NOT_FOUND", "menu not found").into(),
-            MenuError::InvalidPayload => {
-                ErrorSpec::validation("MENU_INVALID_PAYLOAD", "invalid menu payload").into()
-            }
             MenuError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
             MenuError::Authorization(source) => source.into(),
         }
@@ -231,28 +235,40 @@ impl From<iam::roles::RoleError> for AppError {
         use iam::roles::RoleError;
 
         match error {
-            RoleError::NotFound => ErrorSpec::not_found("ROLE_NOT_FOUND", "role not found").into(),
-            RoleError::Immutable => {
-                ErrorSpec::failed_precondition("ROLE_IMMUTABLE", "system role cannot be deleted")
-                    .into()
-            }
+            RoleError::NotFound => ROLE_NOT_FOUND.into(),
+            RoleError::Immutable => ROLE_IMMUTABLE.into(),
             RoleError::InvalidMenuAssignment(source) => ErrorSpec::validation(
                 "INVALID_MENU_ASSIGNMENT",
                 "selected menu nodes must be directory or page nodes and include every ancestor",
             )
             .into_error()
             .with_source(source),
-            RoleError::InvalidPermissionAssignment => ErrorSpec::validation(
-                "INVALID_PERMISSION_ASSIGNMENT",
-                "selected permissions must exist in the access catalog",
-            )
-            .into(),
-            RoleError::InvalidUserAssignment => {
-                ErrorSpec::validation("INVALID_USER_ASSIGNMENT", "selected users must exist").into()
-            }
-            RoleError::AuthorizationConfig => AUTHORIZATION_CONFIG_INVALID.into(),
             RoleError::Authorization(source) => source.into(),
             RoleError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
+        }
+    }
+}
+
+impl From<iam::authorization::PolicyAdministrationError> for AppError {
+    fn from(error: iam::authorization::PolicyAdministrationError) -> Self {
+        use iam::authorization::PolicyAdministrationError;
+
+        match error {
+            PolicyAdministrationError::RoleNotFound => ROLE_NOT_FOUND.into(),
+            PolicyAdministrationError::UserNotFound => USER_NOT_FOUND.into(),
+            PolicyAdministrationError::RoleImmutable => ROLE_IMMUTABLE.into(),
+            PolicyAdministrationError::InvalidPermissionAssignment => {
+                INVALID_PERMISSION_ASSIGNMENT.into()
+            }
+            PolicyAdministrationError::InvalidRoleAssignment => INVALID_ROLES.into(),
+            PolicyAdministrationError::InvalidUserAssignment => INVALID_USER_ASSIGNMENT.into(),
+            PolicyAdministrationError::Database(source) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+            }
+            PolicyAdministrationError::Audit(source) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+            }
+            PolicyAdministrationError::Authorization(source) => source.into(),
         }
     }
 }

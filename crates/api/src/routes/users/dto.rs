@@ -1,10 +1,73 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
-pub type UserListRequest = iam::accounts::GetUserListRequest;
-pub type UpdateSelfRequest = iam::accounts::SetSelfInfoRequest;
-pub type UpdateSelfSettingsRequest = iam::accounts::SetSelfSettingRequest;
-pub type SetUserRolesRequest = iam::accounts::SetUserRolesRequest;
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct UserListRequest {
+    pub page: i64,
+    #[serde(rename = "pageSize")]
+    pub page_size: i64,
+    pub keyword: Option<String>,
+    pub username: Option<String>,
+    #[serde(rename = "nickName")]
+    pub nick_name: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    #[serde(rename = "orderKey")]
+    pub order_key: Option<String>,
+    pub desc: Option<bool>,
+}
+
+impl From<UserListRequest> for iam::accounts::GetUserListRequest {
+    fn from(value: UserListRequest) -> Self {
+        Self {
+            page: value.page,
+            page_size: value.page_size,
+            keyword: value.keyword,
+            username: value.username,
+            nick_name: value.nick_name,
+            phone: value.phone,
+            email: value.email,
+            order_key: value.order_key,
+            desc: value.desc,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateSelfRequest {
+    #[serde(rename = "nickName")]
+    pub nick_name: Option<String>,
+    #[serde(rename = "headerImg")]
+    pub header_img: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+}
+
+impl From<UpdateSelfRequest> for iam::accounts::SetSelfInfoRequest {
+    fn from(value: UpdateSelfRequest) -> Self {
+        Self {
+            nick_name: value.nick_name,
+            header_img: value.header_img,
+            phone: value.phone,
+            email: value.email,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateSelfSettingsRequest {
+    #[serde(flatten)]
+    pub origin_setting: serde_json::Value,
+}
+
+impl From<UpdateSelfSettingsRequest> for iam::accounts::SetSelfSettingRequest {
+    fn from(value: UpdateSelfSettingsRequest) -> Self {
+        Self {
+            origin_setting: value.origin_setting,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RegisterUserRequest {
@@ -45,6 +108,12 @@ pub struct ChangePasswordRequest {
     pub password: String,
     #[serde(rename = "newPassword")]
     pub new_password: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetUserRolesRequest {
+    #[serde(rename = "roleIds", alias = "role_ids")]
+    pub role_ids: Vec<i64>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

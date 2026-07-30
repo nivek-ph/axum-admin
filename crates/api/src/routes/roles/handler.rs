@@ -43,7 +43,7 @@ pub async fn create_role(
     State(state): State<AppState>,
     Json(payload): Json<RoleRequest>,
 ) -> AppResult<Json<ApiResponse<RoleData>>> {
-    let role = RoleResponse::from(state.roles.create(payload).await?);
+    let role = RoleResponse::from(state.roles.create(payload.into()).await?);
 
     Ok(Json(ApiResponse::ok(RoleData { role })))
 }
@@ -62,7 +62,7 @@ pub async fn update_role(
     Path(id): Path<i64>,
     Json(payload): Json<RoleRequest>,
 ) -> AppResult<Json<ApiResponse<RoleData>>> {
-    let role = RoleResponse::from(state.roles.update(id, payload).await?);
+    let role = RoleResponse::from(state.roles.update(id, payload.into()).await?);
 
     Ok(Json(ApiResponse::ok(RoleData { role })))
 }
@@ -136,9 +136,9 @@ pub async fn get_role_permissions(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<RolePermissionsData>>> {
-    Ok(Json(ApiResponse::ok(
-        state.roles.permissions(id).await?.into(),
-    )))
+    let policy = state.authorization.role_permissions(id).await?;
+    let catalog = state.roles.permission_catalog(id).await?;
+    Ok(Json(ApiResponse::ok((policy, catalog).into())))
 }
 
 #[utoipa::path(
@@ -155,7 +155,10 @@ pub async fn set_role_permissions(
     Path(id): Path<i64>,
     Json(payload): Json<RolePermissionRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.roles.set_permissions(id, payload.permissions).await?;
+    state
+        .authorization
+        .replace_role_permissions(id, payload.permissions)
+        .await?;
     Ok(Json(ApiResponse::new("OK", "saved", None)))
 }
 
@@ -207,7 +210,7 @@ pub async fn get_role_users(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<RoleUserIdsData>>> {
-    let user_ids = state.roles.user_ids(id).await?;
+    let user_ids = state.authorization.role_user_ids(id).await?;
 
     Ok(Json(ApiResponse::ok(RoleUserIdsData(user_ids))))
 }
@@ -226,7 +229,10 @@ pub async fn set_role_users(
     Path(id): Path<i64>,
     Json(payload): Json<RoleUsersRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.roles.set_user_ids(id, payload.user_ids).await?;
+    state
+        .authorization
+        .replace_role_users(id, payload.user_ids)
+        .await?;
 
     Ok(Json(ApiResponse::new("OK", "saved", None)))
 }

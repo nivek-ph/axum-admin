@@ -15,5 +15,4 @@ sqlx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-utoipa.workspace = true
 uuid.workspace = true

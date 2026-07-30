@@ -130,7 +130,7 @@ mod tests {
             .create_session(999, "missing-user")
             .await
             .expect("missing-user session should be issued");
-        let mut state = crate::state::test_state(pool);
+        let mut state = crate::state::tests::test_state(pool).await;
         state.tokens = tokens.clone();
 
         let (status, body) = refresh_request(state.clone(), &enabled.refresh_token).await;

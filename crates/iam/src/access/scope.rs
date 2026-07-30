@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, strum::EnumString)]
 #[strum(serialize_all = "snake_case")]
-pub enum DataScope {
+enum DataScope {
     All,
     Dept,
     DeptAndChildren,
@@ -16,7 +16,7 @@ pub enum ResolvedDataScope {
     Owner(i64),
 }
 
-pub fn merge_scopes(scopes: &[DataScope]) -> DataScope {
+fn merge_scopes(scopes: &[DataScope]) -> DataScope {
     if scopes.contains(&DataScope::All) {
         return DataScope::All;
     }

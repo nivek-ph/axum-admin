@@ -117,11 +117,6 @@ impl RoleService {
         Ok(mutation.commit().await?)
     }
 
-    pub async fn menu_ids(&self, id: i64) -> Result<Vec<i64>, RoleError> {
-        self.ensure_exists(id).await?;
-        Ok(role_menu_ids(&self.pool, id).await?)
-    }
-
     pub async fn menu_access(&self, id: i64) -> Result<RoleMenuAccess, RoleError> {
         let role = find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
         let menu_ids = if role.is_system {
@@ -196,7 +191,7 @@ impl RoleService {
     }
 }
 
-pub(crate) async fn list(pool: &PgPool) -> Result<Vec<RoleSummary>, sqlx::Error> {
+async fn list(pool: &PgPool) -> Result<Vec<RoleSummary>, sqlx::Error> {
     sqlx::query_as(
         "SELECT id,code,name,status,sort,data_scope,is_system FROM sys_roles ORDER BY sort,id",
     )
@@ -236,8 +231,10 @@ fn normalize(v: Vec<i64>) -> Vec<i64> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
-    use crate::access::{AccessCatalog, AccessNode};
+    use crate::access::{AccessCatalog, tests::AccessNode};
 
     #[test]
     fn normalizes_ids() {
@@ -245,7 +242,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn role_assignments_replace_normalize_and_clear(pool: PgPool) {
+    async fn role_page_and_department_assignments_replace_normalize_and_clear(pool: PgPool) {
         sqlx::query(
             r#"
             insert into sys_roles (id, code, name, status, sort, data_scope, is_system)
@@ -266,19 +263,6 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::query(
-            r#"
-            insert into sys_users (
-                id, uuid, username, password_hash, nick_name, header_img, home_route,
-                enable, dept_id, is_system
-            ) values
-                (100, 'batch-user-a-uuid', 'batch-user-a', 'hash', 'Batch User A', '', 'dashboard', true, 1, false),
-                (101, 'batch-user-b-uuid', 'batch-user-b', 'hash', 'Batch User B', '', 'dashboard', true, 1, false)
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
         sqlx::query("insert into sys_role_menus (role_id, menu_id) values (2, 1)")
             .execute(&pool)
             .await
@@ -287,13 +271,6 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query(
-            "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5) values ('g', 'user:100', 'role:2', '', '', '', '')",
-        )
-            .execute(&pool)
-            .await
-            .unwrap();
-
         let catalog = AccessCatalog::from_parts(
             vec![
                 AccessNode {
@@ -317,26 +294,19 @@ mod tests {
         )
         .unwrap();
         let authorization = Authorization::new(pool.clone());
-        let access = AccessService::with_catalog(pool.clone(), authorization.clone(), catalog);
+        let access =
+            AccessService::from_catalog(pool.clone(), authorization.clone(), Arc::new(catalog));
         let service = RoleService::new(pool, access, authorization);
         service.set_menu_ids(2, vec![11, 10, 11]).await.unwrap();
         service.set_dept_ids(2, vec![3, 3, 0]).await.unwrap();
-        service.set_user_ids(2, vec![101, 101, 0]).await.unwrap();
 
-        assert_eq!(service.menu_ids(2).await.unwrap(), vec![10, 11]);
+        assert_eq!(service.menu_access(2).await.unwrap().menu_ids, vec![10, 11]);
         assert_eq!(service.dept_ids(2).await.unwrap(), vec![3]);
-        assert_eq!(service.user_ids(2).await.unwrap(), vec![101]);
 
         service.set_menu_ids(2, Vec::new()).await.unwrap();
         service.set_dept_ids(2, Vec::new()).await.unwrap();
-        service.set_user_ids(2, Vec::new()).await.unwrap();
-        assert!(service.menu_ids(2).await.unwrap().is_empty());
+        assert!(service.menu_access(2).await.unwrap().menu_ids.is_empty());
         assert!(service.dept_ids(2).await.unwrap().is_empty());
-        assert!(service.user_ids(2).await.unwrap().is_empty());
-
-        let error = service.set_user_ids(2, vec![999]).await.unwrap_err();
-        assert!(matches!(error, RoleError::InvalidUserAssignment));
-        assert!(service.user_ids(2).await.unwrap().is_empty());
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -381,8 +351,8 @@ mod tests {
             .unwrap();
         let roles = RoleService::new(pool.clone(), access.clone(), authorization.clone());
 
-        roles
-            .set_permissions(2, vec!["system:user:list".to_string()])
+        authorization
+            .replace_role_permissions(2, vec!["system:user:list".to_string()])
             .await
             .unwrap();
         roles.set_menu_ids(2, Vec::new()).await.unwrap();
@@ -390,14 +360,14 @@ mod tests {
         let page_access = roles.menu_access(2).await.unwrap();
         assert!(page_access.menu_ids.is_empty());
         assert!(page_access.effective_menu_ids.is_empty());
-        let permission_view = roles.permissions(2).await.unwrap();
+        let permission_view = authorization.role_permissions(2).await.unwrap();
         assert_eq!(
             permission_view.permissions,
             vec!["system:user:list".to_string()]
         );
+        let catalog = roles.permission_catalog(2).await.unwrap();
         assert!(
-            !permission_view
-                .catalog
+            !catalog
                 .iter()
                 .find(|item| item.permission == "system:user:list")
                 .unwrap()
@@ -476,22 +446,22 @@ mod tests {
         let (access, _) = crate::load_access_and_menus(pool.clone(), authorization.clone())
             .await
             .unwrap();
-        let roles = RoleService::new(pool, access, authorization);
+        let roles = RoleService::new(pool, access, authorization.clone());
 
         let page_access = roles.menu_access(1).await.unwrap();
         assert!(page_access.system_managed);
         assert!(page_access.menu_ids.is_empty());
         assert!(!page_access.effective_menu_ids.is_empty());
 
-        let permissions = roles.permissions(1).await.unwrap();
+        let permissions = authorization.role_permissions(1).await.unwrap();
         assert!(permissions.system_managed);
         assert!(!permissions.permissions.is_empty());
         assert!(!permissions.permissions.iter().any(|value| value == "*"));
         assert!(matches!(
-            roles
-                .set_permissions(1, vec!["system:user:list".to_string()])
+            authorization
+                .replace_role_permissions(1, vec!["system:user:list".to_string()])
                 .await,
-            Err(RoleError::Immutable)
+            Err(crate::authorization::PolicyAdministrationError::RoleImmutable)
         ));
     }
 }

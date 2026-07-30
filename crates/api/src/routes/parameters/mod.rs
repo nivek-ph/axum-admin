@@ -42,7 +42,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn parameter_routes_keep_list_detail_key_and_path_body_contract(pool: sqlx::PgPool) {
-        let app = routes().with_state(crate::state::test_state(pool));
+        let app = routes().with_state(crate::state::tests::test_state(pool).await);
         let response = app
             .clone()
             .oneshot(

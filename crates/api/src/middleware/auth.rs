@@ -113,7 +113,7 @@ mod tests {
     ) -> (AppState, TokenService, String) {
         let tokens = token_service().await;
         let session = tokens.create_session(user_id, username).await.unwrap();
-        let mut state = crate::state::test_state(pool);
+        let mut state = crate::state::tests::test_state(pool).await;
         state.tokens = tokens.clone();
         (state, tokens, session.access_token)
     }
@@ -157,6 +157,10 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn missing_protected_route_binding_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
         insert_user(&pool, 98, "unbound-user", true).await;
+        sqlx::query("delete from sys_menu_apis")
+            .execute(&pool)
+            .await
+            .unwrap();
         let (state, tokens, access_token) = authenticated_state(pool, 98, "unbound-user").await;
 
         let (status, body) = protected_response(state, &access_token, "/api/roles").await;

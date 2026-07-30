@@ -113,17 +113,6 @@ impl AccessCatalog {
         Ok(Self::from_parts(nodes, bindings)?)
     }
 
-    pub fn new(bindings: Vec<AccessBinding>) -> Result<Self, CatalogError> {
-        Self::build(
-            bindings,
-            HashSet::new(),
-            HashSet::new(),
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
-        )
-    }
-
     pub fn from_parts(
         nodes: Vec<AccessNode>,
         bindings: Vec<AccessBinding>,
@@ -251,11 +240,6 @@ impl AccessCatalog {
         }
     }
 
-    #[cfg(test)]
-    pub fn enabled_menu_ids(&self) -> &HashSet<i64> {
-        &self.enabled_menu_ids
-    }
-
     pub fn enabled_permissions(&self) -> &HashSet<String> {
         &self.enabled_permissions
     }
@@ -358,23 +342,6 @@ impl AccessCatalog {
             .map(|node| node.id)
             .collect::<HashSet<_>>();
         self.effective_page_access(&configured, true)
-    }
-
-    pub fn validate_permission_assignment(
-        &self,
-        permissions: &BTreeSet<String>,
-    ) -> Result<(), CatalogError> {
-        for permission in permissions {
-            if permission == "*"
-                || !self.nodes.values().any(|node| {
-                    node.menu_type != "directory"
-                        && node.permission.as_deref() == Some(permission.as_str())
-                })
-            {
-                return Err(CatalogError::InvalidTree);
-            }
-        }
-        Ok(())
     }
 }
 
@@ -494,9 +461,20 @@ fn path_pattern_matches(pattern: &str, path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     use super::{AccessBinding, AccessCatalog, AccessNode, CatalogError};
+
+    fn catalog(bindings: Vec<AccessBinding>) -> Result<AccessCatalog, CatalogError> {
+        AccessCatalog::build(
+            bindings,
+            HashSet::new(),
+            HashSet::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+        )
+    }
 
     fn binding(menu_id: i64, method: &str, path: &str) -> AccessBinding {
         AccessBinding {
@@ -508,7 +486,7 @@ mod tests {
 
     #[test]
     fn resolves_exact_routes_before_dynamic_routes() {
-        let catalog = AccessCatalog::new(vec![
+        let catalog = catalog(vec![
             binding(10, "GET", "/api/users/{id}"),
             binding(11, "GET", "/api/users/batch"),
         ])
@@ -520,7 +498,7 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_dynamic_route_shapes() {
-        let result = AccessCatalog::new(vec![
+        let result = catalog(vec![
             binding(10, "GET", "/api/users/{id}"),
             binding(11, "GET", "/api/users/{user_id}"),
         ]);
@@ -530,8 +508,8 @@ mod tests {
 
     #[test]
     fn rejects_unbound_routes() {
-        let catalog = AccessCatalog::new(vec![binding(10, "GET", "/api/users")])
-            .expect("catalog should be valid");
+        let catalog =
+            catalog(vec![binding(10, "GET", "/api/users")]).expect("catalog should be valid");
 
         assert_eq!(
             catalog.resolve("POST", "/api/users"),
@@ -568,7 +546,7 @@ mod tests {
             catalog.resolve("GET", "/api/users"),
             Err(CatalogError::Unbound)
         );
-        assert!(catalog.enabled_menu_ids().is_empty());
+        assert!(catalog.enabled_menu_ids.is_empty());
         assert!(catalog.enabled_permissions().is_empty());
     }
 
