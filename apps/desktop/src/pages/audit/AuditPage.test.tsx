@@ -1,6 +1,6 @@
 import type { AxiosAdapter } from 'axios'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -18,6 +18,7 @@ describe('Audit workflow', () => {
     useMenuStore.getState().resetAccess()
   })
   afterEach(() => {
+    cleanup()
     http.defaults.adapter = originalAdapter
   })
 
@@ -101,7 +102,7 @@ describe('Audit workflow', () => {
     let analysisPayload: unknown
     let analysisTimeout: number | undefined
     useAuthStore.getState().setSession({ accessToken: 'token', refreshToken: 'refresh', userInfo: currentUser })
-    useMenuStore.getState().setAuthorizedMenus([], true)
+    useMenuStore.getState().setAuthorizedMenus([{ name: 'audit-events', path: '/audit-events' }])
     http.defaults.adapter = (async (config) => {
       let data: unknown
       if (config.url === '/audit/events' && config.method === 'get')

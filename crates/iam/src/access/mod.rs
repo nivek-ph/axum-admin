@@ -1,12 +1,8 @@
 mod catalog;
 mod error;
-mod scope;
 mod service;
 
-pub(crate) use catalog::CatalogError;
-#[cfg(test)]
-pub(crate) use catalog::{AccessCatalog, AccessNode};
-pub use error::{AccessEvaluationError, AccessInitError, AccessPropagationError};
-pub use scope::ResolvedDataScope;
-pub(crate) use scope::resolve_user_data_scope;
-pub use service::{AccessService, AccessSnapshot};
+pub(crate) use catalog::AccessCatalog;
+pub use error::AccessEvaluationError;
+pub(crate) use error::CatalogError;
+pub use service::AccessService;

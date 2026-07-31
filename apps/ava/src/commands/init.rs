@@ -1,8 +1,6 @@
 use anyhow::{Context, Result};
-use audit::AuditService;
 use auth::password::PasswordService;
 use clap::{Parser, builder::NonEmptyStringValueParser};
-use iam::{access::AccessService, users::UserService};
 use tracing::info;
 
 #[derive(Debug, Clone, Parser)]
@@ -55,12 +53,16 @@ pub(crate) async fn execute(config: InitConfig) -> Result<()> {
         .await
         .context("database migrations should run")?;
 
-    let access = AccessService::new(pool.clone());
-    let audit = AuditService::new(pool.clone());
-    UserService::new(pool, access, audit, PasswordService::new())
+    let iam = iam::Iam::load(pool)
+        .await
+        .context("IAM should initialize")?;
+    let password_hash = PasswordService::new()
+        .hash_password(&config.admin_password)
+        .context("admin password should be hashed")?;
+    iam.accounts
         .ensure_admin(
             &config.admin_username,
-            &config.admin_password,
+            password_hash,
             &config.admin_nickname,
         )
         .await

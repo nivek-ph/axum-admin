@@ -35,11 +35,11 @@ pub async fn refresh(
     Json(payload): Json<RefreshRequest>,
 ) -> AppResult<Json<ApiResponse<RefreshResponse>>> {
     let grant = state.tokens.inspect_refresh(&payload.refresh_token).await?;
-    let identity = match state.users.refresh_identity(grant.user_id()).await {
+    let identity = match state.accounts.refresh_identity(grant.user_id()).await {
         Ok(identity) => identity,
         Err(
-            error @ (iam::users::RefreshIdentityError::NotFound
-            | iam::users::RefreshIdentityError::Disabled),
+            error @ (iam::accounts::RefreshIdentityError::NotFound
+            | iam::accounts::RefreshIdentityError::Disabled),
         ) => {
             if let Err(revoke_error) = state.tokens.revoke_refresh_grant(&grant).await {
                 tracing::error!(
@@ -50,7 +50,7 @@ pub async fn refresh(
             }
             return Err(error.into());
         }
-        Err(error @ iam::users::RefreshIdentityError::Database(_)) => return Err(error.into()),
+        Err(error @ iam::accounts::RefreshIdentityError::Database(_)) => return Err(error.into()),
     };
     let pair = state
         .tokens
@@ -101,10 +101,10 @@ mod tests {
             r#"
             insert into sys_users (
                 id, uuid, username, password_hash, nick_name, header_img, home_route,
-                enable, dept_id, is_system
+                enable, dept_id
             ) values
-                (401, 'refresh-route-enabled', 'enabled-user', 'hash', 'Enabled', '', 'dashboard', true, 1, false),
-                (402, 'refresh-route-disabled', 'disabled-user', 'hash', 'Disabled', '', 'dashboard', false, 1, false)
+                (401, 'refresh-route-enabled', 'enabled-user', 'hash', 'Enabled', '', 'dashboard', true, 1),
+                (402, 'refresh-route-disabled', 'disabled-user', 'hash', 'Disabled', '', 'dashboard', false, 1)
             "#,
         )
         .execute(&pool)
@@ -130,7 +130,7 @@ mod tests {
             .create_session(999, "missing-user")
             .await
             .expect("missing-user session should be issued");
-        let mut state = crate::state::test_state(pool);
+        let mut state = crate::state::tests::test_state(pool).await;
         state.tokens = tokens.clone();
 
         let (status, body) = refresh_request(state.clone(), &enabled.refresh_token).await;

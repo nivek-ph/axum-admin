@@ -1,12 +1,125 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
-pub type UserListRequest = iam::users::GetUserListRequest;
-pub type RegisterUserRequest = iam::users::RegisterRequest;
-pub type ChangePasswordRequest = iam::users::ChangePasswordRequest;
-pub type UpdateSelfRequest = iam::users::SetSelfInfoRequest;
-pub type UpdateSelfSettingsRequest = iam::users::SetSelfSettingRequest;
-pub type SetUserRolesRequest = iam::users::SetUserRolesRequest;
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct UserListRequest {
+    pub page: i64,
+    #[serde(rename = "pageSize")]
+    pub page_size: i64,
+    pub keyword: Option<String>,
+    pub username: Option<String>,
+    #[serde(rename = "nickName")]
+    pub nick_name: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    #[serde(rename = "orderKey")]
+    pub order_key: Option<String>,
+    pub desc: Option<bool>,
+}
+
+impl From<UserListRequest> for iam::accounts::GetUserListRequest {
+    fn from(value: UserListRequest) -> Self {
+        Self {
+            page: value.page,
+            page_size: value.page_size,
+            keyword: value.keyword,
+            username: value.username,
+            nick_name: value.nick_name,
+            phone: value.phone,
+            email: value.email,
+            order_key: value.order_key,
+            desc: value.desc,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateSelfRequest {
+    #[serde(rename = "nickName")]
+    pub nick_name: Option<String>,
+    #[serde(rename = "headerImg")]
+    pub header_img: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+}
+
+impl From<UpdateSelfRequest> for iam::accounts::SetSelfInfoRequest {
+    fn from(value: UpdateSelfRequest) -> Self {
+        Self {
+            nick_name: value.nick_name,
+            header_img: value.header_img,
+            phone: value.phone,
+            email: value.email,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateSelfSettingsRequest {
+    #[serde(flatten)]
+    pub origin_setting: serde_json::Value,
+}
+
+impl From<UpdateSelfSettingsRequest> for iam::accounts::SetSelfSettingRequest {
+    fn from(value: UpdateSelfSettingsRequest) -> Self {
+        Self {
+            origin_setting: value.origin_setting,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RegisterUserRequest {
+    #[serde(rename = "username")]
+    pub user_name: String,
+    pub password: String,
+    #[serde(rename = "nickName")]
+    pub nick_name: String,
+    #[serde(rename = "headerImg")]
+    pub header_img: Option<String>,
+    #[serde(rename = "roleIds")]
+    pub role_ids: Option<Vec<i64>>,
+    #[serde(rename = "deptId", alias = "dept_id")]
+    pub dept_id: Option<i64>,
+    pub enable: Option<i32>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+}
+
+impl RegisterUserRequest {
+    pub fn into_account_input(self, password_hash: String) -> iam::accounts::CreateAccountInput {
+        iam::accounts::CreateAccountInput {
+            user_name: self.user_name,
+            password_hash,
+            nick_name: self.nick_name,
+            header_img: self.header_img,
+            role_ids: self.role_ids,
+            dept_id: self.dept_id,
+            enable: self.enable,
+            phone: self.phone,
+            email: self.email,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ChangePasswordRequest {
+    pub password: String,
+    #[serde(rename = "newPassword")]
+    pub new_password: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetUserRolesRequest {
+    #[serde(rename = "roleIds", alias = "role_ids")]
+    pub role_ids: Vec<i64>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetUserPermissionsRequest {
+    pub permissions: Vec<String>,
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateUserRequest {
@@ -23,7 +136,7 @@ pub struct UpdateUserRequest {
     pub dept_id: Option<i64>,
 }
 
-impl From<UpdateUserRequest> for iam::users::UpdateUserInput {
+impl From<UpdateUserRequest> for iam::accounts::UpdateUserInput {
     fn from(value: UpdateUserRequest) -> Self {
         Self {
             nick_name: value.nick_name,
@@ -38,17 +151,11 @@ impl From<UpdateUserRequest> for iam::users::UpdateUserInput {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ResetPasswordRequest {
+    // Retained in the wire schema for existing clients; the path ID is authoritative.
+    #[allow(dead_code)]
     #[serde(default)]
     pub id: i64,
     pub password: String,
-}
-
-impl From<ResetPasswordRequest> for iam::users::ResetPasswordInput {
-    fn from(value: ResetPasswordRequest) -> Self {
-        Self {
-            password: value.password,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -58,8 +165,6 @@ pub struct UserRoleResponse {
     pub name: String,
     pub status: String,
     pub sort: i32,
-    pub data_scope: String,
-    pub is_system: bool,
 }
 
 impl From<iam::roles::RoleSummary> for UserRoleResponse {
@@ -70,8 +175,84 @@ impl From<iam::roles::RoleSummary> for UserRoleResponse {
             name: v.name,
             status: v.status,
             sort: v.sort,
-            data_scope: v.data_scope,
-            is_system: v.is_system,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectiveRoleSourceResponse {
+    pub id: i64,
+    pub code: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectivePermissionResponse {
+    pub permission: String,
+    pub direct: bool,
+    pub roles: Vec<EffectiveRoleSourceResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPermissionCatalogResponse {
+    pub permission: String,
+    pub title: String,
+    pub menu_type: String,
+    pub status: String,
+    pub effectively_enabled: bool,
+    pub owning_page_id: i64,
+    pub owning_page_title: String,
+    pub page_visible: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UserAccessData {
+    pub role_ids: Vec<i64>,
+    pub direct_permissions: Vec<String>,
+    pub effective_permissions: Vec<EffectivePermissionResponse>,
+    pub catalog: Vec<UserPermissionCatalogResponse>,
+}
+
+impl From<iam::accounts::AccountAccessView> for UserAccessData {
+    fn from(value: iam::accounts::AccountAccessView) -> Self {
+        Self {
+            role_ids: value.role_ids,
+            direct_permissions: value.direct_permissions,
+            effective_permissions: value
+                .effective_permissions
+                .into_iter()
+                .map(|item| EffectivePermissionResponse {
+                    permission: item.permission,
+                    direct: item.direct,
+                    roles: item
+                        .roles
+                        .into_iter()
+                        .map(|role| EffectiveRoleSourceResponse {
+                            id: role.id,
+                            code: role.code,
+                            name: role.name,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            catalog: value
+                .catalog
+                .into_iter()
+                .map(|item| UserPermissionCatalogResponse {
+                    permission: item.permission,
+                    title: item.title,
+                    menu_type: item.menu_type,
+                    status: item.status,
+                    effectively_enabled: item.effectively_enabled,
+                    owning_page_id: item.owning_page_id,
+                    owning_page_title: item.owning_page_title,
+                    page_visible: item.page_visible,
+                })
+                .collect(),
         }
     }
 }
@@ -119,8 +300,8 @@ pub struct UserListData {
     pub page_size: i64,
 }
 
-impl From<iam::users::UserInfoView> for UserResponse {
-    fn from(v: iam::users::UserInfoView) -> Self {
+impl From<iam::accounts::UserInfoView> for UserResponse {
+    fn from(v: iam::accounts::UserInfoView) -> Self {
         Self {
             id: v.id,
             uuid: v.uuid,

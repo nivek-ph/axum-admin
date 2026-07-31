@@ -1,9 +1,13 @@
 use std::ops::Deref;
 
 use axum::{extract::FromRequestParts, http::request::Parts};
-use iam::users::AuthenticatedUser;
 
 use crate::{AppError, mappings::LOGIN_REQUIRED};
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatedUser {
+    pub id: i64,
+}
 
 #[derive(Debug, Clone)]
 pub struct CurrentUser(pub AuthenticatedUser);

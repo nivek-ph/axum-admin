@@ -8,8 +8,6 @@ export interface RoleResource {
   name: string
   status: string
   sort: number
-  data_scope: string
-  is_system: boolean
 }
 
 export interface RolePayload {
@@ -17,7 +15,6 @@ export interface RolePayload {
   name: string
   status?: string
   sort?: number
-  data_scope?: string
 }
 
 export async function listRoles() {
@@ -39,24 +36,44 @@ function sortedIds(ids: number[]) {
   return [...new Set(ids)].filter(Number.isFinite).sort((a, b) => a - b)
 }
 
-export async function getRolePermissionIds(id: number) {
-  const response = await http.get<never, ApiEnvelope<{ menuIds?: number[] }>>(`/roles/${id}/menus`, withAuthHeaders())
-  return response.data?.menuIds ?? []
+export interface RolePageAccess {
+  menuIds: number[]
+  effectiveMenuIds: number[]
+  protected: boolean
 }
-export function setRolePermissionIds(id: number, menuIds: number[]) {
+
+export interface PermissionCatalogItem {
+  permission: string
+  title: string
+  menuType: 'page' | 'action'
+  status: 'enabled' | 'disabled'
+  effectivelyEnabled: boolean
+  owningPageId: number
+  owningPageTitle: string
+  pageVisible: boolean
+}
+
+export interface RolePermissions {
+  permissions: string[]
+  catalog: PermissionCatalogItem[]
+  protected: boolean
+}
+
+export async function getRolePageAccess(id: number) {
+  const response = await http.get<never, ApiEnvelope<RolePageAccess>>(`/roles/${id}/menus`, withAuthHeaders())
+  return response.data ?? { menuIds: [], effectiveMenuIds: [], protected: false }
+}
+export function setRolePageAccess(id: number, menuIds: number[]) {
   return http.put<never, ApiEnvelope>(`/roles/${id}/menus`, { menuIds: sortedIds(menuIds) }, withAuthHeaders())
 }
-export async function getRoleDeptIds(id: number) {
-  const response = await http.get<never, ApiEnvelope<{ deptIds?: number[] }>>(`/roles/${id}/depts`, withAuthHeaders())
-  return response.data?.deptIds ?? []
+export async function getRolePermissions(id: number) {
+  const response = await http.get<never, ApiEnvelope<RolePermissions>>(`/roles/${id}/permissions`, withAuthHeaders())
+  return response.data ?? { permissions: [], catalog: [], protected: false }
 }
-export function setRoleDeptIds(id: number, deptIds: number[]) {
-  return http.put<never, ApiEnvelope>(`/roles/${id}/depts`, { deptIds: sortedIds(deptIds) }, withAuthHeaders())
-}
-export async function getRoleUserIds(id: number) {
-  const response = await http.get<never, ApiEnvelope<number[]>>(`/roles/${id}/users`, withAuthHeaders())
-  return response.data ?? []
-}
-export function setRoleUserIds(id: number, userIds: number[]) {
-  return http.put<never, ApiEnvelope>(`/roles/${id}/users`, { userIds: sortedIds(userIds) }, withAuthHeaders())
+export function setRolePermissions(id: number, permissions: string[]) {
+  return http.put<never, ApiEnvelope>(
+    `/roles/${id}/permissions`,
+    { permissions: [...new Set(permissions)].sort() },
+    withAuthHeaders(),
+  )
 }

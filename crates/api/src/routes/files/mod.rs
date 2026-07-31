@@ -107,7 +107,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn upload_route_streams_a_file_to_safe_storage(pool: sqlx::PgPool) {
         let upload_dir = upload_dir();
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.files = FileService::new(pool, upload_dir.to_string_lossy());
         let app = routes().with_state(state);
         let (content_type, body) = multipart_body(vec![(
@@ -152,7 +152,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn upload_route_returns_stable_error_and_cleans_up_oversized_file(pool: sqlx::PgPool) {
         let upload_dir = upload_dir();
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.files = FileService::new(pool.clone(), upload_dir.to_string_lossy());
         let app = routes().with_state(state);
         let (content_type, body) =
@@ -180,7 +180,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn upload_route_rejects_multiple_files_without_partial_state(pool: sqlx::PgPool) {
         let upload_dir = upload_dir();
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.files = FileService::new(pool.clone(), upload_dir.to_string_lossy());
         let app = routes().with_state(state);
         let (content_type, body) = multipart_body(vec![
@@ -210,7 +210,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn upload_route_rejects_an_oversized_non_file_part(pool: sqlx::PgPool) {
         let upload_dir = upload_dir();
-        let mut state = crate::state::test_state(pool.clone());
+        let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.files = FileService::new(pool.clone(), upload_dir.to_string_lossy());
         let app = routes().with_state(state);
         let (content_type, body) =
@@ -239,7 +239,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn file_management_routes_keep_the_existing_transport_contract(pool: sqlx::PgPool) {
-        let app = routes().with_state(crate::state::test_state(pool));
+        let app = routes().with_state(crate::state::tests::test_state(pool).await);
         let response = app
             .clone()
             .oneshot(

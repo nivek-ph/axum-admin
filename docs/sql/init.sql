@@ -41,63 +41,65 @@ CROSS JOIN (
 ) AS root
 ON CONFLICT (code) DO NOTHING;
 
-INSERT INTO sys_roles (code, name, status, sort, data_scope, is_system)
+INSERT INTO sys_roles (code, name, status, sort)
 VALUES
-    ('executive', '管理层', 'enabled', 100, 'all', false),
+    ('executive', '管理层', 'enabled', 100),
 
-    ('rd_manager', '研发负责人', 'enabled', 200, 'dept_and_children', false),
-    ('product_manager', '产品经理', 'enabled', 210, 'self', false),
-    ('frontend_engineer', '前端工程师', 'enabled', 220, 'self', false),
-    ('backend_engineer', '后端工程师', 'enabled', 230, 'self', false),
-    ('ui_ux_designer', 'UI/UX 设计师', 'enabled', 240, 'self', false),
-    ('qa_engineer', '测试工程师', 'enabled', 250, 'self', false),
-    ('devops_engineer', 'DevOps 工程师', 'enabled', 260, 'self', false),
+    ('rd_manager', '研发负责人', 'enabled', 200),
+    ('product_manager', '产品经理', 'enabled', 210),
+    ('frontend_engineer', '前端工程师', 'enabled', 220),
+    ('backend_engineer', '后端工程师', 'enabled', 230),
+    ('ui_ux_designer', 'UI/UX 设计师', 'enabled', 240),
+    ('qa_engineer', '测试工程师', 'enabled', 250),
+    ('devops_engineer', 'DevOps 工程师', 'enabled', 260),
 
-    ('sales_manager', '销售负责人', 'enabled', 300, 'dept_and_children', false),
-    ('sales_representative', '销售顾问', 'enabled', 310, 'self', false),
+    ('sales_manager', '销售负责人', 'enabled', 300),
+    ('sales_representative', '销售顾问', 'enabled', 310),
 
-    ('customer_success_manager', '客户成功负责人', 'enabled', 400, 'dept_and_children', false),
-    ('customer_success_specialist', '客户成功专员', 'enabled', 410, 'self', false),
+    ('customer_success_manager', '客户成功负责人', 'enabled', 400),
+    ('customer_success_specialist', '客户成功专员', 'enabled', 410),
 
-    ('people_admin', '人事负责人', 'enabled', 500, 'all', false),
-    ('recruiter', '招聘专员', 'enabled', 510, 'self', false),
-    ('admin_specialist', '行政专员', 'enabled', 520, 'self', false),
+    ('people_admin', '人事负责人', 'enabled', 500),
+    ('recruiter', '招聘专员', 'enabled', 510),
+    ('admin_specialist', '行政专员', 'enabled', 520),
 
-    ('finance_manager', '财务负责人', 'enabled', 600, 'dept_and_children', false),
-    ('accountant', '会计', 'enabled', 610, 'self', false),
+    ('finance_manager', '财务负责人', 'enabled', 600),
+    ('accountant', '会计', 'enabled', 610),
 
-    ('marketing_manager', '市场负责人', 'enabled', 700, 'dept_and_children', false),
-    ('content_marketer', '内容运营', 'enabled', 710, 'self', false),
-    ('growth_marketer', '增长运营', 'enabled', 720, 'self', false),
+    ('marketing_manager', '市场负责人', 'enabled', 700),
+    ('content_marketer', '内容运营', 'enabled', 710),
+    ('growth_marketer', '增长运营', 'enabled', 720),
 
-    ('operations_manager', '运营负责人', 'enabled', 800, 'dept_and_children', false),
-    ('operations_specialist', '运营专员', 'enabled', 810, 'self', false),
+    ('operations_manager', '运营负责人', 'enabled', 800),
+    ('operations_specialist', '运营专员', 'enabled', 810),
 
-    ('system_operator', '系统管理员', 'enabled', 900, 'all', false),
-    ('auditor', '审计员', 'enabled', 910, 'all', false)
+    ('system_operator', '系统管理员', 'enabled', 900),
+    ('auditor', '审计员', 'enabled', 910)
 ON CONFLICT (code) DO UPDATE
 SET name = EXCLUDED.name,
     status = EXCLUDED.status,
     sort = EXCLUDED.sort,
-    data_scope = EXCLUDED.data_scope,
     updated_at = now()
 WHERE (
     sys_roles.name,
     sys_roles.status,
-    sys_roles.sort,
-    sys_roles.data_scope
+    sys_roles.sort
 ) IS DISTINCT FROM (
     EXCLUDED.name,
     EXCLUDED.status,
-    EXCLUDED.sort,
-    EXCLUDED.data_scope
+    EXCLUDED.sort
 );
 
--- Every job role can access the dashboard. Department heads also receive
--- organization visibility scoped by their role's data_scope. Menu assignments
--- use stable names rather than frontend component paths.
-WITH role_menu_names(role_code, menu_name) AS (
-    VALUES
+-- Every job role can access the dashboard. Department heads also receive user
+-- management visibility, which the backend limits to their exact department.
+-- Menu assignments use stable names rather than frontend component paths.
+CREATE TEMP TABLE demo_role_menu_names (
+    role_code TEXT NOT NULL,
+    menu_name TEXT NOT NULL
+) ON COMMIT DROP;
+
+INSERT INTO demo_role_menu_names (role_code, menu_name)
+VALUES
         ('executive', 'dashboard'),
         ('rd_manager', 'dashboard'),
         ('product_manager', 'dashboard'),
@@ -141,10 +143,7 @@ WITH role_menu_names(role_code, menu_name) AS (
         ('people_admin', 'users:create'),
         ('people_admin', 'users:update'),
         ('people_admin', 'users:reset-password'),
-        ('people_admin', 'users:assign-roles'),
         ('people_admin', 'roles'),
-        ('people_admin', 'roles:users-read'),
-        ('people_admin', 'roles:users-update'),
         ('people_admin', 'departments'),
         ('people_admin', 'departments:create'),
         ('people_admin', 'departments:get'),
@@ -178,13 +177,41 @@ WITH role_menu_names(role_code, menu_name) AS (
         ('auditor', 'audit-events'),
 
         ('executive', 'audit'),
-        ('executive', 'audit-events')
-)
+        ('executive', 'audit-events');
+
 INSERT INTO sys_role_menus (role_id, menu_id)
 SELECT role.id, menu.id
-FROM role_menu_names assignment
+FROM demo_role_menu_names assignment
 JOIN sys_roles role ON role.code = assignment.role_code
 JOIN sys_menus menu ON menu.name = assignment.menu_name
+WHERE menu.menu_type <> 'action'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+SELECT
+    'p',
+    'role:' || role.id::text,
+    menu.permission,
+    '',
+    '',
+    '',
+    ''
+FROM demo_role_menu_names assignment
+JOIN sys_roles role ON role.code = assignment.role_code
+JOIN sys_menus menu ON menu.name = assignment.menu_name
+WHERE menu.menu_type = 'action'
+UNION
+SELECT
+    'p',
+    'role:' || access.role_id::text,
+    menu.permission,
+    '',
+    '',
+    '',
+    ''
+FROM sys_role_menus access
+JOIN sys_menus menu ON menu.id = access.menu_id
+WHERE menu.menu_type = 'page'
 ON CONFLICT DO NOTHING;
 
 -- Demo accounts use a valid Argon2id hash that is not tied to a distributed
@@ -240,8 +267,7 @@ INSERT INTO sys_users (
     phone,
     email,
     origin_setting,
-    dept_id,
-    is_system
+    dept_id
 )
 SELECT
     format('00000000-0000-4000-8000-%s', lpad(seed.employee_no::text, 12, '0')),
@@ -254,8 +280,7 @@ SELECT
     NULL,
     format('employee%s@example.test', lpad(seed.employee_no::text, 2, '0')),
     '{"demo": true}'::jsonb,
-    dept.id,
-    false
+    dept.id
 FROM demo_employee_seed seed
 JOIN sys_depts dept ON dept.code = seed.dept_code
 ON CONFLICT DO NOTHING;
@@ -276,8 +301,15 @@ role_members(role_code, employee_no) AS (
     SELECT role_code, employee_no
     FROM functional_role_members
 )
-INSERT INTO sys_user_roles (user_id, role_id)
-SELECT user_account.id, role.id
+INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+SELECT
+    'g',
+    'user:' || user_account.id::text,
+    'role:' || role.id::text,
+    '',
+    '',
+    '',
+    ''
 FROM role_members assignment
 JOIN sys_roles role ON role.code = assignment.role_code
 JOIN sys_users user_account

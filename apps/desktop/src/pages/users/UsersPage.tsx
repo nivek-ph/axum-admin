@@ -11,10 +11,13 @@ import {
   createUser,
   deleteUser,
   fetchUsers,
+  getUserAccess,
   resetUserPassword,
+  setUserDirectPermissions,
   type CreateUserForm,
   type UserRecord,
 } from '@/api/users'
+import { useConfirm } from '@/components/ConfirmProvider'
 import { DataTable } from '@/components/data-table/DataTable'
 import { DataTablePagination } from '@/components/data-table/DataTablePagination'
 import { PageHeader } from '@/components/PageHeader'
@@ -22,11 +25,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
-import { useConfirm } from '@/components/ConfirmProvider'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuthStore } from '@/stores/auth'
 
 const emptyForm: CreateUserForm = {
@@ -44,20 +47,31 @@ export function UsersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const can = useAuthStore((state) => state.can)
+  const canReadAccess = can('system:user:permissions-read')
+  const canReadRoles = can('system:role:list')
+  const canAssignRoles = canReadRoles && can('system:user:assign-roles')
+  const canUpdateDirect = canReadAccess && can('system:user:permissions-update')
   const confirmAction = useConfirm()
   const [page, setPage] = useState(1)
   const [draftKeyword, setDraftKeyword] = useState('')
   const [keyword, setKeyword] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
-  const [roleUser, setRoleUser] = useState<UserRecord | null>(null)
+  const [accessUser, setAccessUser] = useState<UserRecord | null>(null)
   const [form, setForm] = useState<CreateUserForm>(emptyForm)
   const [selectedRoles, setSelectedRoles] = useState<number[]>([])
+  const [selectedDirect, setSelectedDirect] = useState<string[]>([])
   const users = useQuery({
     queryKey: ['users', page, PAGE_SIZE, keyword],
     queryFn: () => fetchUsers({ page, pageSize: PAGE_SIZE, keyword }),
   })
-  const roles = useQuery({ queryKey: ['roles'], queryFn: listRoles })
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['users'] })
+  const roles = useQuery({ queryKey: ['roles'], queryFn: listRoles, enabled: canReadRoles })
+  const access = useQuery({
+    queryKey: ['user-access', accessUser?.id],
+    queryFn: () => getUserAccess(accessUser!.id),
+    enabled: canReadAccess && Boolean(accessUser),
+  })
+  const invalidateUsers = () => queryClient.invalidateQueries({ queryKey: ['users'] })
+  const invalidateAccess = () => queryClient.invalidateQueries({ queryKey: ['user-access', accessUser?.id] })
   const createMutation = useMutation({
     mutationFn: createUser,
     onSuccess: async (response) => {
@@ -65,23 +79,32 @@ export function UsersPage() {
       toast.success(t('User created'))
       setCreateOpen(false)
       setForm(emptyForm)
-      await invalidate()
+      await invalidateUsers()
     },
     onError: (error) => toast.error(error.message || t('Create failed')),
   })
   const roleMutation = useMutation({
     mutationFn: ({ id, roleIds }: { id: number; roleIds: number[] }) => assignUserRoles(id, roleIds),
     onSuccess: async () => {
-      toast.success(t('User role updated'))
-      setRoleUser(null)
-      await invalidate()
+      toast.success(t('User roles updated'))
+      await Promise.all([invalidateUsers(), invalidateAccess()])
     },
+    onError: (error) => toast.error(error.message),
+  })
+  const directMutation = useMutation({
+    mutationFn: ({ id, permissions }: { id: number; permissions: string[] }) =>
+      setUserDirectPermissions(id, permissions),
+    onSuccess: async () => {
+      toast.success(t('Direct permissions updated'))
+      await invalidateAccess()
+    },
+    onError: (error) => toast.error(error.message),
   })
   const deleteMutation = useMutation({
     mutationFn: deleteUser,
     onSuccess: async () => {
       toast.success(t('User deleted'))
-      await invalidate()
+      await invalidateUsers()
     },
   })
   const resetMutation = useMutation({
@@ -90,48 +113,56 @@ export function UsersPage() {
   })
   const pageCount = Math.max(1, Math.ceil((users.data?.total ?? 0) / PAGE_SIZE))
 
+  function openAccess(item: UserRecord) {
+    setAccessUser(item)
+    void queryClient.fetchQuery({
+      queryKey: ['user-access', item.id],
+      queryFn: () => getUserAccess(item.id),
+    }).then((result) => {
+      setSelectedRoles(result.roleIds)
+      setSelectedDirect(result.directPermissions)
+    })
+  }
+
   const columns = useMemo<ColumnDef<UserRecord>[]>(
     () => [
-      {
-        accessorKey: 'id',
-        header: 'ID',
-        cell: ({ row }) => row.original.id,
-      },
+      { accessorKey: 'id', header: 'ID', cell: ({ row }) => row.original.id },
       {
         id: 'user',
         header: t('User'),
-        cell: ({ row }) => {
-          const item = row.original
-          return (
-            <div className="flex flex-col">
-              <strong className="font-medium">{item.nickName}</strong>
-              <span className="text-xs text-muted-foreground">
-                {item.userName}
-                <br />
-                {item.email}
-              </span>
-            </div>
-          )
-        },
+        cell: ({ row }) => (
+          <div className="flex flex-col">
+            <strong className="font-medium">{row.original.nickName}</strong>
+            <span className="text-xs text-muted-foreground">
+              {row.original.userName}
+              <br />
+              {row.original.email}
+            </span>
+          </div>
+        ),
       },
       {
         accessorKey: 'deptName',
         header: t('Department'),
         cell: ({ row }) => row.original.deptName || '—',
       },
-      {
-        id: 'roles',
-        header: t('Roles'),
-        cell: ({ row }) => (
-          <div className="flex flex-wrap gap-1">
-            {row.original.roles?.map((role) => (
-              <Badge key={role.id} variant="secondary">
-                {role.name}
-              </Badge>
-            ))}
-          </div>
-        ),
-      },
+      ...(canReadAccess
+        ? [
+            {
+              id: 'roles',
+              header: t('Roles'),
+              cell: ({ row }: { row: { original: UserRecord } }) => (
+                <div className="flex flex-wrap gap-1">
+                  {row.original.roles?.map((role) => (
+                    <Badge key={role.id} variant="secondary">
+                      {role.name}
+                    </Badge>
+                  ))}
+                </div>
+              ),
+            },
+          ]
+        : []),
       {
         accessorKey: 'enable',
         header: t('Status'),
@@ -149,16 +180,10 @@ export function UsersPage() {
           const item = row.original
           return (
             <div className="flex flex-wrap gap-1">
-              {can('system:user:assign-roles') && (
-                <Button
-                  onClick={() => {
-                    setRoleUser(item)
-                    setSelectedRoles(item.roleIds?.length ? item.roleIds : (item.roles?.map((role) => role.id) ?? []))
-                  }}
-                  variant="ghost"
-                >
+              {canReadAccess && (
+                <Button onClick={() => openAccess(item)} variant="ghost">
                   <IconShield size={14} />
-                  {t('Change role')}
+                  {t('Access')}
                 </Button>
               )}
               {can('system:user:reset-password') && (
@@ -185,7 +210,7 @@ export function UsersPage() {
         },
       },
     ],
-    [can, confirmAction, deleteMutation, resetMutation, t],
+    [can, canReadAccess, confirmAction, deleteMutation, resetMutation, t],
   )
 
   const table = useReactTable({
@@ -194,44 +219,16 @@ export function UsersPage() {
     pageCount,
     manualPagination: true,
     getCoreRowModel: getCoreRowModel(),
-    state: {
-      pagination: { pageIndex: page - 1, pageSize: PAGE_SIZE },
-    },
+    state: { pagination: { pageIndex: page - 1, pageSize: PAGE_SIZE } },
   })
-
-  function openCreate() {
-    const firstRole = roles.data?.[0]?.id
-    setForm({ ...emptyForm, roleIds: firstRole ? [firstRole] : [] })
-    setCreateOpen(true)
-  }
-
-  function searchUsers() {
-    setKeyword(draftKeyword.trim())
-    setPage(1)
-  }
-
-  function resetSearch() {
-    setDraftKeyword('')
-    setKeyword('')
-    setPage(1)
-  }
 
   function update<K extends keyof CreateUserForm>(key: K, value: CreateUserForm[K]) {
     setForm((current) => ({ ...current, [key]: value }))
   }
 
-  function toggleFormRole(roleId: number) {
-    setForm((current) => ({
-      ...current,
-      roleIds: current.roleIds.includes(roleId)
-        ? current.roleIds.filter((id) => id !== roleId)
-        : [...current.roleIds, roleId],
-    }))
-  }
-
   function submitCreate() {
-    if (!form.userName.trim() || !form.nickName.trim() || !form.password || form.roleIds.length === 0) {
-      toast.error(t('Username, nickname, password, and role are required'))
+    if (!form.userName.trim() || !form.nickName.trim() || !form.password) {
+      toast.error(t('Username, nickname, and password are required'))
       return
     }
     createMutation.mutate(form)
@@ -242,7 +239,7 @@ export function UsersPage() {
       <PageHeader
         description={
           <h1 className="text-base font-semibold text-foreground">
-            {t('Manage operator accounts, roles, and account recovery.')}
+            {t('Manage employee accounts and individual access.')}
           </h1>
         }
         actions={
@@ -252,7 +249,12 @@ export function UsersPage() {
               {t('Refresh')}
             </Button>
             {can('system:user:create') && (
-              <Button onClick={openCreate}>
+              <Button
+                onClick={() => {
+                  setForm(emptyForm)
+                  setCreateOpen(true)
+                }}
+              >
                 <IconPlus size={16} />
                 {t('New user')}
               </Button>
@@ -266,7 +268,8 @@ export function UsersPage() {
             className="flex flex-wrap items-center gap-2"
             onSubmit={(event) => {
               event.preventDefault()
-              searchUsers()
+              setKeyword(draftKeyword.trim())
+              setPage(1)
             }}
           >
             <Input
@@ -280,7 +283,15 @@ export function UsersPage() {
               <IconSearch size={16} />
               {t('Search')}
             </Button>
-            <Button onClick={resetSearch} type="button" variant="outline">
+            <Button
+              onClick={() => {
+                setDraftKeyword('')
+                setKeyword('')
+                setPage(1)
+              }}
+              type="button"
+              variant="outline"
+            >
               {t('Reset')}
             </Button>
           </form>
@@ -338,12 +349,7 @@ export function UsersPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="user-status">{t('Status')}</Label>
-              <Select
-                onValueChange={(value) => {
-                  if (value != null) update('enable', Number(value))
-                }}
-                value={String(form.enable)}
-              >
+              <Select onValueChange={(value) => value != null && update('enable', Number(value))} value={String(form.enable)}>
                 <SelectTrigger aria-label={t('Status')} className="w-full" id="user-status">
                   <SelectValue />
                 </SelectTrigger>
@@ -361,21 +367,32 @@ export function UsersPage() {
               <Label htmlFor="user-email">{t('Email')}</Label>
               <Input id="user-email" onChange={(event) => update('email', event.target.value)} value={form.email} />
             </div>
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label>{t('Role')}</Label>
-              <div className="flex flex-wrap gap-3 rounded-lg border border-input p-2.5">
-                {roles.data?.map((role) => (
-                  <div className="flex items-center gap-1.5 text-sm" key={role.id}>
-                    <Checkbox
-                      aria-label={role.name}
-                      checked={form.roleIds.includes(role.id)}
-                      onCheckedChange={() => toggleFormRole(role.id)}
-                    />
-                    <span>{role.name}</span>
-                  </div>
-                ))}
+            {canAssignRoles && (
+              <div className="col-span-2 flex flex-col gap-1.5">
+                <Label>{t('Initial roles (optional)')}</Label>
+                <div className="flex flex-wrap gap-3 rounded-lg border border-input p-2.5">
+                  {roles.data?.map((role) => (
+                    <label className="flex items-center gap-1.5 text-sm" key={role.id}>
+                      <Checkbox
+                        checked={form.roleIds?.includes(role.id)}
+                        disabled={role.status !== 'enabled'}
+                        onCheckedChange={() =>
+                          update(
+                            'roleIds',
+                            form.roleIds?.includes(role.id)
+                              ? form.roleIds.filter((id) => id !== role.id)
+                              : [...(form.roleIds ?? []), role.id],
+                          )
+                        }
+                      />
+                      <span>{role.name}</span>
+                      {role.code === 'super_admin' && <Badge variant="outline">{t('Protected')}</Badge>}
+                      {role.status !== 'enabled' && <Badge variant="outline">{t('Dormant')}</Badge>}
+                    </label>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
           <DialogFooter>
             <Button onClick={() => setCreateOpen(false)} variant="outline">
@@ -388,41 +405,109 @@ export function UsersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog onOpenChange={(open) => !open && setRoleUser(null)} open={Boolean(roleUser)}>
-        <DialogContent>
+      <Dialog onOpenChange={(open) => !open && setAccessUser(null)} open={Boolean(accessUser)}>
+        <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{t('Change user role')}</DialogTitle>
+            <DialogTitle>{t('Employee access')}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            {roleUser?.nickName} · {roleUser?.userName}
+            {accessUser?.nickName} · {accessUser?.userName}
           </p>
-          <div className="flex flex-col gap-2">
-            {roles.data?.map((role) => (
-              <div className="flex items-center gap-2 text-sm" key={role.id}>
-                <Checkbox
-                  aria-label={role.name}
-                  checked={selectedRoles.includes(role.id)}
-                  onCheckedChange={() =>
-                    setSelectedRoles((current) =>
-                      current.includes(role.id) ? current.filter((id) => id !== role.id) : [...current, role.id],
-                    )
-                  }
-                />
-                <span>{role.name}</span>
+          <Tabs defaultValue="roles">
+            <TabsList>
+              <TabsTrigger value="roles">{t('Assigned Roles')}</TabsTrigger>
+              <TabsTrigger value="direct">{t('Direct Permissions')}</TabsTrigger>
+              <TabsTrigger value="effective">{t('Effective Permissions')}</TabsTrigger>
+            </TabsList>
+            <TabsContent className="space-y-3 pt-3" value="roles">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {roles.data?.map((role) => (
+                  <label className="flex items-center gap-2 rounded-md border p-2 text-sm" key={role.id}>
+                    <Checkbox
+                      checked={selectedRoles.includes(role.id)}
+                      disabled={
+                        !canAssignRoles || (role.status !== 'enabled' && !selectedRoles.includes(role.id))
+                      }
+                      onCheckedChange={() =>
+                        setSelectedRoles((current) =>
+                          current.includes(role.id) ? current.filter((id) => id !== role.id) : [...current, role.id],
+                        )
+                      }
+                    />
+                    <span>{role.name}</span>
+                    <small className="text-muted-foreground">{role.code}</small>
+                    {role.code === 'super_admin' && <Badge variant="outline">{t('Protected')}</Badge>}
+                    {role.status !== 'enabled' && <Badge variant="outline">{t('Dormant')}</Badge>}
+                  </label>
+                ))}
               </div>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setRoleUser(null)} variant="outline">
-              {t('Cancel')}
-            </Button>
-            <Button
-              disabled={selectedRoles.length === 0}
-              onClick={() => roleUser && roleMutation.mutate({ id: roleUser.id, roleIds: selectedRoles })}
-            >
-              {t('Save roles')}
-            </Button>
-          </DialogFooter>
+              {canAssignRoles && (
+                <div className="flex justify-end">
+                  <Button
+                    disabled={roleMutation.isPending || access.isLoading}
+                    onClick={() => accessUser && roleMutation.mutate({ id: accessUser.id, roleIds: selectedRoles })}
+                  >
+                    {t('Save roles')}
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent className="space-y-3 pt-3" value="direct">
+              <p className="text-xs text-muted-foreground">
+                {t('Direct permissions add exceptions for this employee; they do not remove role permissions.')}
+              </p>
+              <div className="max-h-[420px] divide-y overflow-y-auto rounded-lg border">
+                {access.data?.catalog.map((item) => (
+                  <label className="flex items-center gap-2 px-3 py-2 text-sm" key={item.permission}>
+                    <Checkbox
+                      checked={selectedDirect.includes(item.permission)}
+                      disabled={
+                        !canUpdateDirect || (!item.effectivelyEnabled && !selectedDirect.includes(item.permission))
+                      }
+                      onCheckedChange={(checked) =>
+                        setSelectedDirect((current) =>
+                          checked === true
+                            ? [...new Set([...current, item.permission])].sort()
+                            : current.filter((permission) => permission !== item.permission),
+                        )
+                      }
+                    />
+                    <span>{t(item.title)}</span>
+                    <small className="text-muted-foreground">{item.permission}</small>
+                    {!item.pageVisible && <Badge variant="outline">{t('Page not visible')}</Badge>}
+                    {!item.effectivelyEnabled && <Badge variant="outline">{t('Dormant')}</Badge>}
+                  </label>
+                ))}
+              </div>
+              {canUpdateDirect && (
+                <div className="flex justify-end">
+                  <Button
+                    disabled={directMutation.isPending || access.isLoading}
+                    onClick={() =>
+                      accessUser && directMutation.mutate({ id: accessUser.id, permissions: selectedDirect })
+                    }
+                  >
+                    {t('Save direct permissions')}
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent className="pt-3" value="effective">
+              <div className="max-h-[440px] divide-y overflow-y-auto rounded-lg border">
+                {access.data?.effectivePermissions.map((item) => (
+                  <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm" key={item.permission}>
+                    <strong>{item.permission}</strong>
+                    {item.direct && <Badge>{t('Direct')}</Badge>}
+                    {item.roles.map((role) => (
+                      <Badge key={role.id} variant="secondary">
+                        {role.name}
+                      </Badge>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
     </div>

@@ -35,7 +35,7 @@ mod tests {
             .route("/", get(|| ok_marker("roles:list")))
             .route("/{id}", put(|| ok_marker("roles:update")))
             .route("/{id}/menus", get(|| ok_marker("roles:menus")))
-            .route("/{id}/users", get(|| ok_marker("roles:users")));
+            .route("/{id}/permissions", get(|| ok_marker("roles:permissions")));
 
         Router::new().nest("/roles", role_routes)
     }
@@ -62,11 +62,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn role_user_assignment_route_uses_mature_role_endpoint() {
+    async fn role_permission_route_stays_distinct_from_page_access() {
         let response = role_shape_router()
             .oneshot(
                 Request::builder()
-                    .uri("/roles/7/users")
+                    .uri("/roles/7/permissions")
                     .body(Body::empty())
                     .expect("request should build"),
             )
@@ -76,9 +76,8 @@ mod tests {
         let bytes = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("body should be readable");
-        let body = String::from_utf8(bytes.to_vec()).expect("body should be utf8");
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, "roles:users");
+        assert_eq!(&bytes[..], b"roles:permissions");
     }
 }

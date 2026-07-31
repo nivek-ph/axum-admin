@@ -31,7 +31,7 @@ describe('menu access state', () => {
     expect(useMenuStore.getState().firstAuthorizedPath()).toBe('/files')
   })
 
-  it('allows every core route for super admin and resets access state', () => {
+  it('does not bypass concrete navigation grants for super admin and resets access state', () => {
     useAuthStore.getState().setSession({
       accessToken: 'a',
       refreshToken: 'r',
@@ -43,7 +43,7 @@ describe('menu access state', () => {
       },
     })
     useMenuStore.getState().setAuthorizedMenus([])
-    expect(useMenuStore.getState().canAccess('roles')).toBe(true)
+    expect(useMenuStore.getState().canAccess('roles')).toBe(false)
     useMenuStore.getState().resetAccess()
     expect(useMenuStore.getState().accessLoaded).toBe(false)
   })

@@ -13,8 +13,8 @@ use tower_http::request_id::RequestId;
 
 use crate::{
     AppResult,
-    extractors::{client_ip::ClientIp, current_access::CurrentAccess, user_agent::UserAgent},
-    mappings::{LOGIN_REQUIRED, PERMISSION_DENIED},
+    extractors::{client_ip::ClientIp, current_user::AuthenticatedUser, user_agent::UserAgent},
+    mappings::LOGIN_REQUIRED,
     request_id::request_id_text,
     state::AppState,
 };
@@ -36,8 +36,8 @@ pub async fn require_auth(
     mut request: Request,
     next: Next,
 ) -> AppResult<Response> {
-    let method = request.method().as_str().to_uppercase();
-    let path = permission_registry_path(request.uri().path());
+    let method = request.method().as_str();
+    let path = request.uri().path();
     let headers = request.headers();
     let token = extract_bearer_token(headers).ok_or(LOGIN_REQUIRED)?;
     let claims = state.tokens.decode_active(token).await?;
@@ -52,26 +52,18 @@ pub async fn require_auth(
             user_agent: agent,
         },
     };
-    let snapshot = state.access.snapshot(claims.user_id).await?;
-
-    if !is_self_service_endpoint(&method, &path) {
-        let menu_id = state.access.required_menu(&method, &path)?;
-        if !snapshot.allows_menu(menu_id) {
-            record_access_denied(&state.audits, &audit_context, path).await;
-            return Err(PERMISSION_DENIED.into());
+    match state.access.evaluate(claims.user_id, method, path).await {
+        Ok(()) => {}
+        Err(iam::access::AccessEvaluationError::PermissionDenied { path }) => {
+            record_access_denied(&state.audits, &audit_context, path.clone()).await;
+            return Err(iam::access::AccessEvaluationError::PermissionDenied { path }.into());
         }
+        Err(error) => return Err(error.into()),
     }
 
-    if is_current_menu_endpoint(&method, &path) {
-        request.extensions_mut().insert(CurrentAccess(snapshot));
-    } else {
-        request
-            .extensions_mut()
-            .insert(iam::users::AuthenticatedUser {
-                id: claims.user_id,
-                data_scope: snapshot.data_scope,
-            });
-    }
+    request
+        .extensions_mut()
+        .insert(AuthenticatedUser { id: claims.user_id });
     request.extensions_mut().insert(audit_context);
     Ok(next.run(request).await)
 }
@@ -91,57 +83,135 @@ async fn record_access_denied(audits: &audit::AuditService, context: &AuditConte
         .await;
 }
 
-fn is_self_service_endpoint(method: &str, path: &str) -> bool {
-    matches!(
-        (method, path),
-        ("GET", "/api/users/me")
-            | ("PUT", "/api/users/me")
-            | ("PUT", "/api/users/me/password")
-            | ("PUT", "/api/users/me/settings")
-            | ("GET", "/api/menus/current")
-            | ("POST", "/api/auth/logout")
-    )
-}
-
-fn is_current_menu_endpoint(method: &str, path: &str) -> bool {
-    method == "GET" && path == "/api/menus/current"
-}
-
-fn permission_registry_path(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    let normalized = if trimmed.is_empty() { "/api" } else { trimmed };
-    if normalized == "/api" || normalized.starts_with("/api/") {
-        normalized.to_string()
-    } else if normalized.starts_with('/') {
-        format!("/api{normalized}")
-    } else {
-        format!("/api/{normalized}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use auth::token::TokenService;
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use serde_json::Value;
+    use tower::ServiceExt;
+
     use super::*;
 
-    #[test]
-    fn self_service_is_explicit() {
-        assert!(is_self_service_endpoint("GET", "/api/users/me"));
-        assert!(is_self_service_endpoint("GET", "/api/menus/current"));
-        assert!(!is_self_service_endpoint("GET", "/api/users"));
+    async fn token_service() -> TokenService {
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+        let client = redis::Client::open(redis_url).unwrap();
+        TokenService::new(
+            "test-secret",
+            client.get_multiplexed_async_connection().await.unwrap(),
+        )
     }
 
-    #[test]
-    fn access_snapshot_is_forwarded_only_to_the_current_menu_route() {
-        assert!(is_current_menu_endpoint("GET", "/api/menus/current"));
-        assert!(!is_current_menu_endpoint("POST", "/api/menus/current"));
-        assert!(!is_current_menu_endpoint("GET", "/api/menus/tree"));
+    async fn authenticated_state(
+        pool: sqlx::PgPool,
+        user_id: i64,
+        username: &str,
+    ) -> (AppState, TokenService, String) {
+        let tokens = token_service().await;
+        let session = tokens.create_session(user_id, username).await.unwrap();
+        let mut state = crate::state::tests::test_state(pool).await;
+        state.tokens = tokens.clone();
+        (state, tokens, session.access_token)
     }
-    #[test]
-    fn restores_api_prefix() {
-        assert_eq!(
-            permission_registry_path("/roles/1/menus/"),
-            "/api/roles/1/menus"
-        );
+
+    async fn protected_response(
+        state: AppState,
+        access_token: &str,
+        path: &str,
+    ) -> (StatusCode, Value) {
+        let response = crate::router::router(state)
+            .oneshot(
+                Request::get(path)
+                    .header(AUTHORIZATION, format!("Bearer {access_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&body).unwrap())
+    }
+
+    async fn insert_user(pool: &sqlx::PgPool, user_id: i64, username: &str, enabled: bool) {
+        sqlx::query(
+            r#"
+            insert into sys_users (
+                id, uuid, username, password_hash, nick_name, header_img, home_route,
+                enable, dept_id
+            ) values ($1, $2, $2, 'hash', $2, '', 'dashboard', $3, 1)
+            "#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(enabled)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn missing_protected_route_binding_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
+        insert_user(&pool, 98, "unbound-user", true).await;
+        sqlx::query("delete from sys_menu_apis")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (state, tokens, access_token) = authenticated_state(pool, 98, "unbound-user").await;
+
+        let (status, body) = protected_response(state, &access_token, "/api/roles").await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body["code"], "AUTHORIZATION_CONFIG_INVALID");
+        tokens.revoke(&access_token).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn missing_user_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
+        let (state, tokens, access_token) = authenticated_state(pool, 99, "missing-user").await;
+
+        let (status, body) = protected_response(state, &access_token, "/api/users/me").await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "SESSION_INVALID");
+        tokens.revoke(&access_token).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn disabled_user_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
+        insert_user(&pool, 100, "disabled-user", false).await;
+        let (state, tokens, access_token) = authenticated_state(pool, 100, "disabled-user").await;
+
+        let (status, body) = protected_response(state, &access_token, "/api/users/me").await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body["code"], "USER_DISABLED");
+        tokens.revoke(&access_token).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn ambiguous_protected_route_binding_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
+        insert_user(&pool, 101, "ambiguous-user", true).await;
+        sqlx::query(
+            r#"
+            insert into sys_menu_apis (menu_id, method, path_pattern)
+            values (1106, 'GET', '/api/{area}/{id}/permissions')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (state, tokens, access_token) = authenticated_state(pool, 101, "ambiguous-user").await;
+
+        let (status, body) =
+            protected_response(state, &access_token, "/api/roles/2/permissions").await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body["code"], "AUTHORIZATION_CONFIG_INVALID");
+        tokens.revoke(&access_token).await.unwrap();
     }
 
     #[sqlx::test(migrations = "../../migrations")]

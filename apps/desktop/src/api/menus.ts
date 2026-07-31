@@ -10,6 +10,7 @@ export interface MenuRecord {
   sort: number
   meta?: { title?: string }
   menuType?: string
+  status?: 'enabled' | 'disabled'
   permission?: string | null
   method?: string
   apiPath?: string

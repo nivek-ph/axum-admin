@@ -1,5 +1,3 @@
-use crate::access::AccessPropagationError;
-
 #[derive(Debug, thiserror::Error)]
 pub enum DeptError {
     #[error("{0}")]
@@ -8,6 +6,4 @@ pub enum DeptError {
     InvalidParent,
     #[error("department has {descendant_count} descendant departments")]
     HasDescendants { descendant_count: i64 },
-    #[error(transparent)]
-    AccessPropagation(#[from] AccessPropagationError),
 }

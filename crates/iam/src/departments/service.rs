@@ -1,17 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{CreateDeptPayload, Dept, DeptError, DeptNode, UpdateDeptPayload};
-use crate::access::AccessService;
 
 #[derive(Clone)]
 pub struct DepartmentService {
     pool: sqlx::PgPool,
-    access: AccessService,
 }
 
 impl DepartmentService {
-    pub fn new(pool: sqlx::PgPool, access: AccessService) -> Self {
-        Self { pool, access }
+    pub fn new(pool: sqlx::PgPool) -> Self {
+        Self { pool }
     }
 
     pub async fn tree(&self) -> Result<Vec<DeptNode>, DeptError> {
@@ -23,27 +21,19 @@ impl DepartmentService {
     }
 
     pub async fn create(&self, payload: CreateDeptPayload) -> Result<(), DeptError> {
-        create(&self.pool, payload).await?;
-        self.bump_access_version().await
+        Ok(create(&self.pool, payload).await?)
     }
 
     pub async fn update(&self, id: i64, payload: UpdateDeptPayload) -> Result<(), DeptError> {
-        update(&self.pool, id, payload).await?;
-        self.bump_access_version().await
+        update(&self.pool, id, payload).await
     }
 
     pub async fn delete(&self, id: i64) -> Result<(), DeptError> {
-        delete(&self.pool, id).await?;
-        self.bump_access_version().await
-    }
-
-    async fn bump_access_version(&self) -> Result<(), DeptError> {
-        self.access.bump_version().await?;
-        Ok(())
+        delete(&self.pool, id).await
     }
 }
 
-pub fn build_dept_tree(rows: Vec<Dept>) -> Vec<DeptNode> {
+fn build_dept_tree(rows: Vec<Dept>) -> Vec<DeptNode> {
     let ids = rows.iter().map(|dept| dept.id).collect::<HashSet<_>>();
     let mut children_by_parent = HashMap::<i64, Vec<DeptNode>>::new();
     let mut roots = Vec::new();
@@ -72,7 +62,7 @@ pub fn build_dept_tree(rows: Vec<Dept>) -> Vec<DeptNode> {
     roots
 }
 
-pub(crate) async fn list(pool: &sqlx::PgPool) -> Result<Vec<Dept>, sqlx::Error> {
+async fn list(pool: &sqlx::PgPool) -> Result<Vec<Dept>, sqlx::Error> {
     sqlx::query_as::<_, Dept>(
         r#"
         select id, parent_id, name, code, sort, status
@@ -84,12 +74,12 @@ pub(crate) async fn list(pool: &sqlx::PgPool) -> Result<Vec<Dept>, sqlx::Error> 
     .await
 }
 
-pub(crate) async fn tree(pool: &sqlx::PgPool) -> Result<Vec<DeptNode>, sqlx::Error> {
+async fn tree(pool: &sqlx::PgPool) -> Result<Vec<DeptNode>, sqlx::Error> {
     let rows = list(pool).await?;
     Ok(build_dept_tree(rows))
 }
 
-pub(crate) async fn find(pool: &sqlx::PgPool, id: i64) -> Result<Option<Dept>, sqlx::Error> {
+async fn find(pool: &sqlx::PgPool, id: i64) -> Result<Option<Dept>, sqlx::Error> {
     sqlx::query_as::<_, Dept>(
         r#"
         select id, parent_id, name, code, sort, status
@@ -102,10 +92,7 @@ pub(crate) async fn find(pool: &sqlx::PgPool, id: i64) -> Result<Option<Dept>, s
     .await
 }
 
-pub(crate) async fn create(
-    pool: &sqlx::PgPool,
-    payload: CreateDeptPayload,
-) -> Result<(), sqlx::Error> {
+async fn create(pool: &sqlx::PgPool, payload: CreateDeptPayload) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         insert into sys_depts (parent_id, name, code, sort, status)
@@ -122,11 +109,7 @@ pub(crate) async fn create(
     Ok(())
 }
 
-pub(crate) async fn update(
-    pool: &sqlx::PgPool,
-    id: i64,
-    payload: UpdateDeptPayload,
-) -> Result<(), DeptError> {
+async fn update(pool: &sqlx::PgPool, id: i64, payload: UpdateDeptPayload) -> Result<(), DeptError> {
     if parent_is_self(id, payload.parent_id) {
         return Err(DeptError::InvalidParent);
     }
@@ -170,7 +153,7 @@ pub(crate) async fn update(
     Ok(())
 }
 
-pub(crate) async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<(), DeptError> {
+async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<(), DeptError> {
     let mut transaction = pool.begin().await?;
     sqlx::query("select id from sys_depts where id = $1 for update")
         .bind(id)

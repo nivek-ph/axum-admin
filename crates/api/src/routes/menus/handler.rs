@@ -1,7 +1,7 @@
 use axum::{Json, extract::State};
 
 use super::dto::{MenuData, MenuResponse, MenuTreeData};
-use crate::{ApiResponse, AppResult, extractors::current_access::CurrentAccess, state::AppState};
+use crate::{ApiResponse, AppResult, extractors::current_user::CurrentUser, state::AppState};
 
 #[utoipa::path(
     get,
@@ -15,9 +15,9 @@ use crate::{ApiResponse, AppResult, extractors::current_access::CurrentAccess, s
 )]
 pub async fn get_menu(
     State(state): State<AppState>,
-    CurrentAccess(snapshot): CurrentAccess,
+    CurrentUser(user): CurrentUser,
 ) -> AppResult<Json<ApiResponse<MenuData>>> {
-    let (menus, permissions) = state.menus.current(snapshot).await?;
+    let (menus, permissions) = state.menus.current(user.id).await?;
     let menus = menus
         .into_iter()
         .map(MenuResponse::from)

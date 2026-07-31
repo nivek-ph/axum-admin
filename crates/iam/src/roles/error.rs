@@ -1,4 +1,7 @@
-use crate::access::{AccessPropagationError, CatalogError};
+use crate::{
+    access::CatalogError,
+    authorization::{AuthorizationError, RolePolicyError},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RoleError {
@@ -6,12 +9,26 @@ pub enum RoleError {
     Database(#[from] sqlx::Error),
     #[error("role not found")]
     NotFound,
-    #[error("system role cannot be deleted")]
+    #[error("protected role cannot be changed")]
     Immutable,
-    #[error("role is assigned to users")]
-    InUse,
-    #[error(transparent)]
-    AccessPropagation(#[from] AccessPropagationError),
+    #[error("only an active super_admin may manage role access")]
+    AccessDenied,
     #[error(transparent)]
     InvalidMenuAssignment(#[from] CatalogError),
+    #[error(transparent)]
+    Authorization(#[from] AuthorizationError),
+    #[error("selected permissions are invalid")]
+    InvalidPermissions,
+}
+
+impl From<RolePolicyError> for RoleError {
+    fn from(error: RolePolicyError) -> Self {
+        match error {
+            RolePolicyError::RoleNotFound => Self::NotFound,
+            RolePolicyError::RoleImmutable => Self::Immutable,
+            RolePolicyError::AccessDenied => Self::AccessDenied,
+            RolePolicyError::Database(source) => Self::Database(source),
+            RolePolicyError::Authorization(source) => Self::Authorization(source),
+        }
+    }
 }

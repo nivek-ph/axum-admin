@@ -1,10 +1,35 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub type RoleRequest = iam::roles::RolePayload;
-pub type RoleMenuRequest = iam::roles::RoleMenuPayload;
-pub type RoleDeptRequest = iam::roles::RoleDeptPayload;
-pub type RoleUsersRequest = iam::roles::RoleUsersPayload;
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RoleRequest {
+    pub code: String,
+    pub name: String,
+    pub status: Option<String>,
+    pub sort: Option<i32>,
+}
+
+impl From<RoleRequest> for iam::roles::RolePayload {
+    fn from(value: RoleRequest) -> Self {
+        Self {
+            code: value.code,
+            name: value.name,
+            status: value.status,
+            sort: value.sort,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RoleMenuRequest {
+    #[serde(rename = "menuIds", alias = "menu_ids")]
+    pub menu_ids: Vec<i64>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RolePermissionRequest {
+    pub permissions: Vec<String>,
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RoleResponse {
@@ -13,8 +38,6 @@ pub struct RoleResponse {
     pub name: String,
     pub status: String,
     pub sort: i32,
-    pub data_scope: String,
-    pub is_system: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -31,16 +54,30 @@ pub struct RoleData {
 #[serde(rename_all = "camelCase")]
 pub struct RoleMenuIdsData {
     pub menu_ids: Vec<i64>,
+    pub effective_menu_ids: Vec<i64>,
+    pub protected: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct RoleDeptIdsData {
-    pub dept_ids: Vec<i64>,
+pub struct OperationPermissionCatalogItem {
+    pub permission: String,
+    pub title: String,
+    pub menu_type: String,
+    pub status: String,
+    pub effectively_enabled: bool,
+    pub owning_page_id: i64,
+    pub owning_page_title: String,
+    pub page_visible: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct RoleUserIdsData(pub Vec<i64>);
+#[serde(rename_all = "camelCase")]
+pub struct RolePermissionsData {
+    pub permissions: Vec<String>,
+    pub catalog: Vec<OperationPermissionCatalogItem>,
+    pub protected: bool,
+}
 
 impl From<iam::roles::RoleSummary> for RoleResponse {
     fn from(v: iam::roles::RoleSummary) -> Self {
@@ -50,8 +87,29 @@ impl From<iam::roles::RoleSummary> for RoleResponse {
             name: v.name,
             status: v.status,
             sort: v.sort,
-            data_scope: v.data_scope,
-            is_system: v.is_system,
+        }
+    }
+}
+
+impl From<iam::roles::RoleOperationPermissionsWithCatalog> for RolePermissionsData {
+    fn from(role_permissions: iam::roles::RoleOperationPermissionsWithCatalog) -> Self {
+        Self {
+            permissions: role_permissions.permissions,
+            catalog: role_permissions
+                .catalog
+                .into_iter()
+                .map(|item| OperationPermissionCatalogItem {
+                    permission: item.permission,
+                    title: item.title,
+                    menu_type: item.menu_type,
+                    status: item.status,
+                    effectively_enabled: item.effectively_enabled,
+                    owning_page_id: item.owning_page_id,
+                    owning_page_title: item.owning_page_title,
+                    page_visible: item.page_visible,
+                })
+                .collect(),
+            protected: role_permissions.protected,
         }
     }
 }
@@ -64,17 +122,12 @@ mod tests {
     fn assignment_ids_keep_transport_shape() {
         let menus = serde_json::to_value(RoleMenuIdsData {
             menu_ids: vec![1, 2],
+            effective_menu_ids: vec![1],
+            protected: false,
         })
         .expect("menu IDs should serialize");
         assert_eq!(menus["menuIds"], serde_json::json!([1, 2]));
+        assert_eq!(menus["effectiveMenuIds"], serde_json::json!([1]));
         assert!(menus.get("menu_ids").is_none());
-
-        let depts = serde_json::to_value(RoleDeptIdsData { dept_ids: vec![3] })
-            .expect("department IDs should serialize");
-        assert_eq!(depts["deptIds"], serde_json::json!([3]));
-
-        let users =
-            serde_json::to_value(RoleUserIdsData(vec![4, 5])).expect("user IDs should serialize");
-        assert_eq!(users, serde_json::json!([4, 5]));
     }
 }

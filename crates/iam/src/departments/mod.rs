@@ -2,7 +2,8 @@ mod error;
 mod model;
 mod request;
 mod service;
+
 pub use error::DeptError;
-pub use model::*;
-pub use request::*;
-pub use service::{DepartmentService, build_dept_tree};
+pub use model::{Dept, DeptNode};
+pub use request::{CreateDeptPayload, UpdateDeptPayload};
+pub use service::DepartmentService;

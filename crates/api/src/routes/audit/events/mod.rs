@@ -48,7 +48,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let app = routes().with_state(crate::state::test_state(pool.clone()));
+        let app = routes().with_state(crate::state::tests::test_state(pool.clone()).await);
 
         let response = app
             .clone()
@@ -108,7 +108,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn analyze_route_returns_a_low_risk_result_when_no_events_match(pool: sqlx::PgPool) {
-        let app = routes().with_state(crate::state::test_state(pool));
+        let app = routes().with_state(crate::state::tests::test_state(pool).await);
 
         let response = app
             .clone()
@@ -176,7 +176,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let app = routes().with_state(crate::state::test_state(pool.clone()));
+        let app = routes().with_state(crate::state::tests::test_state(pool.clone()).await);
 
         let response = app
             .clone()
@@ -270,7 +270,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn stats_route_defaults_and_clamps_days(pool: sqlx::PgPool) {
-        let app = routes().with_state(crate::state::test_state(pool));
+        let app = routes().with_state(crate::state::tests::test_state(pool).await);
 
         for (uri, expected_days) in [("/stats", 14), ("/stats?days=0", 1), ("/stats?days=91", 90)] {
             let response = app

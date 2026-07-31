@@ -7,14 +7,14 @@ publish = false
 
 [workspace]
 members = [
-  "apps/ava",
-  "crates/api",
-  "crates/audit",
-  "crates/auth",
-  "crates/db",
-  "crates/file-storage",
-  "crates/iam",
-  "crates/metadata",
+    "apps/ava",
+    "crates/api",
+    "crates/audit",
+    "crates/auth",
+    "crates/db",
+    "crates/file-storage",
+    "crates/iam",
+    "crates/metadata",
 ]
 resolver = "2"
 
@@ -40,12 +40,14 @@ argon2 = { version = "0.6.0-rc.8", features = ["getrandom", "password-hash"] }
 axum = { version = "0.8", features = ["json", "multipart"] }
 axum-otel = "0.33.1"
 captcha-rs = "0.5"
+casbin = { version = "2.20", features = ["watcher"] }
 clap = { version = "4", features = ["derive", "env"] }
 dotenvy = "0.15"
 hex = "0.4"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 password-hash = { version = "0.6.1", features = ["getrandom", "phc"] }
 redis = { version = "1", features = ["tokio-rustls-comp"] }
+redis-watcher = "1.0"
 reqwest = { version = "0.13.4", default-features = false, features = ["json"] }
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 serde = { version = "1", features = ["derive"] }
@@ -56,6 +58,11 @@ sqlx = { version = "0.9", features = [
   "postgres",
   "runtime-tokio",
   "time",
+  "tls-rustls",
+] }
+sqlx-adapter = { git = "https://github.com/nivek-ph/casbin-sqlx-adapter.git", rev = "0f390b03293bbb151d4b0886e10782bc47ea9781", default-features = false, features = [
+  "postgres",
+  "runtime-tokio",
   "tls-rustls",
 ] }
 strum = { version = "0.28", features = ["derive"] }
@@ -85,6 +92,10 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 uuid = { version = "1", features = ["v4"] }
 vercel_runtime = { version = "2.4", features = ["axum"] }
 
+[[bin]]
+name = "axum-admin"
+path = "api/axum.rs"
+
 [dependencies]
 # Local workspace crates.
 api.workspace = true
@@ -94,7 +105,3 @@ ava.workspace = true
 tokio.workspace = true
 tower.workspace = true
 vercel_runtime.workspace = true
-
-[[bin]]
-name = "axum-admin"
-path = "api/axum.rs"

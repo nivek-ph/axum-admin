@@ -2,44 +2,41 @@ use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, header},
 };
-use iam::{
-    access::AccessService, departments::DepartmentService, roles::RoleService, users::UserService,
-};
+use iam::departments::DepartmentService;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde_json::json;
 use tower::ServiceExt;
 
-fn test_state() -> api::AppState {
-    let database_url = "postgres://postgres:postgres@127.0.0.1/ava";
-    let pool = db::DbPool::connect_lazy(database_url).expect("lazy pool should construct");
+async fn test_state(pool: sqlx::PgPool) -> api::AppState {
     let passwords = auth::password::PasswordService::new();
     let tokens = auth::token::TokenService::without_session_store("test-secret");
     let captcha = auth::captcha::CaptchaService::without_store();
-    let access = AccessService::new(pool.clone());
+    let iam = iam::Iam::load(pool.clone())
+        .await
+        .expect("IAM test state should load");
     let audits = audit::AuditService::new(pool.clone());
-    let users = UserService::new(pool.clone(), access.clone(), audits.clone(), passwords);
-    let roles = RoleService::new(pool.clone(), access.clone());
-    let departments = DepartmentService::new(pool.clone(), access.clone());
+    let departments = DepartmentService::new(pool.clone());
     api::AppState {
         public_base_url: "http://127.0.0.1:3000".to_string(),
         tokens,
         captcha,
-        users,
-        roles,
+        passwords,
+        accounts: iam.accounts,
+        roles: iam.roles,
         departments,
-        access,
+        access: iam.access,
         dictionaries: metadata::dictionaries::DictionaryService::new(pool.clone()),
         parameters: metadata::parameters::ParameterService::new(pool.clone()),
-        menus: iam::menus::MenuService::new(pool.clone()),
+        menus: iam.menus,
         audits,
         audit_analyzer: audit::AuditAnalyzer::new("http://127.0.0.1:9/v1", "test"),
         files: file_storage::files::FileService::new(pool, "./uploads"),
     }
 }
 
-#[tokio::test]
-async fn health_route_returns_ok_response_body() {
-    let app = api::router(test_state());
+#[sqlx::test(migrations = "../../migrations")]
+async fn health_route_returns_ok_response_body(pool: sqlx::PgPool) {
+    let app = api::router(test_state(pool).await);
     let response = app
         .oneshot(
             Request::builder()
@@ -64,9 +61,9 @@ async fn health_route_returns_ok_response_body() {
     );
 }
 
-#[tokio::test]
-async fn swagger_ui_route_is_available() {
-    let app = api::router(test_state());
+#[sqlx::test(migrations = "../../migrations")]
+async fn swagger_ui_route_is_available(pool: sqlx::PgPool) {
+    let app = api::router(test_state(pool).await);
     let response = app
         .oneshot(
             Request::builder()
@@ -80,9 +77,9 @@ async fn swagger_ui_route_is_available() {
     assert_eq!(response.status(), 200);
 }
 
-#[tokio::test]
-async fn protected_route_without_bearer_returns_login_required_envelope() {
-    let response = api::router(test_state())
+#[sqlx::test(migrations = "../../migrations")]
+async fn protected_route_without_bearer_returns_login_required_envelope(pool: sqlx::PgPool) {
+    let response = api::router(test_state(pool).await)
         .oneshot(
             Request::builder()
                 .uri("/api/users/me")
@@ -106,9 +103,9 @@ async fn protected_route_without_bearer_returns_login_required_envelope() {
     );
 }
 
-#[tokio::test]
-async fn protected_route_with_invalid_bearer_returns_token_invalid_envelope() {
-    let response = api::router(test_state())
+#[sqlx::test(migrations = "../../migrations")]
+async fn protected_route_with_invalid_bearer_returns_token_invalid_envelope(pool: sqlx::PgPool) {
+    let response = api::router(test_state(pool).await)
         .oneshot(
             Request::builder()
                 .uri("/api/users/me")
@@ -133,8 +130,10 @@ async fn protected_route_with_invalid_bearer_returns_token_invalid_envelope() {
     );
 }
 
-#[tokio::test]
-async fn protected_route_with_expired_bearer_returns_access_token_expired_envelope() {
+#[sqlx::test(migrations = "../../migrations")]
+async fn protected_route_with_expired_bearer_returns_access_token_expired_envelope(
+    pool: sqlx::PgPool,
+) {
     let token = encode(
         &Header::default(),
         &auth::jwt::Claims {
@@ -146,7 +145,7 @@ async fn protected_route_with_expired_bearer_returns_access_token_expired_envelo
         &EncodingKey::from_secret(b"test-secret"),
     )
     .expect("expired token should encode");
-    let response = api::router(test_state())
+    let response = api::router(test_state(pool).await)
         .oneshot(
             Request::builder()
                 .uri("/api/users/me")
@@ -171,8 +170,10 @@ async fn protected_route_with_expired_bearer_returns_access_token_expired_envelo
     );
 }
 
-#[tokio::test]
-async fn protected_route_with_missing_login_session_returns_session_invalid_envelope() {
+#[sqlx::test(migrations = "../../migrations")]
+async fn protected_route_with_missing_login_session_returns_session_invalid_envelope(
+    pool: sqlx::PgPool,
+) {
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
     let redis = redis::Client::open(redis_url)
@@ -190,7 +191,7 @@ async fn protected_route_with_missing_login_session_returns_session_invalid_enve
         .revoke(&token)
         .await
         .expect("login session should be removed");
-    let mut state = test_state();
+    let mut state = test_state(pool).await;
     state.tokens = tokens;
 
     let response = api::router(state)
@@ -218,13 +219,15 @@ async fn protected_route_with_missing_login_session_returns_session_invalid_enve
     );
 }
 
-#[tokio::test]
-async fn protected_route_without_session_store_returns_authorization_unavailable_envelope() {
+#[sqlx::test(migrations = "../../migrations")]
+async fn protected_route_without_session_store_returns_authorization_unavailable_envelope(
+    pool: sqlx::PgPool,
+) {
     let token = auth::jwt::JwtService::new("test-secret")
         .issue_token(1, "admin", "missing-store-session")
         .expect("valid access token should be issued");
 
-    let response = api::router(test_state())
+    let response = api::router(test_state(pool).await)
         .oneshot(
             Request::builder()
                 .uri("/api/users/me")
@@ -249,9 +252,9 @@ async fn protected_route_without_session_store_returns_authorization_unavailable
     );
 }
 
-#[tokio::test]
-async fn malformed_refresh_token_returns_refresh_token_invalid_envelope() {
-    let response = api::router(test_state())
+#[sqlx::test(migrations = "../../migrations")]
+async fn malformed_refresh_token_returns_refresh_token_invalid_envelope(pool: sqlx::PgPool) {
+    let response = api::router(test_state(pool).await)
         .oneshot(
             Request::builder()
                 .method(Method::POST)
@@ -277,10 +280,12 @@ async fn malformed_refresh_token_returns_refresh_token_invalid_envelope() {
     );
 }
 
-#[tokio::test]
-async fn valid_refresh_shape_without_session_store_returns_authorization_unavailable_envelope() {
+#[sqlx::test(migrations = "../../migrations")]
+async fn valid_refresh_shape_without_session_store_returns_authorization_unavailable_envelope(
+    pool: sqlx::PgPool,
+) {
     let refresh_token = format!("{}.{}", "a".repeat(64), "b".repeat(64));
-    let response = api::router(test_state())
+    let response = api::router(test_state(pool).await)
         .oneshot(
             Request::builder()
                 .method(Method::POST)
@@ -308,8 +313,8 @@ async fn valid_refresh_shape_without_session_store_returns_authorization_unavail
     );
 }
 
-#[tokio::test]
-async fn refresh_for_missing_session_returns_session_invalid_envelope() {
+#[sqlx::test(migrations = "../../migrations")]
+async fn refresh_for_missing_session_returns_session_invalid_envelope(pool: sqlx::PgPool) {
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
     let redis = redis::Client::open(redis_url)
@@ -317,7 +322,7 @@ async fn refresh_for_missing_session_returns_session_invalid_envelope() {
         .get_multiplexed_async_connection()
         .await
         .expect("Redis test connection should open");
-    let mut state = test_state();
+    let mut state = test_state(pool).await;
     state.tokens = auth::token::TokenService::new("test-secret", redis);
     let refresh_token = format!("{}.{}", "c".repeat(64), "d".repeat(64));
     let response = api::router(state)
@@ -348,9 +353,9 @@ async fn refresh_for_missing_session_returns_session_invalid_envelope() {
     );
 }
 
-#[tokio::test]
-async fn removed_non_core_routes_return_not_found() {
-    let app = api::router(test_state());
+#[sqlx::test(migrations = "../../migrations")]
+async fn removed_non_core_routes_return_not_found(pool: sqlx::PgPool) {
+    let app = api::router(test_state(pool).await);
     let requests = [
         ("/api/autoCode/getDB", "GET"),
         ("/api/customer/customerList?page=1&pageSize=10", "GET"),
@@ -386,9 +391,9 @@ async fn removed_non_core_routes_return_not_found() {
     }
 }
 
-#[tokio::test]
-async fn cors_preflight_allows_desktop_dev_origin() {
-    let app = api::router(test_state());
+#[sqlx::test(migrations = "../../migrations")]
+async fn cors_preflight_allows_desktop_dev_origin(pool: sqlx::PgPool) {
+    let app = api::router(test_state(pool).await);
     let response = app
         .oneshot(
             Request::builder()

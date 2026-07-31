@@ -11,6 +11,8 @@ pub enum AuditAction {
     AccessDenied,
     #[strum(serialize = "user.assign_roles")]
     AssignUserRoles,
+    #[strum(serialize = "user.assign_direct_permissions")]
+    AssignUserDirectPermissions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +95,7 @@ pub struct AuditContext {
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum AuditValue {
     Ids(Vec<i64>),
+    Texts(Vec<String>),
     Text(String),
     Masked,
 }

@@ -20,39 +20,20 @@ mod tests {
         body::{Body, to_bytes},
         http::Request,
     };
-    use iam::access::{AccessSnapshot, ResolvedDataScope};
     use serde_json::Value;
     use tower::ServiceExt;
 
     use super::*;
-    use crate::extractors::current_access::CurrentAccess;
+    use crate::extractors::current_user::AuthenticatedUser;
 
-    fn snapshot(
-        menu_ids: impl IntoIterator<Item = i64>,
-        permissions: impl IntoIterator<Item = impl Into<String>>,
-        super_admin: bool,
-    ) -> AccessSnapshot {
-        AccessSnapshot {
-            version: 0,
-            user_id: 1,
-            role_codes: if super_admin {
-                BTreeSet::from(["super_admin".to_string()])
-            } else {
-                BTreeSet::new()
-            },
-            menu_ids: menu_ids.into_iter().collect(),
-            permissions: permissions.into_iter().map(Into::into).collect(),
-            data_scope: ResolvedDataScope::All,
-        }
-    }
-
-    async fn request_current_menu(pool: sqlx::PgPool, snapshot: AccessSnapshot) -> Value {
+    async fn request_current_menu(pool: sqlx::PgPool, user_id: i64) -> Value {
+        let state = crate::state::tests::test_state(pool).await;
         let response = routes()
-            .with_state(crate::state::test_state(pool))
+            .with_state(state)
             .oneshot(
                 Request::builder()
                     .uri("/current")
-                    .extension(CurrentAccess(snapshot))
+                    .extension(AuthenticatedUser { id: user_id })
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -72,20 +53,48 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn current_menu_route_uses_assigned_enabled_nodes_and_keeps_envelope(pool: sqlx::PgPool) {
+        sqlx::query(
+            r#"
+            insert into sys_users (
+                id, uuid, username, password_hash, nick_name, header_img,
+                enable, dept_id
+            )
+            values (9001, 'menu-user', 'menu-user', 'hash', 'Menu User', '', true, 1)
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "insert into sys_roles (id, name, code, status) values (9001, 'Menu Role', 'menu-role', 'enabled')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "insert into sys_role_menus (role_id, menu_id) values (9001, 10), (9001, 11), (9001, 12)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+            values
+                ('g', 'user:9001', 'role:9001', '', '', '', ''),
+                ('p', 'role:9001', 'system:user:create', '', '', '', ''),
+                ('p', 'role:9001', 'system:user:list', '', '', '', '')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query("update sys_menus set status = 'disabled' where id = 12")
             .execute(&pool)
             .await
             .unwrap();
 
-        let body = request_current_menu(
-            pool,
-            snapshot(
-                [10, 11, 12, 1101],
-                ["system:user:create", "system:user:list"],
-                false,
-            ),
-        )
-        .await;
+        let body = request_current_menu(pool, 9001).await;
 
         assert_eq!(body["code"], "OK");
         assert_eq!(body["message"], "ok");
@@ -102,10 +111,22 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn current_menu_route_returns_every_enabled_menu_for_super_admin(pool: sqlx::PgPool) {
-        let enabled_ids = sqlx::query_scalar::<_, i64>(
-            "select id from sys_menus where status = 'enabled' order by id",
+        sqlx::query(
+            r#"
+            insert into sys_users (
+                id, uuid, username, password_hash, nick_name, header_img,
+                enable, dept_id
+            )
+            values (9002, 'system-menu-user', 'system-menu-user', 'hash', 'System Menu User', '', true, 1)
+            "#,
         )
-        .fetch_all(&pool)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5) values ('g', 'user:9002', 'role:1', '', '', '', '')",
+        )
+        .execute(&pool)
         .await
         .unwrap();
         let expected_ids = sqlx::query_scalar::<_, i64>(
@@ -122,12 +143,12 @@ mod tests {
         .fetch_all(&pool)
         .await
         .unwrap();
-        let permission_refs = permissions.iter().map(String::as_str).collect::<Vec<_>>();
 
-        let body = request_current_menu(pool, snapshot(enabled_ids, permission_refs, true)).await;
+        let body = request_current_menu(pool, 9002).await;
 
         let mut actual_ids = BTreeSet::new();
         collect_menu_ids(body["data"]["menus"].as_array().unwrap(), &mut actual_ids);
         assert_eq!(actual_ids, expected_ids);
+        assert_eq!(body["data"]["permissions"], serde_json::json!(permissions));
     }
 }

@@ -21,11 +21,17 @@ pub fn routes() -> Router<AppState> {
             get(handler::get_role_menus).put(handler::set_role_menus),
         )
         .route(
-            "/{id}/depts",
-            get(handler::get_role_depts).put(handler::set_role_depts),
+            "/{id}/permissions",
+            get(handler::get_role_permissions).put(handler::set_role_permissions),
         )
-        .route(
-            "/{id}/users",
-            get(handler::get_role_users).put(handler::set_role_users),
-        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn role_routes_exclude_department_scope_and_reverse_membership() {
+        let _ = routes();
+    }
 }

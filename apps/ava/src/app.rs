@@ -4,12 +4,9 @@ use anyhow::{Context, Result};
 use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
 use file_storage::files::FileService;
-use iam::{
-    access::AccessService, departments::DepartmentService, menus::MenuService, roles::RoleService,
-    users::UserService,
-};
+use iam::departments::DepartmentService;
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::ServeConfig;
 
@@ -60,36 +57,35 @@ async fn build_state(
     let audits = AuditService::new(pool.clone());
     let dictionaries = DictionaryService::new(pool.clone());
     let parameters = ParameterService::new(pool.clone());
-    let menus = MenuService::new(pool.clone());
     let audit_analyzer = AuditAnalyzer::new(&config.ollama_base_url, &config.ollama_model);
     let files = FileService::new(pool.clone(), "./uploads");
 
     // 2. authorization catalog (needed by IAM services below)
-    let access = AccessService::load(pool.clone(), redis_connection)
+    let iam = iam::Iam::load(pool.clone())
         .await
-        .context("authorization catalog and cache should initialize")?;
+        .context("IAM should initialize")?;
+    if let Err(error) = iam.start_policy_sync(&config.redis_url, Duration::from_secs(30)) {
+        warn!(
+            error = ?error,
+            "Casbin Redis watcher unavailable; periodic policy reload remains active"
+        );
+    }
 
-    // 3. IAM services that depend on access / audit / password
-    let users = UserService::new(
-        pool.clone(),
-        access.clone(),
-        audits.clone(),
-        password_service,
-    );
-    let roles = RoleService::new(pool.clone(), access.clone());
-    let departments = DepartmentService::new(pool, access.clone());
+    // 3. IAM services that depend on access
+    let departments = DepartmentService::new(pool);
 
     Ok(api::AppState {
         public_base_url: config.public_base_url(),
         tokens,
         captcha,
-        users,
-        roles,
+        passwords: password_service,
+        accounts: iam.accounts,
+        roles: iam.roles,
         departments,
-        access,
+        access: iam.access,
         dictionaries,
         parameters,
-        menus,
+        menus: iam.menus,
         audits,
         audit_analyzer,
         files,

@@ -1,33 +1,37 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use sqlx::{FromRow, PgPool};
+
+use super::CatalogError;
+use crate::IamInitError;
+
+#[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct AccessNode {
     pub id: i64,
     pub parent_id: Option<i64>,
+    pub title: String,
     pub menu_type: String,
     pub status: String,
     pub permission: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionCatalogEntry {
+    pub permission: String,
+    pub title: String,
+    pub menu_type: String,
+    pub status: String,
+    pub effectively_enabled: bool,
+    pub owning_page_id: i64,
+    pub owning_page_title: String,
+    pub page_visible: bool,
+}
+
+#[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct AccessBinding {
     pub menu_id: i64,
     pub method: String,
     pub path: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum CatalogError {
-    #[error("access catalog contains conflicting route bindings")]
-    ConflictingBinding,
-    #[error("request route is not bound to an access node")]
-    Unbound,
-    #[error("request route matches multiple access nodes")]
-    Ambiguous,
-    #[error("access catalog contains an invalid route binding")]
-    InvalidBinding,
-    #[error("access catalog contains an invalid menu tree")]
-    InvalidTree,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,14 +44,25 @@ struct RouteBinding {
 pub struct AccessCatalog {
     exact: HashMap<(String, String), i64>,
     dynamic: HashMap<String, Vec<RouteBinding>>,
+    nodes: HashMap<i64, AccessNode>,
     enabled_menu_ids: HashSet<i64>,
     enabled_permissions: HashSet<String>,
-    parents: HashMap<i64, Option<i64>>,
+    permissions_by_menu_id: HashMap<i64, String>,
 }
 
 impl AccessCatalog {
-    pub fn new(bindings: Vec<AccessBinding>) -> Result<Self, CatalogError> {
-        Self::build(bindings, HashSet::new(), HashSet::new(), HashMap::new())
+    pub(crate) async fn load(pool: &PgPool) -> Result<Self, IamInitError> {
+        let nodes = sqlx::query_as::<_, AccessNode>(
+            "select id, parent_id, title, menu_type, status, permission from sys_menus order by id",
+        )
+        .fetch_all(pool)
+        .await?;
+        let bindings = sqlx::query_as::<_, AccessBinding>(
+            "select menu_id, method, path_pattern as path from sys_menu_apis order by method, path_pattern",
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(Self::from_parts(nodes, bindings)?)
     }
 
     pub fn from_parts(
@@ -78,6 +93,15 @@ impl AccessCatalog {
             .filter(|node| enabled_menu_ids.contains(&node.id))
             .filter_map(|node| node.permission.clone())
             .collect::<HashSet<_>>();
+        let permissions_by_menu_id = node_map
+            .values()
+            .filter(|node| enabled_menu_ids.contains(&node.id))
+            .filter_map(|node| {
+                node.permission
+                    .as_ref()
+                    .map(|permission| (node.id, permission.clone()))
+            })
+            .collect();
         let active_bindings = bindings
             .into_iter()
             .filter_map(|binding| {
@@ -90,15 +114,12 @@ impl AccessCatalog {
                     .then_some(Ok(binding))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let parents = node_map
-            .values()
-            .map(|node| (node.id, node.parent_id))
-            .collect();
         Self::build(
             active_bindings,
             enabled_menu_ids,
             enabled_permissions,
-            parents,
+            permissions_by_menu_id,
+            node_map,
         )
     }
 
@@ -106,7 +127,8 @@ impl AccessCatalog {
         bindings: Vec<AccessBinding>,
         enabled_menu_ids: HashSet<i64>,
         enabled_permissions: HashSet<String>,
-        parents: HashMap<i64, Option<i64>>,
+        permissions_by_menu_id: HashMap<i64, String>,
+        nodes: HashMap<i64, AccessNode>,
     ) -> Result<Self, CatalogError> {
         let mut exact = HashMap::new();
         let mut dynamic = HashMap::<String, Vec<RouteBinding>>::new();
@@ -133,9 +155,10 @@ impl AccessCatalog {
         Ok(Self {
             exact,
             dynamic,
+            nodes,
             enabled_menu_ids,
             enabled_permissions,
-            parents,
+            permissions_by_menu_id,
         })
     }
 
@@ -162,28 +185,116 @@ impl AccessCatalog {
         }
     }
 
-    pub fn enabled_menu_ids(&self) -> &HashSet<i64> {
-        &self.enabled_menu_ids
-    }
-
     pub fn enabled_permissions(&self) -> &HashSet<String> {
         &self.enabled_permissions
     }
 
+    pub fn permission_catalog(
+        &self,
+        visible_page_ids: &BTreeSet<i64>,
+        role_enabled: bool,
+    ) -> Vec<PermissionCatalogEntry> {
+        let mut entries = self
+            .nodes
+            .values()
+            .filter(|node| node.menu_type == "page" || node.menu_type == "action")
+            .filter_map(|node| {
+                let permission = node.permission.clone()?;
+                let page = if node.menu_type == "page" {
+                    node
+                } else {
+                    self.nodes.get(&node.parent_id?)?
+                };
+                Some((
+                    page.id,
+                    node.menu_type == "action",
+                    node.id,
+                    PermissionCatalogEntry {
+                        permission,
+                        title: node.title.clone(),
+                        menu_type: node.menu_type.clone(),
+                        status: node.status.clone(),
+                        effectively_enabled: self.enabled_menu_ids.contains(&node.id),
+                        owning_page_id: page.id,
+                        owning_page_title: page.title.clone(),
+                        page_visible: role_enabled && visible_page_ids.contains(&page.id),
+                    },
+                ))
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|(page_id, is_action, node_id, _)| (*page_id, *is_action, *node_id));
+        entries.into_iter().map(|(_, _, _, entry)| entry).collect()
+    }
+
+    pub(crate) fn page_entry_permissions(
+        &self,
+        configured_menu_ids: &HashSet<i64>,
+    ) -> BTreeSet<String> {
+        configured_menu_ids
+            .iter()
+            .filter_map(|menu_id| self.nodes.get(menu_id))
+            .filter(|node| node.menu_type == "page")
+            .filter_map(|node| node.permission.clone())
+            .collect()
+    }
+
+    pub(crate) fn is_action_permission(&self, permission: &str) -> bool {
+        self.nodes.values().any(|node| {
+            node.menu_type == "action" && node.permission.as_deref() == Some(permission)
+        })
+    }
+
+    pub fn permission_for_menu(&self, menu_id: i64) -> Result<&str, CatalogError> {
+        self.permissions_by_menu_id
+            .get(&menu_id)
+            .map(String::as_str)
+            .ok_or(CatalogError::InvalidBinding)
+    }
+
     pub fn validate_assignment(&self, menu_ids: &HashSet<i64>) -> Result<(), CatalogError> {
         for menu_id in menu_ids {
-            if !self.enabled_menu_ids.contains(menu_id) {
+            let node = self.nodes.get(menu_id).ok_or(CatalogError::InvalidTree)?;
+            if node.menu_type == "action" {
                 return Err(CatalogError::InvalidTree);
             }
-            let mut parent_id = self.parents.get(menu_id).copied().flatten();
+            let mut parent_id = node.parent_id;
             while let Some(parent) = parent_id {
                 if !menu_ids.contains(&parent) {
                     return Err(CatalogError::InvalidTree);
                 }
-                parent_id = self.parents.get(&parent).copied().flatten();
+                parent_id = self.nodes.get(&parent).and_then(|item| item.parent_id);
             }
         }
         Ok(())
+    }
+
+    pub fn effective_page_access(
+        &self,
+        configured_menu_ids: &HashSet<i64>,
+        role_enabled: bool,
+    ) -> BTreeSet<i64> {
+        if !role_enabled {
+            return BTreeSet::new();
+        }
+        let mut effective = BTreeSet::new();
+        for menu_id in configured_menu_ids {
+            let Some(node) = self.nodes.get(menu_id) else {
+                continue;
+            };
+            if node.menu_type != "page" || !self.enabled_menu_ids.contains(menu_id) {
+                continue;
+            }
+            effective.insert(*menu_id);
+            let mut parent_id = node.parent_id;
+            while let Some(parent) = parent_id {
+                if configured_menu_ids.contains(&parent) && self.enabled_menu_ids.contains(&parent)
+                {
+                    effective.insert(parent);
+                }
+                parent_id = self.nodes.get(&parent).and_then(|item| item.parent_id);
+            }
+        }
+        effective
     }
 }
 
@@ -229,6 +340,15 @@ fn validate_node(node: &AccessNode, nodes: &HashMap<i64, AccessNode>) -> Result<
             return Err(CatalogError::InvalidTree);
         }
         _ => {}
+    }
+
+    let mut ancestors = HashSet::new();
+    let mut parent_id = node.parent_id;
+    while let Some(parent) = parent_id {
+        if !ancestors.insert(parent) || parent == node.id {
+            return Err(CatalogError::InvalidTree);
+        }
+        parent_id = nodes.get(&parent).and_then(|item| item.parent_id);
     }
     Ok(())
 }
@@ -303,9 +423,19 @@ fn path_pattern_matches(pattern: &str, path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     use super::{AccessBinding, AccessCatalog, AccessNode, CatalogError};
+
+    fn catalog(bindings: Vec<AccessBinding>) -> Result<AccessCatalog, CatalogError> {
+        AccessCatalog::build(
+            bindings,
+            HashSet::new(),
+            HashSet::new(),
+            HashMap::new(),
+            HashMap::new(),
+        )
+    }
 
     fn binding(menu_id: i64, method: &str, path: &str) -> AccessBinding {
         AccessBinding {
@@ -317,7 +447,7 @@ mod tests {
 
     #[test]
     fn resolves_exact_routes_before_dynamic_routes() {
-        let catalog = AccessCatalog::new(vec![
+        let catalog = catalog(vec![
             binding(10, "GET", "/api/users/{id}"),
             binding(11, "GET", "/api/users/batch"),
         ])
@@ -329,7 +459,7 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_dynamic_route_shapes() {
-        let result = AccessCatalog::new(vec![
+        let result = catalog(vec![
             binding(10, "GET", "/api/users/{id}"),
             binding(11, "GET", "/api/users/{user_id}"),
         ]);
@@ -339,8 +469,8 @@ mod tests {
 
     #[test]
     fn rejects_unbound_routes() {
-        let catalog = AccessCatalog::new(vec![binding(10, "GET", "/api/users")])
-            .expect("catalog should be valid");
+        let catalog =
+            catalog(vec![binding(10, "GET", "/api/users")]).expect("catalog should be valid");
 
         assert_eq!(
             catalog.resolve("POST", "/api/users"),
@@ -355,6 +485,7 @@ mod tests {
                 AccessNode {
                     id: 1,
                     parent_id: None,
+                    title: "Directory".to_string(),
                     menu_type: "directory".to_string(),
                     status: "disabled".to_string(),
                     permission: None,
@@ -362,6 +493,7 @@ mod tests {
                 AccessNode {
                     id: 2,
                     parent_id: Some(1),
+                    title: "Users".to_string(),
                     menu_type: "page".to_string(),
                     status: "enabled".to_string(),
                     permission: Some("system:user:list".to_string()),
@@ -375,7 +507,7 @@ mod tests {
             catalog.resolve("GET", "/api/users"),
             Err(CatalogError::Unbound)
         );
-        assert!(catalog.enabled_menu_ids().is_empty());
+        assert!(catalog.enabled_menu_ids.is_empty());
         assert!(catalog.enabled_permissions().is_empty());
     }
 
@@ -385,10 +517,38 @@ mod tests {
             vec![AccessNode {
                 id: 2,
                 parent_id: None,
+                title: "Create user".to_string(),
                 menu_type: "action".to_string(),
                 status: "enabled".to_string(),
                 permission: Some("system:user:create".to_string()),
             }],
+            vec![],
+        );
+
+        assert_eq!(result, Err(CatalogError::InvalidTree));
+    }
+
+    #[test]
+    fn rejects_directory_cycles() {
+        let result = AccessCatalog::from_parts(
+            vec![
+                AccessNode {
+                    id: 1,
+                    parent_id: Some(2),
+                    title: "First".to_string(),
+                    menu_type: "directory".to_string(),
+                    status: "enabled".to_string(),
+                    permission: None,
+                },
+                AccessNode {
+                    id: 2,
+                    parent_id: Some(1),
+                    title: "Second".to_string(),
+                    menu_type: "directory".to_string(),
+                    status: "enabled".to_string(),
+                    permission: None,
+                },
+            ],
             vec![],
         );
 
@@ -402,6 +562,7 @@ mod tests {
                 AccessNode {
                     id: 1,
                     parent_id: None,
+                    title: "Directory".to_string(),
                     menu_type: "directory".to_string(),
                     status: "enabled".to_string(),
                     permission: None,
@@ -409,6 +570,7 @@ mod tests {
                 AccessNode {
                     id: 2,
                     parent_id: Some(1),
+                    title: "Users".to_string(),
                     menu_type: "page".to_string(),
                     status: "enabled".to_string(),
                     permission: Some("system:user:list".to_string()),
@@ -423,5 +585,50 @@ mod tests {
             Err(CatalogError::InvalidTree)
         );
         assert_eq!(catalog.validate_assignment(&HashSet::from([1, 2])), Ok(()));
+    }
+
+    #[test]
+    fn page_assignments_preserve_disabled_nodes_but_reject_actions() {
+        let catalog = AccessCatalog::from_parts(
+            vec![
+                AccessNode {
+                    id: 1,
+                    parent_id: None,
+                    title: "Directory".to_string(),
+                    menu_type: "directory".to_string(),
+                    status: "disabled".to_string(),
+                    permission: None,
+                },
+                AccessNode {
+                    id: 2,
+                    parent_id: Some(1),
+                    title: "Users".to_string(),
+                    menu_type: "page".to_string(),
+                    status: "disabled".to_string(),
+                    permission: Some("system:user:list".to_string()),
+                },
+                AccessNode {
+                    id: 3,
+                    parent_id: Some(2),
+                    title: "Create user".to_string(),
+                    menu_type: "action".to_string(),
+                    status: "disabled".to_string(),
+                    permission: Some("system:user:create".to_string()),
+                },
+            ],
+            vec![],
+        )
+        .unwrap();
+
+        assert_eq!(catalog.validate_assignment(&HashSet::from([1, 2])), Ok(()));
+        assert_eq!(
+            catalog.validate_assignment(&HashSet::from([1, 2, 3])),
+            Err(CatalogError::InvalidTree)
+        );
+        assert!(
+            catalog
+                .effective_page_access(&HashSet::from([1, 2]), true)
+                .is_empty()
+        );
     }
 }

@@ -42,6 +42,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useAuthStore } from '@/stores/auth'
 
 import { DepartmentOrgChart } from './DepartmentOrgChart'
 
@@ -89,6 +90,9 @@ export function DepartmentsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const confirmAction = useConfirm()
+  const canCreate = useAuthStore((state) => state.can('system:dept:create'))
+  const canUpdate = useAuthStore((state) => state.can('system:dept:update'))
+  const canDelete = useAuthStore((state) => state.can('system:dept:delete'))
   const query = useQuery({ queryKey: ['departments'], queryFn: listDepartments })
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<'table' | 'chart'>('table')
@@ -251,29 +255,37 @@ export function DepartmentsPage() {
         const item = row.original
         return (
           <div className="flex items-center gap-1 whitespace-nowrap">
-            <Button onClick={() => beginCreate(item.id)} size="sm" variant="ghost">
-              <IconPlus size={14} />
-              {t('Add child')}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                aria-label={t('More actions for {{name}}', { name: item.name })}
-                className={buttonVariants({ size: 'icon-sm', variant: 'ghost' })}
-              >
-                <IconDots />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => beginEdit(item)}>
-                  <IconPencil />
-                  {t('Edit')}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-destructive" onClick={() => void confirmDelete(item)}>
-                  <IconTrash />
-                  {t('Delete')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {canCreate && (
+              <Button onClick={() => beginCreate(item.id)} size="sm" variant="ghost">
+                <IconPlus size={14} />
+                {t('Add child')}
+              </Button>
+            )}
+            {(canUpdate || canDelete) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  aria-label={t('More actions for {{name}}', { name: item.name })}
+                  className={buttonVariants({ size: 'icon-sm', variant: 'ghost' })}
+                >
+                  <IconDots />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {canUpdate && (
+                    <DropdownMenuItem onClick={() => beginEdit(item)}>
+                      <IconPencil />
+                      {t('Edit')}
+                    </DropdownMenuItem>
+                  )}
+                  {canUpdate && canDelete && <DropdownMenuSeparator />}
+                  {canDelete && (
+                    <DropdownMenuItem className="text-destructive" onClick={() => void confirmDelete(item)}>
+                      <IconTrash />
+                      {t('Delete')}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         )
       },
@@ -299,10 +311,12 @@ export function DepartmentsPage() {
               <IconRefresh size={16} />
               {t('Refresh')}
             </Button>
-            <Button onClick={() => beginCreate()}>
-              <IconPlus size={16} />
-              {t('New department')}
-            </Button>
+            {canCreate && (
+              <Button onClick={() => beginCreate()}>
+                <IconPlus size={16} />
+                {t('New department')}
+              </Button>
+            )}
           </>
         }
       />
@@ -349,8 +363,8 @@ export function DepartmentsPage() {
               departments={tree}
               isError={query.isError}
               isLoading={query.isLoading}
-              onAddChild={(item) => beginCreate(item.id)}
-              onEdit={beginEdit}
+              onAddChild={canCreate ? (item) => beginCreate(item.id) : undefined}
+              onEdit={canUpdate ? beginEdit : undefined}
             />
           )}
         </TabsContent>

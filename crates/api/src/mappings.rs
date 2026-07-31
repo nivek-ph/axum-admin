@@ -27,15 +27,28 @@ pub(crate) const CAPTCHA_REQUIRED: ErrorSpec =
     ErrorSpec::bad_request("CAPTCHA_REQUIRED", "captcha is required");
 pub(crate) const CAPTCHA_INVALID: ErrorSpec =
     ErrorSpec::bad_request("CAPTCHA_INVALID", "captcha is invalid or expired");
-const INVALID_CREDENTIALS: ErrorSpec =
+pub(crate) const INVALID_CREDENTIALS: ErrorSpec =
     ErrorSpec::unauthorized("INVALID_CREDENTIALS", "invalid username or password");
-const USER_DISABLED: ErrorSpec = ErrorSpec::forbidden("USER_DISABLED", "user is disabled");
+pub(crate) const USER_DISABLED: ErrorSpec =
+    ErrorSpec::forbidden("USER_DISABLED", "user is disabled");
 const USER_NOT_FOUND: ErrorSpec = ErrorSpec::not_found("USER_NOT_FOUND", "user not found");
 const USER_ALREADY_EXISTS: ErrorSpec =
     ErrorSpec::conflict("USER_ALREADY_EXISTS", "user already exists");
-const INVALID_PASSWORD: ErrorSpec = ErrorSpec::bad_request("INVALID_PASSWORD", "invalid password");
+pub(crate) const INVALID_PASSWORD: ErrorSpec =
+    ErrorSpec::bad_request("INVALID_PASSWORD", "invalid password");
 const INVALID_ROLES: ErrorSpec =
-    ErrorSpec::validation("INVALID_ROLES", "at least one enabled role is required");
+    ErrorSpec::validation("INVALID_ROLES", "selected roles are invalid");
+const ROLE_NOT_FOUND: ErrorSpec = ErrorSpec::not_found("ROLE_NOT_FOUND", "role not found");
+const ROLE_IMMUTABLE: ErrorSpec =
+    ErrorSpec::failed_precondition("ROLE_IMMUTABLE", "protected role cannot be changed");
+const LAST_SUPER_ADMIN: ErrorSpec = ErrorSpec::failed_precondition(
+    "LAST_SUPER_ADMIN",
+    "the final active super_admin cannot be removed",
+);
+const INVALID_PERMISSION_ASSIGNMENT: ErrorSpec = ErrorSpec::validation(
+    "INVALID_PERMISSION_ASSIGNMENT",
+    "selected permissions must exist in the access catalog",
+);
 const INVALID_AUDIT_TIME_RANGE: ErrorSpec = ErrorSpec::validation(
     "INVALID_AUDIT_TIME_RANGE",
     "audit time range must use RFC 3339 timestamps",
@@ -77,27 +90,33 @@ impl From<iam::access::AccessEvaluationError> for AppError {
         use iam::access::AccessEvaluationError;
 
         match error {
+            AccessEvaluationError::Authorization(source) => source.into(),
             AccessEvaluationError::UserNotFound => SESSION_INVALID.into(),
             AccessEvaluationError::UserDisabled => USER_DISABLED.into(),
-            AccessEvaluationError::Cache(source) => {
-                AUTHORIZATION_UNAVAILABLE.into_error().with_source(source)
-            }
+            AccessEvaluationError::PermissionDenied { .. } => PERMISSION_DENIED.into(),
             AccessEvaluationError::Catalog(source) => AUTHORIZATION_CONFIG_INVALID
                 .into_error()
                 .with_source(source),
             AccessEvaluationError::Database(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+                AUTHORIZATION_UNAVAILABLE.into_error().with_source(source)
             }
-            AccessEvaluationError::Serialization(source) => AUTHORIZATION_CONFIG_INVALID
-                .into_error()
-                .with_source(source),
         }
     }
 }
 
-impl From<iam::access::AccessPropagationError> for AppError {
-    fn from(error: iam::access::AccessPropagationError) -> Self {
-        INTERNAL_SERVER_ERROR.into_error().with_source(error)
+impl From<iam::AuthorizationError> for AppError {
+    fn from(error: iam::AuthorizationError) -> Self {
+        match error {
+            iam::AuthorizationError::Configuration(_) => {
+                AUTHORIZATION_CONFIG_INVALID.into_error().with_source(error)
+            }
+            source @ (iam::AuthorizationError::Database(_)
+            | iam::AuthorizationError::Policy(_)
+            | iam::AuthorizationError::Watcher(_)
+            | iam::AuthorizationError::WatcherInstallation) => {
+                AUTHORIZATION_UNAVAILABLE.into_error().with_source(source)
+            }
+        }
     }
 }
 
@@ -152,9 +171,9 @@ impl From<::auth::token::RefreshError> for AppError {
     }
 }
 
-impl From<iam::users::RefreshIdentityError> for AppError {
-    fn from(error: iam::users::RefreshIdentityError) -> Self {
-        use iam::users::RefreshIdentityError;
+impl From<iam::accounts::RefreshIdentityError> for AppError {
+    fn from(error: iam::accounts::RefreshIdentityError) -> Self {
+        use iam::accounts::RefreshIdentityError;
 
         match error {
             RefreshIdentityError::NotFound => SESSION_INVALID.into(),
@@ -185,37 +204,29 @@ impl From<::auth::token::UserSessionRevokeError> for AppError {
     }
 }
 
-impl From<iam::users::UserError> for AppError {
-    fn from(error: iam::users::UserError) -> Self {
-        use iam::users::UserError;
+impl From<iam::accounts::AccountError> for AppError {
+    fn from(error: iam::accounts::AccountError) -> Self {
+        use iam::accounts::AccountError;
 
         match error {
-            UserError::NotFound => USER_NOT_FOUND.into(),
-            UserError::AlreadyExists => USER_ALREADY_EXISTS.into(),
-            UserError::InvalidPassword => INVALID_PASSWORD.into(),
-            UserError::InvalidRoles => INVALID_ROLES.into(),
-            UserError::Password(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            UserError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            UserError::Audit(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            UserError::AccessPropagation(source) => source.into(),
+            AccountError::NotFound => USER_NOT_FOUND.into(),
+            AccountError::AlreadyExists => USER_ALREADY_EXISTS.into(),
+            AccountError::InvalidRoles => INVALID_ROLES.into(),
+            AccountError::InvalidPermissions => INVALID_PERMISSION_ASSIGNMENT.into(),
+            AccountError::AccessDenied => PERMISSION_DENIED.into(),
+            AccountError::LastSuperAdmin => LAST_SUPER_ADMIN.into(),
+            AccountError::Audit(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
+            AccountError::Database(source) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+            }
+            AccountError::Authorization(source) => source.into(),
         }
     }
 }
 
-impl From<iam::users::AuthenticateError> for AppError {
-    fn from(error: iam::users::AuthenticateError) -> Self {
-        use iam::users::AuthenticateError;
-
-        match error {
-            AuthenticateError::InvalidCredentials => INVALID_CREDENTIALS.into(),
-            AuthenticateError::Disabled => USER_DISABLED.into(),
-            AuthenticateError::Credential(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-            AuthenticateError::Database(source) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
-        }
+impl From<::auth::password::PasswordError> for AppError {
+    fn from(error: ::auth::password::PasswordError) -> Self {
+        INTERNAL_SERVER_ERROR.into_error().with_source(error)
     }
 }
 
@@ -224,11 +235,8 @@ impl From<iam::menus::MenuError> for AppError {
         use iam::menus::MenuError;
 
         match error {
-            MenuError::NotFound => ErrorSpec::not_found("MENU_NOT_FOUND", "menu not found").into(),
-            MenuError::InvalidPayload => {
-                ErrorSpec::validation("MENU_INVALID_PAYLOAD", "invalid menu payload").into()
-            }
             MenuError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
+            MenuError::Authorization(source) => source.into(),
         }
     }
 }
@@ -238,22 +246,18 @@ impl From<iam::roles::RoleError> for AppError {
         use iam::roles::RoleError;
 
         match error {
-            RoleError::NotFound => ErrorSpec::not_found("ROLE_NOT_FOUND", "role not found").into(),
-            RoleError::Immutable => {
-                ErrorSpec::failed_precondition("ROLE_IMMUTABLE", "system role cannot be deleted")
-                    .into()
-            }
-            RoleError::InUse => {
-                ErrorSpec::conflict("ROLE_IN_USE", "role is assigned to users").into()
-            }
+            RoleError::NotFound => ROLE_NOT_FOUND.into(),
+            RoleError::Immutable => ROLE_IMMUTABLE.into(),
+            RoleError::AccessDenied => PERMISSION_DENIED.into(),
             RoleError::InvalidMenuAssignment(source) => ErrorSpec::validation(
                 "INVALID_MENU_ASSIGNMENT",
-                "selected menu nodes must include every ancestor",
+                "selected menu nodes must be directory or page nodes and include every ancestor",
             )
             .into_error()
             .with_source(source),
+            RoleError::Authorization(source) => source.into(),
+            RoleError::InvalidPermissions => INVALID_PERMISSION_ASSIGNMENT.into(),
             RoleError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            RoleError::AccessPropagation(source) => source.into(),
         }
     }
 }
@@ -272,7 +276,6 @@ impl From<iam::departments::DeptError> for AppError {
             )
             .into(),
             DeptError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
-            DeptError::AccessPropagation(source) => source.into(),
         }
     }
 }
@@ -375,6 +378,38 @@ mod tests {
     }
 
     #[test]
+    fn authorization_configuration_error_has_a_stable_internal_contract() {
+        let error = AppError::from(iam::AuthorizationError::Configuration(
+            "invalid test policy".to_string(),
+        ));
+
+        assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code(), "AUTHORIZATION_CONFIG_INVALID");
+        assert_eq!(error.message(), "authorization configuration is invalid");
+    }
+
+    #[test]
+    fn final_super_admin_has_a_specific_precondition_contract() {
+        let error = AppError::from(iam::accounts::AccountError::LastSuperAdmin);
+
+        assert_eq!(error.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(error.code(), "LAST_SUPER_ADMIN");
+        assert_eq!(
+            error.message(),
+            "the final active super_admin cannot be removed"
+        );
+    }
+
+    #[test]
+    fn role_access_management_requires_super_admin_contract() {
+        let error = AppError::from(iam::roles::RoleError::AccessDenied);
+
+        assert_eq!(error.status(), StatusCode::FORBIDDEN);
+        assert_eq!(error.code(), "PERMISSION_DENIED");
+        assert_eq!(error.message(), "permission denied");
+    }
+
+    #[test]
     fn token_issue_store_unavailable_is_service_unavailable() {
         let error = AppError::from(::auth::token::TokenIssueError::StoreUnavailable);
 
@@ -411,32 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_authorization_cache_payload_keeps_its_stable_code() {
-        let source =
-            serde_json::from_str::<serde_json::Value>("{").expect_err("invalid json should fail");
-        let error = AppError::from(iam::access::AccessEvaluationError::Serialization(source));
-
-        assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(error.code(), "AUTHORIZATION_CONFIG_INVALID");
-    }
-
-    #[test]
-    fn access_evaluation_cache_failure_remains_service_unavailable() {
-        let source = redis::RedisError::from((redis::ErrorKind::Io, "cache unavailable"));
-        let error = AppError::from(iam::access::AccessEvaluationError::Cache(source));
-
-        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(error.code(), "AUTHORIZATION_UNAVAILABLE");
-    }
-
-    #[tokio::test]
-    async fn access_evaluation_contract_covers_user_catalog_and_database_failures() {
-        let pool = sqlx::PgPool::connect_lazy("postgres://postgres:postgres@127.0.0.1/ava")
-            .expect("lazy pool should construct");
-        let catalog_error = iam::access::AccessService::new(pool)
-            .required_menu("GET", "/api/unbound")
-            .expect_err("an empty catalog should reject an unbound route");
-
+    fn access_evaluation_contract_separates_identity_and_availability_failures() {
         let cases = [
             (
                 AppError::from(iam::access::AccessEvaluationError::UserDisabled),
@@ -444,45 +454,24 @@ mod tests {
                 "USER_DISABLED",
             ),
             (
-                AppError::from(catalog_error),
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "AUTHORIZATION_CONFIG_INVALID",
+                AppError::from(iam::access::AccessEvaluationError::PermissionDenied {
+                    path: "/api/users".to_string(),
+                }),
+                StatusCode::FORBIDDEN,
+                "PERMISSION_DENIED",
             ),
             (
                 AppError::from(iam::access::AccessEvaluationError::Database(
                     sqlx::Error::PoolTimedOut,
                 )),
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "INTERNAL_SERVER_ERROR",
+                StatusCode::SERVICE_UNAVAILABLE,
+                "AUTHORIZATION_UNAVAILABLE",
             ),
         ];
 
         for (error, status, code) in cases {
             assert_eq!(error.status(), status);
             assert_eq!(error.code(), code);
-        }
-    }
-
-    #[test]
-    fn access_propagation_failure_is_internal_for_every_mutation_capability() {
-        fn propagation_error() -> iam::access::AccessPropagationError {
-            iam::access::AccessPropagationError::Cache(redis::RedisError::from((
-                redis::ErrorKind::Io,
-                "cache unavailable",
-            )))
-        }
-
-        let user_error =
-            AppError::from(iam::users::UserError::AccessPropagation(propagation_error()));
-        let role_error =
-            AppError::from(iam::roles::RoleError::AccessPropagation(propagation_error()));
-        let department_error = AppError::from(iam::departments::DeptError::AccessPropagation(
-            propagation_error(),
-        ));
-
-        for error in [user_error, role_error, department_error] {
-            assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
-            assert_eq!(error.code(), "INTERNAL_SERVER_ERROR");
         }
     }
 
