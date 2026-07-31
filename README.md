@@ -138,6 +138,19 @@ Bootstrap default system data when setting up a database:
 cargo run -p ava init
 ```
 
+This pre-release branch may rewrite the initial migrations. If startup reports that an already
+applied migration was modified, reset the local development database before running `init` again.
+This deletes all local data in `ava`:
+
+```bash
+dropdb --if-exists --force --host 127.0.0.1 --username postgres ava
+createdb --host 127.0.0.1 --username postgres ava
+cargo run -p ava init
+```
+
+For a non-default `DATABASE_URL`, use the matching PostgreSQL host, user, and database name rather
+than the example values above. Never use this reset procedure on a shared or production database.
+
 Optionally load the fictional 50-person company data for local development:
 
 ```bash

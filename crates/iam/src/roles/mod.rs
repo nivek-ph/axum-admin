@@ -1,27 +1,9 @@
+mod error;
 mod service;
 
+pub use error::RoleError;
 pub use service::RoleService;
 use sqlx::FromRow;
-
-use crate::{access::CatalogError, authorization::AuthorizationError};
-
-#[derive(Debug, thiserror::Error)]
-pub enum RoleError {
-    #[error("{0}")]
-    Database(#[from] sqlx::Error),
-    #[error("role not found")]
-    NotFound,
-    #[error("protected role cannot be changed")]
-    Immutable,
-    #[error("only an active super_admin may manage role access")]
-    AccessDenied,
-    #[error(transparent)]
-    InvalidMenuAssignment(#[from] CatalogError),
-    #[error(transparent)]
-    Authorization(#[from] AuthorizationError),
-    #[error("selected permissions are invalid")]
-    InvalidPermissions,
-}
 
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct RoleSummary {
@@ -40,13 +22,20 @@ pub struct RoleMenuAccess {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RolePermissionView {
+pub struct RoleOperationPermissionSelection {
     pub permissions: Vec<String>,
     pub protected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PermissionCatalogItem {
+pub struct RoleOperationPermissionsWithCatalog {
+    pub permissions: Vec<String>,
+    pub catalog: Vec<OperationPermissionCatalogItem>,
+    pub protected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationPermissionCatalogItem {
     pub permission: String,
     pub title: String,
     pub menu_type: String,

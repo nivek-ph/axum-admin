@@ -132,8 +132,10 @@ mod tests {
         .await
         .expect("test role should insert");
         insert_policy(pool, "g", "user:9101", "role:1").await;
+        insert_policy(pool, "g", "user:9102", "role:2").await;
         insert_policy(pool, "p", "role:2", "system:user:update").await;
         insert_policy(pool, "p", "user:9103", "system:user:permissions-read").await;
+        insert_policy(pool, "p", "user:9103", "system:user:list").await;
 
         let tokens = token_service().await;
         let super_token = tokens
@@ -333,5 +335,55 @@ mod tests {
             .revoke(&restricted_token)
             .await
             .expect("restricted session should revoke");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn ordinary_user_list_and_self_info_do_not_expose_assigned_roles(pool: sqlx::PgPool) {
+        let (app, tokens, super_token, restricted_token, _, target_user_id) =
+            access_test_app(&pool).await;
+
+        let (status, body) = request_json(
+            &app,
+            &restricted_token,
+            Method::GET,
+            "/api/users?page=1&pageSize=20",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let target = body["data"]["list"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|user| user["id"] == target_user_id)
+            .unwrap();
+        assert_eq!(target["roles"], json!([]));
+        assert_eq!(target["roleIds"], json!([]));
+
+        let (status, body) =
+            request_json(&app, &restricted_token, Method::GET, "/api/users/me", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["data"]["userInfo"]["roles"], json!([]));
+        assert_eq!(body["data"]["userInfo"]["roleIds"], json!([]));
+
+        let (status, body) = request_json(
+            &app,
+            &super_token,
+            Method::GET,
+            "/api/users?page=1&pageSize=20",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let target = body["data"]["list"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|user| user["id"] == target_user_id)
+            .unwrap();
+        assert_eq!(target["roleIds"], json!([2]));
+
+        tokens.revoke(&super_token).await.unwrap();
+        tokens.revoke(&restricted_token).await.unwrap();
     }
 }

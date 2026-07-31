@@ -12,43 +12,44 @@ use super::{AuthorizationError, store::PolicyStore};
 
 pub(crate) const REDIS_CHANNEL: &str = "/ava/casbin";
 
-#[derive(Clone)]
+/// An enforcement engine for the authorization policy.
 pub(super) struct EnforcementEngine {
-    state: Arc<RwLock<Option<Enforcer>>>,
-    reload_lock: Arc<Mutex<()>>,
-    watcher: Arc<StdMutex<Option<RedisWatcher>>>,
+    store: Arc<PolicyStore>,
+    policy: RwLock<Enforcer>,
+    policy_change_lock: Mutex<()>,
+    watcher: StdMutex<Option<RedisWatcher>>,
 }
 
 impl EnforcementEngine {
-    pub(super) fn new() -> Self {
-        Self {
-            state: Arc::new(RwLock::new(None)),
-            reload_lock: Arc::new(Mutex::new(())),
-            watcher: Arc::new(StdMutex::new(None)),
-        }
-    }
-
-    pub(super) async fn load(store: &PolicyStore) -> Result<Self, AuthorizationError> {
-        let engine = Self::new();
-        engine.reload(store).await?;
-        Ok(engine)
+    pub(super) async fn load(store: Arc<PolicyStore>) -> Result<Self, AuthorizationError> {
+        let policy = build_enforcer(&store).await?;
+        Ok(Self {
+            store,
+            policy: RwLock::new(policy),
+            policy_change_lock: Mutex::new(()),
+            watcher: StdMutex::new(None),
+        })
     }
 
     pub(super) fn start_redis_watcher(
-        &self,
-        store: PolicyStore,
+        self: &Arc<Self>,
         redis_url: &str,
     ) -> Result<(), AuthorizationError> {
         let options = WatcherOptions::default()
             .with_channel(REDIS_CHANNEL.to_string())
             .with_ignore_self(true);
         let mut watcher = RedisWatcher::new(redis_url, options)?;
-        let engine = self.clone();
+        // The watcher is owned by the engine, so its callback must not hold a
+        // strong engine reference and create an ownership cycle.
+        let weak_engine = Arc::downgrade(self);
         watcher.set_update_callback(Box::new(move |_| {
-            let engine = engine.clone();
-            let store = store.clone();
+            let Some(engine) = weak_engine.upgrade() else {
+                return;
+            };
             tokio::spawn(async move {
-                let _ = engine.reload(&store).await;
+                if let Err(error) = engine.reload().await {
+                    tracing::error!("Failed to reload enforcement engine from watcher: {error}");
+                }
             });
         }));
         let mut installed = self
@@ -59,33 +60,31 @@ impl EnforcementEngine {
         Ok(())
     }
 
-    pub(super) fn start_periodic_reload(&self, store: PolicyStore, interval: Duration) {
-        let engine = self.clone();
+    pub(super) fn start_periodic_reload(self: &Arc<Self>, interval: Duration) {
+        // The periodic task must not keep the engine alive after the owning
+        // application state has been dropped.
+        let weak_engine = Arc::downgrade(self);
         tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(interval);
-            ticker.tick().await;
             loop {
-                ticker.tick().await;
-                let _ = engine.reload(&store).await;
+                tokio::time::sleep(interval).await;
+                let Some(engine) = weak_engine.upgrade() else {
+                    return;
+                };
+                if let Err(error) = engine.reload().await {
+                    tracing::error!("Failed to reload enforcement engine periodically: {error}");
+                }
             }
         });
     }
 
-    pub(super) async fn reload(&self, store: &PolicyStore) -> Result<(), AuthorizationError> {
-        let _guard = self.reload_lock.lock().await;
-        self.reload_locked(store).await
+    pub(super) async fn reload(&self) -> Result<(), AuthorizationError> {
+        let _guard = self.policy_change_lock.lock().await;
+        self.reload_locked().await
     }
 
-    pub(super) async fn reload_locked(
-        &self,
-        store: &PolicyStore,
-    ) -> Result<(), AuthorizationError> {
-        // Withdraw the current enforcer before rebuilding it. Enforcement that
-        // races a reload must wait for the new state instead of continuing with
-        // a state that may already be stale.
-        *self.state.write().await = None;
-        let enforcer = load_enforcer(store).await?;
-        *self.state.write().await = Some(enforcer);
+    pub(super) async fn reload_locked(&self) -> Result<(), AuthorizationError> {
+        let next = build_enforcer(&self.store).await?;
+        *self.policy.write().await = next;
         Ok(())
     }
 
@@ -95,26 +94,30 @@ impl EnforcementEngine {
         permission: &str,
         active_roles: Vec<String>,
     ) -> Result<bool, AuthorizationError> {
-        let state = self.state.read().await;
-        let enforcer = state.as_ref().ok_or(AuthorizationError::StateUnavailable)?;
-        Ok(enforcer.enforce((subject, permission, active_roles))?)
+        let policy = self.policy.read().await;
+        Ok(policy.enforce((subject, permission, active_roles))?)
     }
 
-    pub(super) async fn lock_reload(&self) -> MutexGuard<'_, ()> {
-        self.reload_lock.lock().await
+    pub(super) async fn lock_policy_change(&self) -> MutexGuard<'_, ()> {
+        self.policy_change_lock.lock().await
     }
 
     pub(super) fn publish_change(&self) {
-        let Ok(mut installed) = self.watcher.lock() else {
+        let Ok(mut watcher_guard) = self.watcher.lock() else {
             return;
         };
-        if let Some(watcher) = installed.as_mut() {
+        if let Some(watcher) = watcher_guard.as_mut() {
             watcher.update(EventData::SavePolicy(Vec::new()));
         }
     }
 }
 
-async fn load_enforcer(store: &PolicyStore) -> Result<Enforcer, AuthorizationError> {
+/// Builds a fully loaded Casbin enforcement engine from the persisted policy.
+///
+/// Persisted invariants are validated before constructing the Casbin model and
+/// SQLx adapter. Callers can therefore keep serving the current enforcer while
+/// this function runs and replace it only after the new one is completely ready.
+async fn build_enforcer(store: &PolicyStore) -> Result<Enforcer, AuthorizationError> {
     store.validate_policy_invariants().await?;
     let model = DefaultModel::from_str(
         r#"

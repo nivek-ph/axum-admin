@@ -35,3 +35,18 @@ impl<T> ApiResponse<T> {
 }
 
 pub type ApiErrorResponse = ApiResponse<EmptyData>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mutation_response_has_the_shared_null_data_contract() {
+        let value = serde_json::to_value(ApiResponse::<EmptyData>::new("OK", "saved", None))
+            .expect("mutation response should serialize");
+
+        assert_eq!(value["code"], "OK");
+        assert_eq!(value["message"], "saved");
+        assert!(value["data"].is_null());
+    }
+}

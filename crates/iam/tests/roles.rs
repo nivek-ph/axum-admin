@@ -86,12 +86,16 @@ async fn page_access_atomically_maintains_entry_permission(pool: sqlx::PgPool) {
     assert!(iam.access.evaluate(303, "GET", "/api/users").await.is_ok());
     assert!(iam.access.evaluate(303, "POST", "/api/users").await.is_ok());
     assert_eq!(
-        iam.roles.permissions(2).await.unwrap().permissions,
+        iam.roles
+            .assigned_operation_permissions(2)
+            .await
+            .unwrap()
+            .permissions,
         vec!["system:user:create"]
     );
     assert!(
         iam.roles
-            .permission_catalog(2)
+            .operation_permission_catalog(2)
             .await
             .unwrap()
             .iter()

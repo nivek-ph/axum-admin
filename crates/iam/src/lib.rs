@@ -42,12 +42,15 @@ impl Iam {
         })
     }
 
-    pub fn start_redis_watcher(&self, redis_url: &str) -> Result<(), AuthorizationError> {
-        self.authorization.start_redis_watcher(redis_url)
-    }
-
-    pub fn start_periodic_reload(&self, interval: Duration) {
-        self.authorization.start_periodic_reload(interval);
+    /// An error means only that the Redis watcher is unavailable; the periodic
+    /// reload fallback is running either way.
+    pub fn start_policy_sync(
+        &self,
+        redis_url: &str,
+        reload_interval: Duration,
+    ) -> Result<(), AuthorizationError> {
+        self.authorization
+            .start_policy_sync(redis_url, reload_interval)
     }
 }
 

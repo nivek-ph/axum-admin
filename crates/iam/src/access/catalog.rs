@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use sqlx::{FromRow, PgPool};
 
+use super::CatalogError;
 use crate::IamInitError;
 
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
@@ -31,20 +32,6 @@ pub struct AccessBinding {
     pub menu_id: i64,
     pub method: String,
     pub path: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum CatalogError {
-    #[error("access catalog contains conflicting route bindings")]
-    ConflictingBinding,
-    #[error("request route is not bound to an access node")]
-    Unbound,
-    #[error("request route matches multiple access nodes")]
-    Ambiguous,
-    #[error("access catalog contains an invalid route binding")]
-    InvalidBinding,
-    #[error("access catalog contains an invalid menu tree")]
-    InvalidTree,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

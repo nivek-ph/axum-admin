@@ -141,9 +141,13 @@ pub async fn get_role_permissions(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<RolePermissionsData>>> {
-    let policy = state.roles.permissions(id).await?;
-    let catalog = state.roles.permission_catalog(id).await?;
-    Ok(Json(ApiResponse::ok((policy, catalog).into())))
+    Ok(Json(ApiResponse::ok(
+        state
+            .roles
+            .operation_permissions_with_catalog(id)
+            .await?
+            .into(),
+    )))
 }
 
 #[utoipa::path(

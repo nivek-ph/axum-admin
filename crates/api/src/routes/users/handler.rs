@@ -8,7 +8,13 @@ use crate::{
     ApiResponse, AppResult, EmptyData, extractors::current_user::CurrentUser, state::AppState,
 };
 
-#[utoipa::path(get, path = "/users/me", tag = "user", security(("bearer_auth" = [])))]
+#[utoipa::path(
+    get,
+    path = "/users/me",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    responses((status = 200, description = "Current user info", body = ApiResponse<UserInfoData>))
+)]
 pub async fn get_user_info(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -17,7 +23,14 @@ pub async fn get_user_info(
     Ok(Json(ApiResponse::ok(UserInfoData { user_info: user })))
 }
 
-#[utoipa::path(get, path = "/users", tag = "user", security(("bearer_auth" = [])), params(UserListRequest))]
+#[utoipa::path(
+    get,
+    path = "/users",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    params(UserListRequest),
+    responses((status = 200, description = "User list", body = ApiResponse<UserListData>))
+)]
 pub async fn get_user_list_by_query(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -34,7 +47,14 @@ pub async fn get_user_list_by_query(
     })))
 }
 
-#[utoipa::path(post, path = "/users", tag = "user", security(("bearer_auth" = [])), request_body = RegisterUserRequest)]
+#[utoipa::path(
+    post,
+    path = "/users",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    request_body = RegisterUserRequest,
+    responses((status = 200, description = "User registered", body = ApiResponse<EmptyData>))
+)]
 pub async fn admin_register(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -48,7 +68,14 @@ pub async fn admin_register(
     Ok(Json(ApiResponse::new("OK", "registered", None)))
 }
 
-#[utoipa::path(put, path = "/users/me/password", tag = "user", security(("bearer_auth" = [])), request_body = ChangePasswordRequest)]
+#[utoipa::path(
+    put,
+    path = "/users/me/password",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    request_body = ChangePasswordRequest,
+    responses((status = 200, description = "Password changed", body = ApiResponse<EmptyData>))
+)]
 pub async fn change_password(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -70,7 +97,15 @@ pub async fn change_password(
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
 
-#[utoipa::path(put, path = "/users/{id}", tag = "user", security(("bearer_auth" = [])), request_body = UpdateUserRequest)]
+#[utoipa::path(
+    put,
+    path = "/users/{id}",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "User ID")),
+    request_body = UpdateUserRequest,
+    responses((status = 200, description = "User updated", body = ApiResponse<EmptyData>))
+)]
 pub async fn set_user_info_by_id(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -81,7 +116,14 @@ pub async fn set_user_info_by_id(
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
 
-#[utoipa::path(put, path = "/users/me", tag = "user", security(("bearer_auth" = [])), request_body = UpdateSelfRequest)]
+#[utoipa::path(
+    put,
+    path = "/users/me",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    request_body = UpdateSelfRequest,
+    responses((status = 200, description = "Current user updated", body = ApiResponse<EmptyData>))
+)]
 pub async fn set_self_info(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -94,7 +136,14 @@ pub async fn set_self_info(
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
 
-#[utoipa::path(put, path = "/users/me/settings", tag = "user", security(("bearer_auth" = [])), request_body = UpdateSelfSettingsRequest)]
+#[utoipa::path(
+    put,
+    path = "/users/me/settings",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    request_body = UpdateSelfSettingsRequest,
+    responses((status = 200, description = "User settings updated", body = ApiResponse<EmptyData>))
+)]
 pub async fn set_self_setting(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -107,7 +156,14 @@ pub async fn set_self_setting(
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
 
-#[utoipa::path(delete, path = "/users/{id}", tag = "user", security(("bearer_auth" = [])))]
+#[utoipa::path(
+    delete,
+    path = "/users/{id}",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "User ID")),
+    responses((status = 200, description = "User deleted", body = ApiResponse<EmptyData>))
+)]
 pub async fn delete_user_by_id(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -117,7 +173,15 @@ pub async fn delete_user_by_id(
     Ok(Json(ApiResponse::new("OK", "deleted", None)))
 }
 
-#[utoipa::path(post, path = "/users/{id}/password/reset", tag = "user", security(("bearer_auth" = [])), request_body = ResetPasswordRequest)]
+#[utoipa::path(
+    post,
+    path = "/users/{id}/password/reset",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "User ID")),
+    request_body = ResetPasswordRequest,
+    responses((status = 200, description = "Password reset", body = ApiResponse<EmptyData>))
+)]
 pub async fn reset_password_by_id(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -146,7 +210,15 @@ async fn revoke_sessions_and_persist_password(
     Ok(())
 }
 
-#[utoipa::path(put, path = "/users/{id}/roles", tag = "user", security(("bearer_auth" = [])), request_body = SetUserRolesRequest)]
+#[utoipa::path(
+    put,
+    path = "/users/{id}/roles",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "User ID")),
+    request_body = SetUserRolesRequest,
+    responses((status = 200, description = "User roles updated", body = ApiResponse<EmptyData>))
+)]
 pub async fn set_user_roles_by_id(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -161,7 +233,14 @@ pub async fn set_user_roles_by_id(
     Ok(Json(ApiResponse::new("OK", "roles updated", None)))
 }
 
-#[utoipa::path(get, path = "/users/{id}/permissions", tag = "user", security(("bearer_auth" = [])))]
+#[utoipa::path(
+    get,
+    path = "/users/{id}/permissions",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "User ID")),
+    responses((status = 200, description = "User access", body = ApiResponse<UserAccessData>))
+)]
 pub async fn get_user_access(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -172,7 +251,15 @@ pub async fn get_user_access(
     )))
 }
 
-#[utoipa::path(put, path = "/users/{id}/permissions", tag = "user", security(("bearer_auth" = [])), request_body = SetUserPermissionsRequest)]
+#[utoipa::path(
+    put,
+    path = "/users/{id}/permissions",
+    tag = "user",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "User ID")),
+    request_body = SetUserPermissionsRequest,
+    responses((status = 200, description = "User permissions updated", body = ApiResponse<EmptyData>))
+)]
 pub async fn set_user_permissions(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,

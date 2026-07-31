@@ -113,8 +113,7 @@ impl From<iam::AuthorizationError> for AppError {
             source @ (iam::AuthorizationError::Database(_)
             | iam::AuthorizationError::Policy(_)
             | iam::AuthorizationError::Watcher(_)
-            | iam::AuthorizationError::WatcherInstallation
-            | iam::AuthorizationError::StateUnavailable) => {
+            | iam::AuthorizationError::WatcherInstallation) => {
                 AUTHORIZATION_UNAVAILABLE.into_error().with_source(source)
             }
         }

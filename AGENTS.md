@@ -39,6 +39,7 @@ This file gives repo-specific guidance for agents working in this project.
 - Keep stable error specs in the owning layer:
   - domain errors: the owning capability crate's local `error.rs` or `errors.rs`
   - API boundary errors: `crates/api/src/mappings.rs`, with route-local errors only for multi-capability workflows such as login
+- Keep stable, context-independent conversions from private implementation errors into a domain error in the owning module's `error.rs`; service code should propagate them with `?`.
 - Add `impl From<...> for AppError` only when the source error has one stable API meaning in every context.
 - When the same error type has context-specific semantics, map it explicitly at the call site with `.map_err(...)`.
 - Keep user-management and authentication errors distinct:

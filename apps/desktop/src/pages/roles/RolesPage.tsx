@@ -62,6 +62,7 @@ export function RolesPage() {
   const [permissionCatalog, setPermissionCatalog] = useState<PermissionCatalogItem[]>([])
   const [protectedRole, setProtectedRole] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [loadingConfiguration, setLoadingConfiguration] = useState(false)
   const [saving, setSaving] = useState(false)
   const [roleModal, setRoleModal] = useState(false)
   const [editingRole, setEditingRole] = useState<RoleResource | null>(null)
@@ -97,9 +98,20 @@ export function RolesPage() {
   }, [loadWorkbench])
 
   useEffect(() => {
-    if (!selectedRoleId) return
+    setSelectedMenuIds([])
+    setSelectedPermissions([])
+    setPermissionCatalog([])
+    setProtectedRole(false)
+  }, [selectedRoleId])
+
+  useEffect(() => {
+    if (!selectedRoleId) {
+      setLoadingConfiguration(false)
+      return
+    }
     let cancelled = false
     if (tab === 'page_access' && canViewPageAccess) {
+      setLoadingConfiguration(true)
       void Promise.all([fetchMenuTree(), getRolePageAccess(selectedRoleId)])
         .then(([nextMenus, access]) => {
           if (cancelled) return
@@ -108,8 +120,12 @@ export function RolesPage() {
           setProtectedRole(access.protected)
         })
         .catch(() => toast.error(t('Failed to load page access')))
+        .finally(() => {
+          if (!cancelled) setLoadingConfiguration(false)
+        })
     }
     if (tab === 'permissions' && canViewPermissions) {
+      setLoadingConfiguration(true)
       void getRolePermissions(selectedRoleId)
         .then((result) => {
           if (cancelled) return
@@ -118,6 +134,12 @@ export function RolesPage() {
           setProtectedRole(result.protected)
         })
         .catch(() => toast.error(t('Failed to load role permissions')))
+        .finally(() => {
+          if (!cancelled) setLoadingConfiguration(false)
+        })
+    }
+    if (tab === 'basic') {
+      setLoadingConfiguration(false)
     }
     return () => {
       cancelled = true
@@ -352,7 +374,11 @@ export function RolesPage() {
                         {t('Choose which directories and pages this role can navigate.')}
                       </p>
                       {canEditPageAccess && (
-                        <Button disabled={saving} onClick={() => void savePageAccess()} size="sm">
+                        <Button
+                          disabled={saving || loadingConfiguration}
+                          onClick={() => void savePageAccess()}
+                          size="sm"
+                        >
                           {t('Save page access')}
                         </Button>
                       )}
@@ -372,7 +398,7 @@ export function RolesPage() {
                           <Checkbox
                             aria-label={t('{{title}} page access', { title: t(menu.meta?.title || menu.name) })}
                             checked={selectedMenuIds.includes(menu.id)}
-                            disabled={!canEditPageAccess}
+                            disabled={!canEditPageAccess || loadingConfiguration}
                             onCheckedChange={(checked) => setMenuAccess(menu.id, checked === true)}
                           />
                         </div>
@@ -390,7 +416,11 @@ export function RolesPage() {
                         {t('Page access includes its entry permission; choose additional actions here.')}
                       </p>
                       {canEditPermissions && (
-                        <Button disabled={saving} onClick={() => void savePermissions()} size="sm">
+                        <Button
+                          disabled={saving || loadingConfiguration}
+                          onClick={() => void savePermissions()}
+                          size="sm"
+                        >
                           {t('Save permissions')}
                         </Button>
                       )}
@@ -409,7 +439,7 @@ export function RolesPage() {
                               <label className="inline-flex items-center gap-1.5 text-xs" key={item.permission}>
                                 <Checkbox
                                   checked={selectedPermissions.includes(item.permission)}
-                                  disabled={!canEditPermissions}
+                                  disabled={!canEditPermissions || loadingConfiguration}
                                   onCheckedChange={(checked) =>
                                     setSelectedPermissions((current) =>
                                       checked === true

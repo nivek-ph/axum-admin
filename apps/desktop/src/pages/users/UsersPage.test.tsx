@@ -156,7 +156,7 @@ describe('Users workflow', () => {
       userName: 'admin',
       nickName: 'Admin',
       homeRoute: 'users',
-      roles: [{ id: 1, code: 'super_admin', name: 'Super Admin' }],
+      roles: [{ id: 2, code: 'operator', name: 'Operator' }],
     }
     const target = {
       id: 42,

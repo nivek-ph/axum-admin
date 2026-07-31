@@ -1,7 +1,6 @@
-//! Casbin-backed authorization implementation.
-
 use std::{
     collections::{BTreeSet, HashMap},
+    sync::Arc,
     time::Duration,
 };
 
@@ -13,7 +12,7 @@ use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use tokio::sync::MutexGuard;
 
 use super::{
-    EffectivePermissionGrant,
+    AccountPolicyError, AuthorizationError, EffectivePermissionGrant, RolePolicyError,
     engine::EnforcementEngine,
     store::{
         PolicyStore, active_super_admin_count_in, is_active_super_admin_in, known_permissions_in,
@@ -23,69 +22,6 @@ use super::{
         roles_exist_in, super_admin_role_id_in, user_exists_in, user_subject,
     },
 };
-
-#[derive(Debug, thiserror::Error)]
-pub enum AuthorizationError {
-    #[error("authorization configuration is invalid")]
-    Configuration(String),
-    #[error("authorization database operation failed")]
-    Database(#[from] sqlx::Error),
-    #[error("authorization policy operation failed")]
-    Policy(#[from] casbin::Error),
-    #[error("authorization watcher failed")]
-    Watcher(#[from] redis_watcher::WatcherError),
-    #[error("authorization watcher could not be installed")]
-    WatcherInstallation,
-    #[error("authorization state is unavailable")]
-    StateUnavailable,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PolicyAdministrationError {
-    #[error("user not found")]
-    UserNotFound,
-    #[error("only an active super_admin may manage employee access")]
-    AccessDenied,
-    #[error("the final active super_admin cannot be removed")]
-    LastSuperAdmin,
-    #[error("selected permissions are invalid")]
-    InvalidPermissionAssignment,
-    #[error("selected roles are invalid")]
-    InvalidRoleAssignment,
-    #[error("authorization administration database operation failed")]
-    Database(#[from] sqlx::Error),
-    #[error(transparent)]
-    Audit(#[from] audit::AuditError),
-    #[error(transparent)]
-    Authorization(AuthorizationError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum RolePolicyError {
-    #[error("role not found")]
-    RoleNotFound,
-    #[error("protected role is immutable")]
-    RoleImmutable,
-    #[error("only an active super_admin may manage role access")]
-    AccessDenied,
-    #[error("authorization administration database operation failed")]
-    Database(#[from] sqlx::Error),
-    #[error(transparent)]
-    Authorization(AuthorizationError),
-}
-
-impl From<AuthorizationError> for PolicyAdministrationError {
-    fn from(error: AuthorizationError) -> Self {
-        match error {
-            AuthorizationError::Database(source) => Self::Database(source),
-            source @ (AuthorizationError::Configuration(_)
-            | AuthorizationError::Policy(_)
-            | AuthorizationError::Watcher(_)
-            | AuthorizationError::WatcherInstallation
-            | AuthorizationError::StateUnavailable) => Self::Authorization(source),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct ReplaceUserRoles {
@@ -105,20 +41,14 @@ pub struct ReplaceUserPermissions {
 
 #[derive(Clone)]
 pub struct Authorization {
-    store: PolicyStore,
-    engine: EnforcementEngine,
+    store: Arc<PolicyStore>,
+    engine: Arc<EnforcementEngine>,
 }
 
 pub(crate) struct AuthorizationMutation<'a> {
     authorization: &'a Authorization,
     transaction: Transaction<'a, Postgres>,
     _reload_guard: MutexGuard<'a, ()>,
-}
-
-pub(crate) enum InitialMembershipError {
-    AccessDenied,
-    InvalidRoles,
-    Database(sqlx::Error),
 }
 
 impl AuthorizationMutation<'_> {
@@ -171,26 +101,18 @@ impl AuthorizationMutation<'_> {
         actor_user_id: i64,
         user_id: i64,
         role_ids: &[i64],
-    ) -> Result<(), InitialMembershipError> {
+    ) -> Result<(), AccountPolicyError> {
         let role_ids = normalize_ids(role_ids);
         if role_ids.is_empty() {
             return Ok(());
         }
-        if !is_active_super_admin_in(self.connection(), actor_user_id)
-            .await
-            .map_err(InitialMembershipError::Database)?
-        {
-            return Err(InitialMembershipError::AccessDenied);
+        if !is_active_super_admin_in(self.connection(), actor_user_id).await? {
+            return Err(AccountPolicyError::AccessDenied);
         }
-        if !roles_are_assignable_in(self.connection(), &role_ids)
-            .await
-            .map_err(InitialMembershipError::Database)?
-        {
-            return Err(InitialMembershipError::InvalidRoles);
+        if !roles_are_assignable_in(self.connection(), &role_ids).await? {
+            return Err(AccountPolicyError::InvalidRoleAssignment);
         }
-        replace_user_roles_in(self.connection(), user_id, role_ids.into_iter().collect())
-            .await
-            .map_err(InitialMembershipError::Database)?;
+        replace_user_roles_in(self.connection(), user_id, role_ids.into_iter().collect()).await?;
         Ok(())
     }
 
@@ -200,7 +122,7 @@ impl AuthorizationMutation<'_> {
         target_user_id: i64,
         next_enabled: bool,
         removing_account: bool,
-    ) -> Result<(), PolicyAdministrationError> {
+    ) -> Result<(), AccountPolicyError> {
         let Some((currently_enabled, holds_super_admin)) = sqlx::query_as::<_, (bool, bool)>(
             r#"
                 select u.enable,
@@ -220,7 +142,7 @@ impl AuthorizationMutation<'_> {
         .fetch_optional(self.connection())
         .await?
         else {
-            return Err(PolicyAdministrationError::UserNotFound);
+            return Err(AccountPolicyError::UserNotFound);
         };
         if !holds_super_admin || (!removing_account && next_enabled == currently_enabled) {
             return Ok(());
@@ -230,7 +152,7 @@ impl AuthorizationMutation<'_> {
             && (!next_enabled || removing_account)
             && active_super_admin_count_in(self.connection()).await? <= 1
         {
-            return Err(PolicyAdministrationError::LastSuperAdmin);
+            return Err(AccountPolicyError::LastSuperAdmin);
         }
         Ok(())
     }
@@ -253,29 +175,27 @@ impl AuthorizationMutation<'_> {
         } = self;
         transaction.commit().await?;
         authorization.engine.publish_change();
-        let _ = authorization
-            .engine
-            .reload_locked(&authorization.store)
-            .await;
+        let _ = authorization.engine.reload_locked().await;
         Ok(())
     }
 }
 
 impl Authorization {
+    /// Load the authorization service with a new policy store and enforcement engine.
     pub(crate) async fn load(pool: PgPool) -> Result<Self, AuthorizationError> {
-        let store = PolicyStore::new(pool);
-        let engine = EnforcementEngine::load(&store).await?;
+        let store = Arc::new(PolicyStore::new(pool));
+        let engine = Arc::new(EnforcementEngine::load(Arc::clone(&store)).await?);
         Ok(Self { store, engine })
     }
 
-    pub(crate) fn start_redis_watcher(&self, redis_url: &str) -> Result<(), AuthorizationError> {
-        self.engine
-            .start_redis_watcher(self.store.clone(), redis_url)
-    }
-
-    pub(crate) fn start_periodic_reload(&self, interval: Duration) {
-        self.engine
-            .start_periodic_reload(self.store.clone(), interval);
+    pub(crate) fn start_policy_sync(
+        &self,
+        redis_url: &str,
+        reload_interval: Duration,
+    ) -> Result<(), AuthorizationError> {
+        // Periodic reload goes first so it stays active when the watcher fails.
+        self.engine.start_periodic_reload(reload_interval);
+        self.engine.start_redis_watcher(redis_url)
     }
 
     pub(crate) async fn is_active_super_admin(
@@ -290,11 +210,11 @@ impl Authorization {
         &self,
         actor_user_id: i64,
         target_user_id: i64,
-    ) -> Result<(), PolicyAdministrationError> {
+    ) -> Result<(), AccountPolicyError> {
         let mut connection = self.store.pool().acquire().await?;
         require_super_admin(&mut connection, actor_user_id).await?;
         if !self.store.user_exists(target_user_id).await? {
-            return Err(PolicyAdministrationError::UserNotFound);
+            return Err(AccountPolicyError::UserNotFound);
         }
         Ok(())
     }
@@ -329,15 +249,15 @@ impl Authorization {
     pub(crate) async fn replace_user_roles(
         &self,
         request: ReplaceUserRoles,
-    ) -> Result<(), PolicyAdministrationError> {
+    ) -> Result<(), AccountPolicyError> {
         let role_ids = normalize_ids(&request.role_ids);
         let mut mutation = self.begin_mutation().await?;
         require_super_admin(mutation.connection(), request.actor_user_id).await?;
         if !user_exists_in(mutation.connection(), request.user_id).await? {
-            return Err(PolicyAdministrationError::UserNotFound);
+            return Err(AccountPolicyError::UserNotFound);
         }
         if !roles_exist_in(mutation.connection(), &role_ids).await? {
-            return Err(PolicyAdministrationError::InvalidRoleAssignment);
+            return Err(AccountPolicyError::InvalidRoleAssignment);
         }
         let super_admin_role_id = super_admin_role_id_in(mutation.connection()).await?;
         let target_is_active_super =
@@ -346,7 +266,7 @@ impl Authorization {
             && !role_ids.contains(&super_admin_role_id)
             && active_super_admin_count_in(mutation.connection()).await? <= 1
         {
-            return Err(PolicyAdministrationError::LastSuperAdmin);
+            return Err(AccountPolicyError::LastSuperAdmin);
         }
         let before = mutation
             .replace_user_roles(request.user_id, role_ids.iter().copied().collect())
@@ -375,15 +295,15 @@ impl Authorization {
     pub(crate) async fn replace_user_permissions(
         &self,
         request: ReplaceUserPermissions,
-    ) -> Result<(), PolicyAdministrationError> {
+    ) -> Result<(), AccountPolicyError> {
         let permissions = request.permissions.into_iter().collect::<BTreeSet<_>>();
         let mut mutation = self.begin_mutation().await?;
         require_super_admin(mutation.connection(), request.actor_user_id).await?;
         if !user_exists_in(mutation.connection(), request.user_id).await? {
-            return Err(PolicyAdministrationError::UserNotFound);
+            return Err(AccountPolicyError::UserNotFound);
         }
         if !known_permissions_in(mutation.connection(), &permissions).await? {
-            return Err(PolicyAdministrationError::InvalidPermissionAssignment);
+            return Err(AccountPolicyError::InvalidPermissionAssignment);
         }
         let before = replace_user_permissions_in(
             mutation.connection(),
@@ -412,12 +332,9 @@ impl Authorization {
         Ok(mutation.commit().await?)
     }
 
-    pub(crate) async fn user_role_ids(
-        &self,
-        user_id: i64,
-    ) -> Result<Vec<i64>, PolicyAdministrationError> {
+    pub(crate) async fn user_role_ids(&self, user_id: i64) -> Result<Vec<i64>, AccountPolicyError> {
         if !self.store.user_exists(user_id).await? {
-            return Err(PolicyAdministrationError::UserNotFound);
+            return Err(AccountPolicyError::UserNotFound);
         }
         Ok(self.store.user_role_ids(user_id).await?)
     }
@@ -425,9 +342,9 @@ impl Authorization {
     pub(crate) async fn user_permissions(
         &self,
         user_id: i64,
-    ) -> Result<Vec<String>, PolicyAdministrationError> {
+    ) -> Result<Vec<String>, AccountPolicyError> {
         if !self.store.user_exists(user_id).await? {
-            return Err(PolicyAdministrationError::UserNotFound);
+            return Err(AccountPolicyError::UserNotFound);
         }
         Ok(self.store.user_permissions(user_id).await?)
     }
@@ -490,7 +407,7 @@ impl Authorization {
     pub(crate) async fn begin_mutation(
         &self,
     ) -> Result<AuthorizationMutation<'_>, AuthorizationError> {
-        let reload_guard = self.engine.lock_reload().await;
+        let reload_guard = self.engine.lock_policy_change().await;
         let mut transaction = self.store.pool().begin().await?;
         lock_policy_table(transaction.as_mut()).await?;
         Ok(AuthorizationMutation {
@@ -504,11 +421,11 @@ impl Authorization {
 async fn require_super_admin(
     connection: &mut PgConnection,
     actor_user_id: i64,
-) -> Result<(), PolicyAdministrationError> {
+) -> Result<(), AccountPolicyError> {
     if is_active_super_admin_in(connection, actor_user_id).await? {
         Ok(())
     } else {
-        Err(PolicyAdministrationError::AccessDenied)
+        Err(AccountPolicyError::AccessDenied)
     }
 }
 
@@ -575,7 +492,7 @@ mod tests {
 
         assert!(
             authorization
-                .start_redis_watcher("not a redis URL")
+                .start_policy_sync("not a redis URL", Duration::from_secs(30))
                 .is_err()
         );
         assert!(

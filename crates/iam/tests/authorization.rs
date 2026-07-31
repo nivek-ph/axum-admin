@@ -298,16 +298,16 @@ async fn post_commit_reload_failure_is_successful_and_periodic_reload_recovers(p
         .unwrap();
     assert!(matches!(
         iam.access.evaluate(114, "GET", "/api/users").await,
-        Err(AccessEvaluationError::Authorization(
-            iam::AuthorizationError::StateUnavailable
-        ))
+        Err(AccessEvaluationError::PermissionDenied { .. })
     ));
 
     sqlx::query("delete from casbin_rule where ptype = 'p' and v0 = 'role:2' and v1 = '*'")
         .execute(&pool)
         .await
         .unwrap();
-    iam.start_periodic_reload(Duration::from_millis(20));
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let _ = iam.start_policy_sync(&redis_url, Duration::from_millis(20));
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             if iam.access.evaluate(114, "GET", "/api/users").await.is_ok() {
@@ -379,8 +379,12 @@ async fn watcher_propagates_employee_access_changes(pool: sqlx::PgPool) {
     let subscriber = Iam::load(pool).await.unwrap();
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
-    publisher.start_redis_watcher(&redis_url).unwrap();
-    subscriber.start_redis_watcher(&redis_url).unwrap();
+    publisher
+        .start_policy_sync(&redis_url, Duration::from_secs(60))
+        .unwrap();
+    subscriber
+        .start_policy_sync(&redis_url, Duration::from_secs(60))
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     publisher

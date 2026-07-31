@@ -60,7 +60,7 @@ pub struct RoleMenuIdsData {
 
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct PermissionCatalogItem {
+pub struct OperationPermissionCatalogItem {
     pub permission: String,
     pub title: String,
     pub menu_type: String,
@@ -75,7 +75,7 @@ pub struct PermissionCatalogItem {
 #[serde(rename_all = "camelCase")]
 pub struct RolePermissionsData {
     pub permissions: Vec<String>,
-    pub catalog: Vec<PermissionCatalogItem>,
+    pub catalog: Vec<OperationPermissionCatalogItem>,
     pub protected: bool,
 }
 
@@ -91,23 +91,14 @@ impl From<iam::roles::RoleSummary> for RoleResponse {
     }
 }
 
-impl
-    From<(
-        iam::roles::RolePermissionView,
-        Vec<iam::roles::PermissionCatalogItem>,
-    )> for RolePermissionsData
-{
-    fn from(
-        (policy, catalog): (
-            iam::roles::RolePermissionView,
-            Vec<iam::roles::PermissionCatalogItem>,
-        ),
-    ) -> Self {
+impl From<iam::roles::RoleOperationPermissionsWithCatalog> for RolePermissionsData {
+    fn from(role_permissions: iam::roles::RoleOperationPermissionsWithCatalog) -> Self {
         Self {
-            permissions: policy.permissions,
-            catalog: catalog
+            permissions: role_permissions.permissions,
+            catalog: role_permissions
+                .catalog
                 .into_iter()
-                .map(|item| PermissionCatalogItem {
+                .map(|item| OperationPermissionCatalogItem {
                     permission: item.permission,
                     title: item.title,
                     menu_type: item.menu_type,
@@ -118,7 +109,7 @@ impl
                     page_visible: item.page_visible,
                 })
                 .collect(),
-            protected: policy.protected,
+            protected: role_permissions.protected,
         }
     }
 }

@@ -6,12 +6,10 @@ use std::{
 use sqlx::PgPool;
 
 use super::{
-    PermissionCatalogItem, RoleError, RoleMenuAccess, RolePayload, RolePermissionView, RoleSummary,
+    OperationPermissionCatalogItem, RoleError, RoleMenuAccess, RoleOperationPermissionSelection,
+    RoleOperationPermissionsWithCatalog, RolePayload, RoleSummary,
 };
-use crate::{
-    access::AccessCatalog,
-    authorization::{Authorization, RolePolicyError},
-};
+use crate::{access::AccessCatalog, authorization::Authorization};
 
 #[derive(Clone)]
 pub struct RoleService {
@@ -129,8 +127,7 @@ impl RoleService {
         let mut mutation = self.authorization.begin_mutation().await?;
         mutation
             .ensure_role_access_change(actor_user_id, id)
-            .await
-            .map_err(map_role_policy_error)?;
+            .await?;
         let configured_menu_ids = values.iter().copied().collect::<HashSet<_>>();
         self.catalog.validate_assignment(&configured_menu_ids)?;
         let mut permissions = self.catalog.page_entry_permissions(&configured_menu_ids);
@@ -156,23 +153,63 @@ impl RoleService {
         Ok(mutation.commit().await?)
     }
 
-    pub async fn permission_catalog(
+    pub async fn operation_permission_catalog(
         &self,
         id: i64,
-    ) -> Result<Vec<PermissionCatalogItem>, RoleError> {
+    ) -> Result<Vec<OperationPermissionCatalogItem>, RoleError> {
         let role = find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
+        self.action_permission_catalog(id, role.status == "enabled")
+            .await
+    }
+
+    pub async fn assigned_operation_permissions(
+        &self,
+        id: i64,
+    ) -> Result<RoleOperationPermissionSelection, RoleError> {
+        let role = find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
+        Ok(RoleOperationPermissionSelection {
+            permissions: self.action_permissions(id).await?,
+            protected: is_protected(&role),
+        })
+    }
+
+    pub async fn operation_permissions_with_catalog(
+        &self,
+        id: i64,
+    ) -> Result<RoleOperationPermissionsWithCatalog, RoleError> {
+        let role = find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
+        let role_enabled = role.status == "enabled";
+        let catalog = self.action_permission_catalog(id, role_enabled).await?;
+        let permissions = self.action_permissions(id).await?;
+        Ok(RoleOperationPermissionsWithCatalog {
+            permissions,
+            catalog,
+            protected: is_protected(&role),
+        })
+    }
+
+    async fn action_permission_catalog(
+        &self,
+        id: i64,
+        role_enabled: bool,
+    ) -> Result<Vec<OperationPermissionCatalogItem>, RoleError> {
+        let configured_menu_ids = sqlx::query_scalar(
+            "select menu_id from sys_role_menus where role_id = $1 order by menu_id",
+        )
+        .bind(id)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .collect::<HashSet<_>>();
         let visible_pages = self
-            .menu_access(id)
-            .await?
-            .effective_menu_ids
-            .into_iter()
-            .collect::<BTreeSet<_>>();
+            .catalog
+            .effective_page_access(&configured_menu_ids, role_enabled);
         Ok(self
             .catalog
-            .permission_catalog(&visible_pages, role.status == "enabled")
+            .permission_catalog(&visible_pages, role_enabled)
             .into_iter()
             .filter(|row| row.menu_type == "action")
-            .map(|row| PermissionCatalogItem {
+            .map(|row| OperationPermissionCatalogItem {
                 permission: row.permission,
                 title: row.title,
                 menu_type: row.menu_type,
@@ -185,19 +222,14 @@ impl RoleService {
             .collect())
     }
 
-    pub async fn permissions(&self, id: i64) -> Result<RolePermissionView, RoleError> {
-        let role = find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
-        Ok(RolePermissionView {
-            permissions: self
-                .authorization
-                .role_permissions(id)
-                .await
-                .map_err(map_role_policy_error)?
-                .into_iter()
-                .filter(|permission| self.catalog.is_action_permission(permission))
-                .collect(),
-            protected: is_protected(&role),
-        })
+    async fn action_permissions(&self, id: i64) -> Result<Vec<String>, RoleError> {
+        Ok(self
+            .authorization
+            .role_permissions(id)
+            .await?
+            .into_iter()
+            .filter(|permission| self.catalog.is_action_permission(permission))
+            .collect())
     }
 
     pub async fn set_permissions(
@@ -210,8 +242,7 @@ impl RoleService {
         let mut mutation = self.authorization.begin_mutation().await?;
         mutation
             .ensure_role_access_change(actor_user_id, id)
-            .await
-            .map_err(map_role_policy_error)?;
+            .await?;
         if !permissions
             .iter()
             .all(|permission| self.catalog.is_action_permission(permission))
@@ -229,16 +260,6 @@ impl RoleService {
         permissions.extend(self.catalog.page_entry_permissions(&configured_menu_ids));
         mutation.replace_role_permissions(id, permissions).await?;
         Ok(mutation.commit().await?)
-    }
-}
-
-fn map_role_policy_error(error: RolePolicyError) -> RoleError {
-    match error {
-        RolePolicyError::RoleNotFound => RoleError::NotFound,
-        RolePolicyError::RoleImmutable => RoleError::Immutable,
-        RolePolicyError::AccessDenied => RoleError::AccessDenied,
-        RolePolicyError::Database(source) => RoleError::Database(source),
-        RolePolicyError::Authorization(source) => RoleError::Authorization(source),
     }
 }
 

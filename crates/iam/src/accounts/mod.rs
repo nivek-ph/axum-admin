@@ -1,41 +1,11 @@
+mod error;
 mod service;
 
+pub use error::{AccountError, RefreshIdentityError};
 pub use service::Accounts;
 use sqlx::FromRow;
 
-use crate::{authorization::AuthorizationError, roles::RoleSummary};
-
-#[derive(Debug, thiserror::Error)]
-pub enum AccountError {
-    #[error("user not found")]
-    NotFound,
-    #[error("user already exists")]
-    AlreadyExists,
-    #[error("selected roles are invalid")]
-    InvalidRoles,
-    #[error("only an active super_admin may perform this operation")]
-    AccessDenied,
-    #[error("the final active super_admin cannot be removed")]
-    LastSuperAdmin,
-    #[error("selected permissions are invalid")]
-    InvalidPermissions,
-    #[error(transparent)]
-    Audit(#[from] audit::AuditError),
-    #[error("{0}")]
-    Database(#[from] sqlx::Error),
-    #[error(transparent)]
-    Authorization(#[from] AuthorizationError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RefreshIdentityError {
-    #[error("user not found")]
-    NotFound,
-    #[error("user is disabled")]
-    Disabled,
-    #[error("{0}")]
-    Database(#[from] sqlx::Error),
-}
+use crate::roles::RoleSummary;
 
 #[derive(Debug, Clone, FromRow)]
 struct UserRecord {

@@ -1,12 +1,11 @@
 mod engine;
+mod error;
 mod service;
 mod store;
 
-pub use service::{
-    Authorization, AuthorizationError, PolicyAdministrationError, ReplaceUserPermissions,
-    ReplaceUserRoles,
-};
-pub(crate) use service::{InitialMembershipError, RolePolicyError};
+pub use error::AuthorizationError;
+pub(crate) use error::{AccountPolicyError, RolePolicyError};
+pub use service::{Authorization, ReplaceUserPermissions, ReplaceUserRoles};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EffectiveRoleGrant {

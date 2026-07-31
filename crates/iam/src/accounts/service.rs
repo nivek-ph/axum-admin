@@ -14,10 +14,7 @@ use super::{
 };
 use crate::{
     access::AccessCatalog,
-    authorization::{
-        Authorization, InitialMembershipError, PolicyAdministrationError, ReplaceUserPermissions,
-        ReplaceUserRoles,
-    },
+    authorization::{Authorization, ReplaceUserPermissions, ReplaceUserRoles},
     roles::RoleSummary,
 };
 
@@ -56,11 +53,20 @@ impl Accounts {
         query: GetUserListRequest,
     ) -> Result<(Vec<UserInfoView>, i64), AccountError> {
         let boundary = self.boundary(actor_user_id).await?;
-        get_user_list(&self.pool, &self.authorization, query, boundary).await
+        let include_roles = matches!(boundary, AccountBoundary::All);
+        get_user_list(
+            &self.pool,
+            &self.authorization,
+            query,
+            boundary,
+            include_roles,
+        )
+        .await
     }
 
     pub async fn info(&self, user_id: i64) -> Result<UserInfoView, AccountError> {
-        load_user_info(&self.pool, &self.authorization, user_id).await
+        let include_roles = self.authorization.is_active_super_admin(user_id).await?;
+        load_user_info(&self.pool, &self.authorization, user_id, include_roles).await
     }
 
     pub async fn ensure_admin(
@@ -70,10 +76,15 @@ impl Accounts {
         nickname: &str,
     ) -> Result<(), AccountError> {
         let user_id = ensure_admin_user(&self.pool, username, password_hash, nickname).await?;
+        let mut role_ids = self
+            .authorization
+            .user_role_ids(user_id)
+            .await?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        role_ids.insert(super_admin_role_id(&self.pool).await?);
         let mut mutation = self.authorization.begin_mutation().await?;
-        mutation
-            .replace_user_roles(user_id, [super_admin_role_id(&self.pool).await?].into())
-            .await?;
+        mutation.replace_user_roles(user_id, role_ids).await?;
         mutation.commit().await?;
         Ok(())
     }
@@ -125,21 +136,9 @@ impl Accounts {
         .bind(dept_id)
         .fetch_one(mutation.connection())
         .await?;
-        match mutation
+        mutation
             .replace_initial_user_roles(actor_user_id, user_id, &role_ids)
-            .await
-        {
-            Ok(()) => {}
-            Err(InitialMembershipError::AccessDenied) => {
-                return Err(AccountError::AccessDenied);
-            }
-            Err(InitialMembershipError::InvalidRoles) => {
-                return Err(AccountError::InvalidRoles);
-            }
-            Err(InitialMembershipError::Database(source)) => {
-                return Err(AccountError::Database(source));
-            }
-        }
+            .await?;
         mutation.commit().await?;
         Ok(())
     }
@@ -204,8 +203,7 @@ impl Accounts {
         let mut mutation = self.authorization.begin_mutation().await?;
         mutation
             .ensure_account_change(actor_user_id, target_user_id, payload.enable == 1, false)
-            .await
-            .map_err(map_policy_error)?;
+            .await?;
         let updated = sqlx::query(
             r#"
             update sys_users
@@ -283,8 +281,7 @@ impl Accounts {
         let mut mutation = self.authorization.begin_mutation().await?;
         mutation
             .ensure_account_change(actor_user_id, target_user_id, false, true)
-            .await
-            .map_err(map_policy_error)?;
+            .await?;
         mutation.remove_user(target_user_id).await?;
         let deleted = sqlx::query("delete from sys_users where id = $1")
             .bind(target_user_id)
@@ -326,18 +323,9 @@ impl Accounts {
     ) -> Result<AccountAccessView, AccountError> {
         self.authorization
             .ensure_access_manager(actor_user_id, target_user_id)
-            .await
-            .map_err(map_policy_error)?;
-        let role_ids = self
-            .authorization
-            .user_role_ids(target_user_id)
-            .await
-            .map_err(map_policy_error)?;
-        let direct_permissions = self
-            .authorization
-            .user_permissions(target_user_id)
-            .await
-            .map_err(map_policy_error)?;
+            .await?;
+        let role_ids = self.authorization.user_role_ids(target_user_id).await?;
+        let direct_permissions = self.authorization.user_permissions(target_user_id).await?;
         let active_role_ids = self
             .authorization
             .active_user_role_ids(target_user_id)
@@ -407,8 +395,8 @@ impl Accounts {
                 role_ids,
                 audit_context,
             })
-            .await
-            .map_err(map_policy_error)
+            .await?;
+        Ok(())
     }
 
     pub async fn replace_direct_permissions(
@@ -425,8 +413,8 @@ impl Accounts {
                 permissions,
                 audit_context,
             })
-            .await
-            .map_err(map_policy_error)
+            .await?;
+        Ok(())
     }
 
     async fn boundary(&self, actor_user_id: i64) -> Result<AccountBoundary, AccountError> {
@@ -486,19 +474,6 @@ impl Accounts {
     }
 }
 
-fn map_policy_error(error: PolicyAdministrationError) -> AccountError {
-    match error {
-        PolicyAdministrationError::UserNotFound => AccountError::NotFound,
-        PolicyAdministrationError::AccessDenied => AccountError::AccessDenied,
-        PolicyAdministrationError::LastSuperAdmin => AccountError::LastSuperAdmin,
-        PolicyAdministrationError::InvalidRoleAssignment => AccountError::InvalidRoles,
-        PolicyAdministrationError::InvalidPermissionAssignment => AccountError::InvalidPermissions,
-        PolicyAdministrationError::Database(source) => AccountError::Database(source),
-        PolicyAdministrationError::Audit(source) => AccountError::Audit(source),
-        PolicyAdministrationError::Authorization(source) => AccountError::Authorization(source),
-    }
-}
-
 async fn ensure_admin_user(
     pool: &sqlx::PgPool,
     username: &str,
@@ -551,6 +526,7 @@ async fn get_user_list(
     authorization: &Authorization,
     query: GetUserListRequest,
     boundary: AccountBoundary,
+    include_roles: bool,
 ) -> Result<(Vec<UserInfoView>, i64), AccountError> {
     let page = query.page.max(1);
     let page_size = query.page_size.max(1);
@@ -623,8 +599,12 @@ async fn get_user_list(
         .bind(offset)
         .fetch_all(pool)
         .await?;
-    let user_ids = rows.iter().map(|record| record.id).collect::<Vec<_>>();
-    let mut roles_by_user_id = get_roles_by_user_ids(pool, authorization, &user_ids).await?;
+    let mut roles_by_user_id = if include_roles {
+        let user_ids = rows.iter().map(|record| record.id).collect::<Vec<_>>();
+        get_roles_by_user_ids(pool, authorization, &user_ids).await?
+    } else {
+        HashMap::new()
+    };
     let list = rows
         .into_iter()
         .map(|record| {
@@ -674,14 +654,19 @@ async fn load_user_info(
     pool: &sqlx::PgPool,
     authorization: &Authorization,
     user_id: i64,
+    include_roles: bool,
 ) -> Result<UserInfoView, AccountError> {
     let record = find_by_id(pool, user_id)
         .await?
         .ok_or(AccountError::NotFound)?;
-    let roles = get_roles_by_user_ids(pool, authorization, &[user_id])
-        .await?
-        .remove(&user_id)
-        .unwrap_or_default();
+    let roles = if include_roles {
+        get_roles_by_user_ids(pool, authorization, &[user_id])
+            .await?
+            .remove(&user_id)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     Ok(build_user_info(&record, roles))
 }
 

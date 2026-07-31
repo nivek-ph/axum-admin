@@ -198,6 +198,96 @@ describe('Roles workbench', () => {
     await waitFor(() => expect(savedPermissions).toEqual(['system:user:create']))
   })
 
+  it('clears stale permissions while switching roles', async () => {
+    let resolveAuditor: (() => void) | undefined
+    renderRoles(
+      (async (config) => {
+        let data: unknown
+        if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
+        else if (config.url === '/menus/current')
+          data = {
+            code: 'OK',
+            message: 'ok',
+            data: { menus: [{ name: 'roles', path: '/roles' }], permissions: rolePermissions },
+          }
+        else if (config.url === '/roles')
+          data = {
+            code: 'OK',
+            message: 'ok',
+            data: {
+              list: [
+                { id: 2, code: 'developer', name: 'Developer', status: 'enabled', sort: 1 },
+                { id: 3, code: 'auditor', name: 'Auditor', status: 'enabled', sort: 2 },
+              ],
+            },
+          }
+        else if (config.url === '/menus/tree') data = { code: 'OK', message: 'ok', data: menuTree }
+        else if (config.url === '/roles/2/menus')
+          data = { code: 'OK', message: 'ok', data: { menuIds: [], effectiveMenuIds: [], protected: false } }
+        else if (config.url === '/roles/2/permissions')
+          data = {
+            code: 'OK',
+            message: 'ok',
+            data: {
+              permissions: ['system:user:create'],
+              protected: false,
+              catalog: [
+                {
+                  permission: 'system:user:create',
+                  title: 'Create user',
+                  menuType: 'action',
+                  status: 'enabled',
+                  effectivelyEnabled: true,
+                  owningPageId: 2,
+                  owningPageTitle: 'Users',
+                  pageVisible: true,
+                },
+              ],
+            },
+          }
+        else if (config.url === '/roles/3/permissions') {
+          await new Promise<void>((resolve) => {
+            resolveAuditor = resolve
+          })
+          data = {
+            code: 'OK',
+            message: 'ok',
+            data: {
+              permissions: [],
+              protected: false,
+              catalog: [
+                {
+                  permission: 'system:audit:list',
+                  title: 'List audit logs',
+                  menuType: 'action',
+                  status: 'enabled',
+                  effectivelyEnabled: true,
+                  owningPageId: 3,
+                  owningPageTitle: 'Audit',
+                  pageVisible: true,
+                },
+              ],
+            },
+          }
+        } else throw new Error(`Unexpected request: ${config.method} ${config.url}`)
+        return { data, status: 200, statusText: 'OK', headers: {}, config }
+      }) as AxiosAdapter,
+    )
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Operation Permissions' }))
+    expect(await screen.findByText('Create user')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Auditor/ }))
+    await waitFor(() => expect(resolveAuditor).toBeTypeOf('function'))
+    expect(screen.queryByText('Create user')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save permissions' })).toBeDisabled()
+
+    resolveAuditor?.()
+    expect(await screen.findByText('List audit logs')).toBeInTheDocument()
+    expect(screen.queryByText('Create user')).not.toBeInTheDocument()
+  })
+
   it('renders protected super_admin grants as read-only concrete assignments', async () => {
     renderRoles(
       (async (config) => {

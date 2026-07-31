@@ -30,7 +30,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { isSuperAdmin, useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/stores/auth'
 
 const emptyForm: CreateUserForm = {
   userName: '',
@@ -47,10 +47,8 @@ export function UsersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const can = useAuthStore((state) => state.can)
-  const currentUser = useAuthStore((state) => state.userInfo)
-  const activeSuperAdmin = isSuperAdmin(currentUser)
-  const canReadAccess = activeSuperAdmin && can('system:user:permissions-read')
-  const canReadRoles = activeSuperAdmin && can('system:role:list')
+  const canReadAccess = can('system:user:permissions-read')
+  const canReadRoles = can('system:role:list')
   const canAssignRoles = canReadRoles && can('system:user:assign-roles')
   const canUpdateDirect = canReadAccess && can('system:user:permissions-update')
   const confirmAction = useConfirm()
@@ -148,19 +146,23 @@ export function UsersPage() {
         header: t('Department'),
         cell: ({ row }) => row.original.deptName || '—',
       },
-      {
-        id: 'roles',
-        header: t('Roles'),
-        cell: ({ row }) => (
-          <div className="flex flex-wrap gap-1">
-            {row.original.roles?.map((role) => (
-              <Badge key={role.id} variant="secondary">
-                {role.name}
-              </Badge>
-            ))}
-          </div>
-        ),
-      },
+      ...(canReadAccess
+        ? [
+            {
+              id: 'roles',
+              header: t('Roles'),
+              cell: ({ row }: { row: { original: UserRecord } }) => (
+                <div className="flex flex-wrap gap-1">
+                  {row.original.roles?.map((role) => (
+                    <Badge key={role.id} variant="secondary">
+                      {role.name}
+                    </Badge>
+                  ))}
+                </div>
+              ),
+            },
+          ]
+        : []),
       {
         accessorKey: 'enable',
         header: t('Status'),
