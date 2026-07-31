@@ -136,7 +136,6 @@ dependencies = [
  "auth",
  "axum",
  "axum-otel",
- "db",
  "file-storage",
  "iam",
  "jsonwebtoken",

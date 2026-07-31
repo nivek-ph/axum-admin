@@ -8,7 +8,6 @@ license.workspace = true
 # Local workspace crates
 audit.workspace = true
 auth.workspace = true
-db.workspace = true
 file-storage.workspace = true
 iam.workspace = true
 metadata.workspace = true
