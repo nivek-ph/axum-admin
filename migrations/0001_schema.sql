@@ -1,14 +1,14 @@
 CREATE TABLE sys_depts (
     id BIGSERIAL PRIMARY KEY,
-    parent_id BIGINT REFERENCES sys_depts(id) ON DELETE
-    SET NULL,
-        name TEXT NOT NULL,
-        code TEXT NOT NULL UNIQUE,
-        sort INTEGER NOT NULL DEFAULT 0,
-        status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    parent_id BIGINT REFERENCES sys_depts(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    sort INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'enabled' CHECK (status IN ('enabled', 'disabled')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
 CREATE TABLE sys_roles (
     id BIGSERIAL PRIMARY KEY,
     code TEXT NOT NULL UNIQUE,
@@ -18,6 +18,7 @@ CREATE TABLE sys_roles (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
 CREATE TABLE sys_users (
     id BIGSERIAL PRIMARY KEY,
     uuid TEXT NOT NULL UNIQUE,
@@ -30,14 +31,15 @@ CREATE TABLE sys_users (
     phone TEXT,
     email TEXT,
     origin_setting JSONB,
-    dept_id BIGINT REFERENCES sys_depts(id) ON DELETE
-    SET NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    dept_id BIGINT REFERENCES sys_depts(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
 CREATE INDEX idx_sys_users_username ON sys_users(username);
+
 CREATE TABLE IF NOT EXISTS casbin_rule (
-    id BIGSERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     ptype VARCHAR NOT NULL,
     v0 VARCHAR NOT NULL,
     v1 VARCHAR NOT NULL,
@@ -47,7 +49,9 @@ CREATE TABLE IF NOT EXISTS casbin_rule (
     v5 VARCHAR NOT NULL,
     CONSTRAINT unique_key_sqlx_adapter UNIQUE (ptype, v0, v1, v2, v3, v4, v5)
 );
+
 CREATE INDEX idx_casbin_rule_subject ON casbin_rule (ptype, v0, v1);
+
 CREATE TABLE IF NOT EXISTS sys_menus (
     id BIGINT PRIMARY KEY,
     parent_id BIGINT REFERENCES sys_menus(id) ON DELETE RESTRICT,
@@ -71,31 +75,31 @@ CREATE TABLE IF NOT EXISTS sys_menus (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (
-        (
-            menu_type = 'directory'
-            AND permission IS NULL
-        )
-        OR (
-            menu_type IN ('page', 'action')
-            AND permission IS NOT NULL
-        )
+        (menu_type = 'directory' AND permission IS NULL)
+        OR (menu_type IN ('page', 'action') AND permission IS NOT NULL)
     )
 );
+
 CREATE UNIQUE INDEX idx_sys_menus_permission ON sys_menus(permission)
 WHERE permission IS NOT NULL;
+
 CREATE INDEX idx_sys_menus_parent ON sys_menus(parent_id);
+
 CREATE TABLE sys_menu_apis (
     menu_id BIGINT NOT NULL REFERENCES sys_menus(id) ON DELETE CASCADE,
     method TEXT NOT NULL CHECK (method = upper(method)),
     path_pattern TEXT NOT NULL CHECK (path_pattern LIKE '/api%'),
     PRIMARY KEY (method, path_pattern)
 );
+
 CREATE INDEX idx_sys_menu_apis_menu ON sys_menu_apis(menu_id);
+
 CREATE TABLE sys_role_menus (
     role_id BIGINT NOT NULL REFERENCES sys_roles(id) ON DELETE CASCADE,
     menu_id BIGINT NOT NULL REFERENCES sys_menus(id) ON DELETE RESTRICT,
     PRIMARY KEY (role_id, menu_id)
 );
+
 CREATE TABLE sys_audit_events (
     id BIGSERIAL PRIMARY KEY,
     req_id TEXT NOT NULL,
@@ -111,11 +115,13 @@ CREATE TABLE sys_audit_events (
     changes JSONB NOT NULL DEFAULT '[]'::JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
 CREATE INDEX idx_sys_audit_events_req_id ON sys_audit_events(req_id);
 CREATE INDEX idx_sys_audit_events_actor ON sys_audit_events(actor_id, created_at DESC);
 CREATE INDEX idx_sys_audit_events_action ON sys_audit_events(action, created_at DESC);
 CREATE INDEX idx_sys_audit_events_resource ON sys_audit_events(resource_type, resource_id, created_at DESC);
 CREATE INDEX idx_sys_audit_events_result ON sys_audit_events(result, created_at DESC);
+
 CREATE TABLE sys_params (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -123,6 +129,7 @@ CREATE TABLE sys_params (
     value TEXT NOT NULL,
     "desc" TEXT NOT NULL DEFAULT ''
 );
+
 CREATE TABLE sys_dictionaries (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -131,6 +138,7 @@ CREATE TABLE sys_dictionaries (
     "desc" TEXT NOT NULL DEFAULT '',
     parent_id BIGINT
 );
+
 CREATE TABLE sys_dictionary_details (
     id BIGSERIAL PRIMARY KEY,
     label TEXT NOT NULL,
@@ -143,6 +151,7 @@ CREATE TABLE sys_dictionary_details (
     level INTEGER NOT NULL DEFAULT 0,
     path TEXT NOT NULL DEFAULT ''
 );
+
 CREATE TABLE uploaded_files (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
