@@ -73,6 +73,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Initialize database schema
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_schema.sql
       - name: Run tests
         run: cargo test --all-features
       - name: Run doc tests
