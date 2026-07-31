@@ -639,7 +639,7 @@ async fn find_by_username(
     pool: &sqlx::PgPool,
     username: &str,
 ) -> Result<Option<UserRecord>, sqlx::Error> {
-    let sql = format!(
+    sqlx::query_as::<_, UserRecord>(
         r#"
         select u.id, u.uuid, u.username, u.password_hash, u.nick_name, u.header_img,
                u.home_route, u.enable, u.phone, u.email, u.origin_setting, u.dept_id,
@@ -647,12 +647,11 @@ async fn find_by_username(
         from sys_users u
         left join sys_depts d on d.id = u.dept_id
         where u.username = $1
-        "#
-    );
-    sqlx::query_as::<_, UserRecord>(sqlx::AssertSqlSafe(sql))
-        .bind(username)
-        .fetch_optional(pool)
-        .await
+        "#,
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await
 }
 
 async fn find_by_id(pool: &sqlx::PgPool, user_id: i64) -> Result<Option<UserRecord>, sqlx::Error> {
