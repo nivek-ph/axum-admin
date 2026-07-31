@@ -148,7 +148,8 @@ const zh = {
   'Select page access to include button permissions under that page and avoid visible pages with 403 APIs.':
     '勾选页面访问会同时包含该页面下的按钮权限，避免页面可见但接口返回 403。',
   'Choose which directories and pages this role can navigate.': '选择该角色可以访问的目录和页面。',
-  'Operation permissions are enforced independently from page access.': '操作权限与页面访问独立执行。',
+  'Page access includes its entry permission; choose additional actions here.':
+    '页面访问会自动包含入口权限；请在此选择额外操作。',
   'The protected super_admin grants are maintained by migrations.':
     '受保护的 super_admin 具体授予由迁移维护。',
   'Page not visible': '页面不可见',

@@ -42,9 +42,9 @@ This file gives repo-specific guidance for agents working in this project.
 - Add `impl From<...> for AppError` only when the source error has one stable API meaning in every context.
 - When the same error type has context-specific semantics, map it explicitly at the call site with `.map_err(...)`.
 - Keep user-management and authentication errors distinct:
-  - CRUD/user management returns `UserError` from `crates/iam/src/users`.
-  - Login returns `AuthenticateError`; unknown users and incorrect passwords both become `INVALID_CREDENTIALS` to avoid account enumeration.
-  - Auth middleware loads an Access Snapshot; `AccessEvaluationError` maps a missing/deleted token user to `SESSION_INVALID` and a disabled user to `USER_DISABLED`.
+  - CRUD/user management returns `AccountError` from `crates/iam/src/accounts`.
+  - Login uses the route-local `LoginError`; unknown users and incorrect passwords both become `INVALID_CREDENTIALS`.
+  - Auth middleware calls `AccessService::evaluate`; `AccessEvaluationError` maps a missing/deleted token user to `SESSION_INVALID` and a disabled user to `USER_DISABLED`.
 
 ## Frontend
 

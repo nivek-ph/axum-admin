@@ -239,6 +239,24 @@ impl AccessCatalog {
         entries.into_iter().map(|(_, _, _, entry)| entry).collect()
     }
 
+    pub(crate) fn page_entry_permissions(
+        &self,
+        configured_menu_ids: &HashSet<i64>,
+    ) -> BTreeSet<String> {
+        configured_menu_ids
+            .iter()
+            .filter_map(|menu_id| self.nodes.get(menu_id))
+            .filter(|node| node.menu_type == "page")
+            .filter_map(|node| node.permission.clone())
+            .collect()
+    }
+
+    pub(crate) fn is_action_permission(&self, permission: &str) -> bool {
+        self.nodes.values().any(|node| {
+            node.menu_type == "action" && node.permission.as_deref() == Some(permission)
+        })
+    }
+
     pub fn permission_for_menu(&self, menu_id: i64) -> Result<&str, CatalogError> {
         self.permissions_by_menu_id
             .get(&menu_id)

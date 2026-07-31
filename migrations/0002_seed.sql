@@ -132,6 +132,12 @@ FROM sys_menus
 WHERE menu_type IN ('directory', 'page');
 
 INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+SELECT 'p', 'role:1', menu.permission, '', '', '', ''
+FROM sys_role_menus access
+JOIN sys_menus menu ON menu.id = access.menu_id
+WHERE access.role_id = 1
+  AND menu.menu_type = 'page'
+UNION ALL
 SELECT 'p', 'role:1', permission, '', '', '', ''
 FROM sys_menus
-WHERE permission IS NOT NULL;
+WHERE menu_type = 'action';

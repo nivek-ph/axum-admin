@@ -11,8 +11,10 @@ pub enum RoleError {
     Database(#[from] sqlx::Error),
     #[error("role not found")]
     NotFound,
-    #[error("system role cannot be deleted")]
+    #[error("protected role cannot be changed")]
     Immutable,
+    #[error("only an active super_admin may manage role access")]
+    AccessDenied,
     #[error(transparent)]
     InvalidMenuAssignment(#[from] CatalogError),
     #[error(transparent)]

@@ -199,7 +199,19 @@ SELECT
 FROM demo_role_menu_names assignment
 JOIN sys_roles role ON role.code = assignment.role_code
 JOIN sys_menus menu ON menu.name = assignment.menu_name
-WHERE menu.permission IS NOT NULL
+WHERE menu.menu_type = 'action'
+UNION
+SELECT
+    'p',
+    'role:' || access.role_id::text,
+    menu.permission,
+    '',
+    '',
+    '',
+    ''
+FROM sys_role_menus access
+JOIN sys_menus menu ON menu.id = access.menu_id
+WHERE menu.menu_type = 'page'
 ON CONFLICT DO NOTHING;
 
 -- Demo accounts use a valid Argon2id hash that is not tied to a distributed

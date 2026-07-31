@@ -118,3 +118,24 @@ async fn ordinary_administrator_may_edit_super_profile_but_not_status(pool: sqlx
         Err(AccountError::AccessDenied)
     ));
 }
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn ordinary_administrator_cannot_move_account_outside_exact_department(pool: sqlx::PgPool) {
+    sqlx::query(
+        "insert into sys_depts (id, parent_id, name, code) values (2, 1, 'Other', 'other')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    insert_user(&pool, 206, "department-admin", Some(1)).await;
+    insert_user(&pool, 207, "same-dept", Some(1)).await;
+    let iam = Iam::load(pool.clone()).await.unwrap();
+    let mut payload = update_input(1);
+    payload.dept_id = Some(2);
+
+    assert!(matches!(
+        iam.accounts.update(206, 207, payload).await,
+        Err(AccountError::AccessDenied)
+    ));
+    assert_eq!(iam.accounts.info(207).await.unwrap().dept_id, Some(1));
+}

@@ -94,6 +94,16 @@ describe('Roles workbench', () => {
               protected: false,
               catalog: [
                 {
+                  permission: 'system:user:list',
+                  title: 'List users',
+                  menuType: 'page',
+                  status: 'enabled',
+                  effectivelyEnabled: true,
+                  owningPageId: 2,
+                  owningPageTitle: 'Users',
+                  pageVisible: true,
+                },
+                {
                   permission: 'system:user:create',
                   title: 'Create user',
                   menuType: 'action',
@@ -119,6 +129,7 @@ describe('Roles workbench', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Operation Permissions' }))
     expect(await screen.findByText('Create user')).toBeInTheDocument()
+    expect(screen.queryByText('List users')).not.toBeInTheDocument()
   })
 
   it('saves page access and operation permissions independently', async () => {

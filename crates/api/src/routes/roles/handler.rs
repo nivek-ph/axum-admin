@@ -7,7 +7,9 @@ use super::dto::{
     RoleData, RoleListData, RoleMenuIdsData, RoleMenuRequest, RolePermissionRequest,
     RolePermissionsData, RoleRequest, RoleResponse,
 };
-use crate::{ApiResponse, AppResult, EmptyData, state::AppState};
+use crate::{
+    ApiResponse, AppResult, EmptyData, extractors::current_user::CurrentUser, state::AppState,
+};
 
 #[utoipa::path(
     get,
@@ -115,10 +117,14 @@ pub async fn get_role_menus(
 )]
 pub async fn set_role_menus(
     State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
     Path(id): Path<i64>,
     Json(payload): Json<RoleMenuRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.roles.set_menu_ids(id, payload.menu_ids).await?;
+    state
+        .roles
+        .set_menu_ids(user.id, id, payload.menu_ids)
+        .await?;
 
     Ok(Json(ApiResponse::new("OK", "saved", None)))
 }
@@ -151,9 +157,13 @@ pub async fn get_role_permissions(
 )]
 pub async fn set_role_permissions(
     State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
     Path(id): Path<i64>,
     Json(payload): Json<RolePermissionRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.roles.set_permissions(id, payload.permissions).await?;
+    state
+        .roles
+        .set_permissions(user.id, id, payload.permissions)
+        .await?;
     Ok(Json(ApiResponse::new("OK", "saved", None)))
 }

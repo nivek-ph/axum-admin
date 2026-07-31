@@ -125,7 +125,6 @@ pub async fn reset_password_by_id(
     Json(payload): Json<ResetPasswordRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     state.accounts.validate_password_reset(user.id, id).await?;
-    let _request_id = payload.id;
     let password_hash = state.passwords.hash_password(&payload.password)?;
     revoke_sessions_and_persist_password(
         &state,

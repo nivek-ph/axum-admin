@@ -8,7 +8,10 @@ use sqlx::PgPool;
 use super::{
     PermissionCatalogItem, RoleError, RoleMenuAccess, RolePayload, RolePermissionView, RoleSummary,
 };
-use crate::{access::AccessCatalog, authorization::Authorization};
+use crate::{
+    access::AccessCatalog,
+    authorization::{Authorization, RolePolicyError},
+};
 
 #[derive(Clone)]
 pub struct RoleService {
@@ -116,25 +119,41 @@ impl RoleService {
         })
     }
 
-    pub async fn set_menu_ids(&self, id: i64, values: Vec<i64>) -> Result<(), RoleError> {
-        ensure_mutable(&self.pool, id).await?;
+    pub async fn set_menu_ids(
+        &self,
+        actor_user_id: i64,
+        id: i64,
+        values: Vec<i64>,
+    ) -> Result<(), RoleError> {
         let values = normalize(values);
-        self.catalog
-            .validate_assignment(&values.iter().copied().collect())?;
-        let mut transaction = self.pool.begin().await?;
+        let mut mutation = self.authorization.begin_mutation().await?;
+        mutation
+            .ensure_role_access_change(actor_user_id, id)
+            .await
+            .map_err(map_role_policy_error)?;
+        let configured_menu_ids = values.iter().copied().collect::<HashSet<_>>();
+        self.catalog.validate_assignment(&configured_menu_ids)?;
+        let mut permissions = self.catalog.page_entry_permissions(&configured_menu_ids);
+        permissions.extend(
+            mutation
+                .role_permissions(id)
+                .await?
+                .into_iter()
+                .filter(|permission| self.catalog.is_action_permission(permission)),
+        );
         sqlx::query("delete from sys_role_menus where role_id = $1")
             .bind(id)
-            .execute(&mut *transaction)
+            .execute(mutation.connection())
             .await?;
         sqlx::query(
             "insert into sys_role_menus (role_id, menu_id) select $1, unnest($2::bigint[])",
         )
         .bind(id)
         .bind(values)
-        .execute(&mut *transaction)
+        .execute(mutation.connection())
         .await?;
-        transaction.commit().await?;
-        Ok(())
+        mutation.replace_role_permissions(id, permissions).await?;
+        Ok(mutation.commit().await?)
     }
 
     pub async fn permission_catalog(
@@ -152,6 +171,7 @@ impl RoleService {
             .catalog
             .permission_catalog(&visible_pages, role.status == "enabled")
             .into_iter()
+            .filter(|row| row.menu_type == "action")
             .map(|row| PermissionCatalogItem {
                 permission: row.permission,
                 title: row.title,
@@ -172,38 +192,53 @@ impl RoleService {
                 .authorization
                 .role_permissions(id)
                 .await
-                .map_err(map_policy_error)?,
+                .map_err(map_role_policy_error)?
+                .into_iter()
+                .filter(|permission| self.catalog.is_action_permission(permission))
+                .collect(),
             protected: is_protected(&role),
         })
     }
 
     pub async fn set_permissions(
         &self,
+        actor_user_id: i64,
         id: i64,
         permissions: Vec<String>,
     ) -> Result<(), RoleError> {
-        ensure_mutable(&self.pool, id).await?;
-        self.authorization
-            .replace_role_permissions(id, permissions)
+        let mut permissions = permissions.into_iter().collect::<BTreeSet<_>>();
+        let mut mutation = self.authorization.begin_mutation().await?;
+        mutation
+            .ensure_role_access_change(actor_user_id, id)
             .await
-            .map_err(map_policy_error)?;
-        Ok(())
+            .map_err(map_role_policy_error)?;
+        if !permissions
+            .iter()
+            .all(|permission| self.catalog.is_action_permission(permission))
+        {
+            return Err(RoleError::InvalidPermissions);
+        }
+        let configured_menu_ids = sqlx::query_scalar(
+            "select menu_id from sys_role_menus where role_id = $1 order by menu_id",
+        )
+        .bind(id)
+        .fetch_all(mutation.connection())
+        .await?
+        .into_iter()
+        .collect();
+        permissions.extend(self.catalog.page_entry_permissions(&configured_menu_ids));
+        mutation.replace_role_permissions(id, permissions).await?;
+        Ok(mutation.commit().await?)
     }
 }
 
-fn map_policy_error(error: crate::authorization::PolicyAdministrationError) -> RoleError {
-    use crate::authorization::PolicyAdministrationError;
+fn map_role_policy_error(error: RolePolicyError) -> RoleError {
     match error {
-        PolicyAdministrationError::RoleNotFound => RoleError::NotFound,
-        PolicyAdministrationError::RoleImmutable => RoleError::Immutable,
-        PolicyAdministrationError::InvalidPermissionAssignment => RoleError::InvalidPermissions,
-        PolicyAdministrationError::Database(source) => RoleError::Database(source),
-        PolicyAdministrationError::Authorization(source) => RoleError::Authorization(source),
-        PolicyAdministrationError::UserNotFound
-        | PolicyAdministrationError::AccessDenied
-        | PolicyAdministrationError::LastSuperAdmin
-        | PolicyAdministrationError::InvalidRoleAssignment
-        | PolicyAdministrationError::Audit(_) => RoleError::Immutable,
+        RolePolicyError::RoleNotFound => RoleError::NotFound,
+        RolePolicyError::RoleImmutable => RoleError::Immutable,
+        RolePolicyError::AccessDenied => RoleError::AccessDenied,
+        RolePolicyError::Database(source) => RoleError::Database(source),
+        RolePolicyError::Authorization(source) => RoleError::Authorization(source),
     }
 }
 

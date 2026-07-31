@@ -405,6 +405,20 @@ pub(super) async fn replace_role_permissions_in(
     replace_permissions_for_subject(connection, &role_subject(role_id), permissions).await
 }
 
+pub(super) async fn role_permissions_in(
+    connection: &mut PgConnection,
+    role_id: i64,
+) -> Result<BTreeSet<String>, sqlx::Error> {
+    Ok(
+        sqlx::query_scalar("select v1 from casbin_rule where ptype = 'p' and v0 = $1 order by v1")
+            .bind(role_subject(role_id))
+            .fetch_all(connection)
+            .await?
+            .into_iter()
+            .collect(),
+    )
+}
+
 pub(super) async fn replace_user_permissions_in(
     connection: &mut PgConnection,
     user_id: i64,

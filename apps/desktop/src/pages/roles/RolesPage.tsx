@@ -183,7 +183,7 @@ export function RolesPage() {
 
   const permissionGroups = useMemo(() => {
     const groups = new Map<number, { title: string; items: PermissionCatalogItem[] }>()
-    for (const item of permissionCatalog) {
+    for (const item of permissionCatalog.filter((entry) => entry.menuType === 'action')) {
       const group = groups.get(item.owningPageId) ?? { title: item.owningPageTitle, items: [] }
       group.items.push(item)
       groups.set(item.owningPageId, group)
@@ -387,7 +387,7 @@ export function RolesPage() {
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <p className="text-xs text-muted-foreground">
-                        {t('Operation permissions are enforced independently from page access.')}
+                        {t('Page access includes its entry permission; choose additional actions here.')}
                       </p>
                       {canEditPermissions && (
                         <Button disabled={saving} onClick={() => void savePermissions()} size="sm">

@@ -151,6 +151,8 @@ impl From<UpdateUserRequest> for iam::accounts::UpdateUserInput {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ResetPasswordRequest {
+    // Retained in the wire schema for existing clients; the path ID is authoritative.
+    #[allow(dead_code)]
     #[serde(default)]
     pub id: i64,
     pub password: String,

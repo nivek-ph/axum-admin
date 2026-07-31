@@ -40,7 +40,7 @@ const INVALID_ROLES: ErrorSpec =
     ErrorSpec::validation("INVALID_ROLES", "selected roles are invalid");
 const ROLE_NOT_FOUND: ErrorSpec = ErrorSpec::not_found("ROLE_NOT_FOUND", "role not found");
 const ROLE_IMMUTABLE: ErrorSpec =
-    ErrorSpec::failed_precondition("ROLE_IMMUTABLE", "system role cannot be deleted");
+    ErrorSpec::failed_precondition("ROLE_IMMUTABLE", "protected role cannot be changed");
 const LAST_SUPER_ADMIN: ErrorSpec = ErrorSpec::failed_precondition(
     "LAST_SUPER_ADMIN",
     "the final active super_admin cannot be removed",
@@ -110,7 +110,13 @@ impl From<iam::AuthorizationError> for AppError {
             iam::AuthorizationError::Configuration(_) => {
                 AUTHORIZATION_CONFIG_INVALID.into_error().with_source(error)
             }
-            _ => AUTHORIZATION_UNAVAILABLE.into_error().with_source(error),
+            source @ (iam::AuthorizationError::Database(_)
+            | iam::AuthorizationError::Policy(_)
+            | iam::AuthorizationError::Watcher(_)
+            | iam::AuthorizationError::WatcherInstallation
+            | iam::AuthorizationError::StateUnavailable) => {
+                AUTHORIZATION_UNAVAILABLE.into_error().with_source(source)
+            }
         }
     }
 }
@@ -243,6 +249,7 @@ impl From<iam::roles::RoleError> for AppError {
         match error {
             RoleError::NotFound => ROLE_NOT_FOUND.into(),
             RoleError::Immutable => ROLE_IMMUTABLE.into(),
+            RoleError::AccessDenied => PERMISSION_DENIED.into(),
             RoleError::InvalidMenuAssignment(source) => ErrorSpec::validation(
                 "INVALID_MENU_ASSIGNMENT",
                 "selected menu nodes must be directory or page nodes and include every ancestor",
@@ -392,6 +399,15 @@ mod tests {
             error.message(),
             "the final active super_admin cannot be removed"
         );
+    }
+
+    #[test]
+    fn role_access_management_requires_super_admin_contract() {
+        let error = AppError::from(iam::roles::RoleError::AccessDenied);
+
+        assert_eq!(error.status(), StatusCode::FORBIDDEN);
+        assert_eq!(error.code(), "PERMISSION_DENIED");
+        assert_eq!(error.message(), "permission denied");
     }
 
     #[test]

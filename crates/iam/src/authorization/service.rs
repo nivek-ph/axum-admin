@@ -19,8 +19,8 @@ use super::{
         PolicyStore, active_super_admin_count_in, is_active_super_admin_in, known_permissions_in,
         lock_policy_table, normalize_ids, protected_role_for_update, remove_role_in,
         remove_user_in, replace_role_permissions_in, replace_user_permissions_in,
-        replace_user_roles_in, role_subject, roles_are_assignable_in, roles_exist_in,
-        super_admin_role_id_in, user_exists_in, user_subject,
+        replace_user_roles_in, role_permissions_in, role_subject, roles_are_assignable_in,
+        roles_exist_in, super_admin_role_id_in, user_exists_in, user_subject,
     },
 };
 
@@ -42,12 +42,8 @@ pub enum AuthorizationError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PolicyAdministrationError {
-    #[error("role not found")]
-    RoleNotFound,
     #[error("user not found")]
     UserNotFound,
-    #[error("protected role is immutable")]
-    RoleImmutable,
     #[error("only an active super_admin may manage employee access")]
     AccessDenied,
     #[error("the final active super_admin cannot be removed")]
@@ -64,11 +60,29 @@ pub enum PolicyAdministrationError {
     Authorization(AuthorizationError),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum RolePolicyError {
+    #[error("role not found")]
+    RoleNotFound,
+    #[error("protected role is immutable")]
+    RoleImmutable,
+    #[error("only an active super_admin may manage role access")]
+    AccessDenied,
+    #[error("authorization administration database operation failed")]
+    Database(#[from] sqlx::Error),
+    #[error(transparent)]
+    Authorization(AuthorizationError),
+}
+
 impl From<AuthorizationError> for PolicyAdministrationError {
     fn from(error: AuthorizationError) -> Self {
         match error {
             AuthorizationError::Database(source) => Self::Database(source),
-            source => Self::Authorization(source),
+            source @ (AuthorizationError::Configuration(_)
+            | AuthorizationError::Policy(_)
+            | AuthorizationError::Watcher(_)
+            | AuthorizationError::WatcherInstallation
+            | AuthorizationError::StateUnavailable) => Self::Authorization(source),
         }
     }
 }
@@ -118,6 +132,38 @@ impl AuthorizationMutation<'_> {
         role_ids: BTreeSet<i64>,
     ) -> Result<Vec<i64>, sqlx::Error> {
         replace_user_roles_in(self.connection(), user_id, role_ids).await
+    }
+
+    pub(crate) async fn ensure_role_access_change(
+        &mut self,
+        actor_user_id: i64,
+        role_id: i64,
+    ) -> Result<(), RolePolicyError> {
+        if !is_active_super_admin_in(self.connection(), actor_user_id).await? {
+            return Err(RolePolicyError::AccessDenied);
+        }
+        let protected = protected_role_for_update(self.connection(), role_id)
+            .await?
+            .ok_or(RolePolicyError::RoleNotFound)?;
+        if protected {
+            return Err(RolePolicyError::RoleImmutable);
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn role_permissions(
+        &mut self,
+        role_id: i64,
+    ) -> Result<BTreeSet<String>, sqlx::Error> {
+        role_permissions_in(self.connection(), role_id).await
+    }
+
+    pub(crate) async fn replace_role_permissions(
+        &mut self,
+        role_id: i64,
+        permissions: BTreeSet<String>,
+    ) -> Result<(), sqlx::Error> {
+        replace_role_permissions_in(self.connection(), role_id, permissions).await
     }
 
     pub(crate) async fn replace_initial_user_roles(
@@ -253,30 +299,10 @@ impl Authorization {
         Ok(())
     }
 
-    pub(crate) async fn replace_role_permissions(
-        &self,
-        role_id: i64,
-        permissions: Vec<String>,
-    ) -> Result<(), PolicyAdministrationError> {
-        let permissions = permissions.into_iter().collect::<BTreeSet<_>>();
-        let mut mutation = self.begin_mutation().await?;
-        let protected = protected_role_for_update(mutation.connection(), role_id)
-            .await?
-            .ok_or(PolicyAdministrationError::RoleNotFound)?;
-        if protected {
-            return Err(PolicyAdministrationError::RoleImmutable);
-        }
-        if !known_permissions_in(mutation.connection(), &permissions).await? {
-            return Err(PolicyAdministrationError::InvalidPermissionAssignment);
-        }
-        replace_role_permissions_in(mutation.connection(), role_id, permissions).await?;
-        Ok(mutation.commit().await?)
-    }
-
     pub(crate) async fn role_permissions(
         &self,
         role_id: i64,
-    ) -> Result<Vec<String>, PolicyAdministrationError> {
+    ) -> Result<Vec<String>, RolePolicyError> {
         let permissions = self.store.role_permissions(role_id).await?;
         if permissions.is_empty() {
             let exists = sqlx::query_scalar::<_, bool>(
@@ -286,12 +312,12 @@ impl Authorization {
             .fetch_one(self.store.pool())
             .await?;
             if !exists {
-                return Err(PolicyAdministrationError::RoleNotFound);
+                return Err(RolePolicyError::RoleNotFound);
             }
         }
         let permission_set = permissions.iter().cloned().collect();
         if !self.store.known_permissions(&permission_set).await? {
-            return Err(PolicyAdministrationError::Authorization(
+            return Err(RolePolicyError::Authorization(
                 AuthorizationError::Configuration(
                     "persisted role permission does not exist in the access catalog".to_string(),
                 ),

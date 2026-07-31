@@ -191,6 +191,16 @@ impl Accounts {
         payload: UpdateUserInput,
     ) -> Result<(), AccountError> {
         self.ensure_visible(actor_user_id, target_user_id).await?;
+        if let Some(target_department_id) = payload.dept_id {
+            match self.boundary(actor_user_id).await? {
+                AccountBoundary::All => {}
+                AccountBoundary::Department(actor_department_id)
+                    if actor_department_id == target_department_id => {}
+                AccountBoundary::Department(_) | AccountBoundary::SelfOnly(_) => {
+                    return Err(AccountError::AccessDenied);
+                }
+            }
+        }
         let mut mutation = self.authorization.begin_mutation().await?;
         mutation
             .ensure_account_change(actor_user_id, target_user_id, payload.enable == 1, false)
@@ -420,14 +430,14 @@ impl Accounts {
     }
 
     async fn boundary(&self, actor_user_id: i64) -> Result<AccountBoundary, AccountError> {
-        let actor = sqlx::query_as::<_, (bool, Option<i64>)>(
+        let (enable, dept_id) = sqlx::query_as::<_, (bool, Option<i64>)>(
             "select enable, dept_id from sys_users where id = $1",
         )
         .bind(actor_user_id)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(AccountError::NotFound)?;
-        if !actor.0 {
+        if !enable {
             return Err(AccountError::AccessDenied);
         }
         if self
@@ -436,7 +446,7 @@ impl Accounts {
             .await?
         {
             Ok(AccountBoundary::All)
-        } else if let Some(dept_id) = actor.1 {
+        } else if let Some(dept_id) = dept_id {
             Ok(AccountBoundary::Department(dept_id))
         } else {
             Ok(AccountBoundary::SelfOnly(actor_user_id))
@@ -486,9 +496,6 @@ fn map_policy_error(error: PolicyAdministrationError) -> AccountError {
         PolicyAdministrationError::Database(source) => AccountError::Database(source),
         PolicyAdministrationError::Audit(source) => AccountError::Audit(source),
         PolicyAdministrationError::Authorization(source) => AccountError::Authorization(source),
-        PolicyAdministrationError::RoleNotFound | PolicyAdministrationError::RoleImmutable => {
-            AccountError::AccessDenied
-        }
     }
 }
 
@@ -632,7 +639,20 @@ async fn find_by_username(
     pool: &sqlx::PgPool,
     username: &str,
 ) -> Result<Option<UserRecord>, sqlx::Error> {
-    find_user(pool, "u.username = $1", username).await
+    let sql = format!(
+        r#"
+        select u.id, u.uuid, u.username, u.password_hash, u.nick_name, u.header_img,
+               u.home_route, u.enable, u.phone, u.email, u.origin_setting, u.dept_id,
+               d.name as dept_name
+        from sys_users u
+        left join sys_depts d on d.id = u.dept_id
+        where u.username = $1
+        "#
+    );
+    sqlx::query_as::<_, UserRecord>(sqlx::AssertSqlSafe(sql))
+        .bind(username)
+        .fetch_optional(pool)
+        .await
 }
 
 async fn find_by_id(pool: &sqlx::PgPool, user_id: i64) -> Result<Option<UserRecord>, sqlx::Error> {
@@ -649,27 +669,6 @@ async fn find_by_id(pool: &sqlx::PgPool, user_id: i64) -> Result<Option<UserReco
     .bind(user_id)
     .fetch_optional(pool)
     .await
-}
-
-async fn find_user(
-    pool: &sqlx::PgPool,
-    predicate: &str,
-    value: &str,
-) -> Result<Option<UserRecord>, sqlx::Error> {
-    let sql = format!(
-        r#"
-        select u.id, u.uuid, u.username, u.password_hash, u.nick_name, u.header_img,
-               u.home_route, u.enable, u.phone, u.email, u.origin_setting, u.dept_id,
-               d.name as dept_name
-        from sys_users u
-        left join sys_depts d on d.id = u.dept_id
-        where {predicate}
-        "#
-    );
-    sqlx::query_as::<_, UserRecord>(sqlx::AssertSqlSafe(sql))
-        .bind(value)
-        .fetch_optional(pool)
-        .await
 }
 
 async fn load_user_info(
