@@ -31,6 +31,31 @@ This file gives repo-specific guidance for agents working in this project.
 - Keep `sqlx::migrate!("../../migrations")` working from `crates/db`.
 - Prefer explicit domain errors over generic string errors.
 
+### IAM
+
+- Read [`docs/architecture/iam.md`](docs/architecture/iam.md) before changing IAM, protected API
+  routes, the access catalog, authentication middleware, or Admin Console access workflows.
+- Keep Request Access, Accounts, Roles, Menus, and private Authorization responsibilities distinct.
+  Axum middleware performs token/session work and calls `AccessService::evaluate` exactly once for
+  IAM request admission; HTTP handlers call Accounts or Roles for access administration and never
+  call private Authorization directly.
+- PostgreSQL is authoritative. `sys_role_menus` stores Page Access; `casbin_rule` stores concrete
+  Permission policy (`p`) and user-role membership (`g`). Redis only propagates reload notifications
+  and must not become an authorization source of truth.
+- Page Access controls navigation, not backend authorization. Selecting a page for a Role must
+  atomically include that page's entry Permission; operation/action Permissions remain independent.
+  Direct Permissions remain valid without Page Access and must not silently create navigation.
+- Effective Permissions are the additive union of Direct Permissions and Permissions inherited from
+  enabled Roles. Do not add deny rules, wildcard grants, `is_system` authorization flags, frontend
+  role-code bypasses, or configurable Data Scope without an explicit architecture change.
+- Preserve the concrete protected `super_admin` model and the final-active-member invariant. Catalog
+  additions and their concrete `super_admin` Page Access and Permission grants belong in the same
+  migration change set.
+- Authorization mutations must preserve PostgreSQL transaction boundaries, deterministic locks,
+  post-commit reload semantics, periodic repair, and fail-closed request error mappings. Do not claim
+  strict fail-closed policy freshness: the current runtime retains the last successfully loaded
+  Enforcer when a reload fails; see the documented consistency boundary.
+
 ### Error Design
 
 - Route and middleware handlers should return `api::AppResult<T>`.
@@ -107,12 +132,20 @@ Before claiming a change is complete, report the exact verification commands tha
 
 ### Issue tracker
 
-Specs and implementation issues use the local Markdown tracker under `.notes/`. See `.notes/agents/issue-tracker.md`.
+When the local `.notes/` tracker is present, use `.notes/agents/issue-tracker.md` for planning specs
+and implementation issues. `.notes/` is local temporary working material and is not a source for
+committed project documentation. When a design or decision needs to be retained or committed, move
+the reviewed content into the appropriate location under `docs/` and update tracked references to
+point there; do not make committed documentation depend on `.notes/`.
 
 ### Triage labels
 
-The local tracker uses the default five-role triage vocabulary. See `.notes/agents/triage-labels.md`.
+When present, the local tracker uses the five-role vocabulary in `.notes/agents/triage-labels.md`.
 
 ### Domain docs
 
-This repository uses a single domain context rooted at `.notes/CONTEXT.md`, with architectural decisions under `.notes/adr/`. See `.notes/agents/domain.md`.
+Tracked, current architecture is under `docs/architecture/`; IAM's canonical implementation document
+is [`docs/architecture/iam.md`](docs/architecture/iam.md). Local `.notes/` files hold temporary
+planning context and task history and may describe superseded targets; use them for provenance, not
+as durable architecture or evidence that behavior is implemented. See `.notes/agents/domain.md` when
+the local tracker is available.

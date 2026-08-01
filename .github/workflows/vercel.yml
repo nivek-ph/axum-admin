@@ -61,7 +61,7 @@ jobs:
       - name: Deploy backend
         id: deploy
         run: |
-          args=(--yes --token="${VERCEL_TOKEN}")
+          args=(--yes --build-env SQLX_OFFLINE=true --token="${VERCEL_TOKEN}")
           if [[ "${DEPLOY_ENV}" == "production" ]]; then
             args+=(--prod)
           fi
