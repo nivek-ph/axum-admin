@@ -1,11 +1,12 @@
 import { getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconKey, IconPlus, IconRefresh, IconSearch, IconShield, IconTrash } from '@tabler/icons-react'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { listRoles } from '@/api/roles'
+import { listDepartments, type DeptRecord } from '@/api/departments'
 import {
   assignUserRoles,
   createUser,
@@ -43,12 +44,18 @@ const emptyForm: CreateUserForm = {
 }
 const PAGE_SIZE = 10
 
+function flattenDepartmentOptions(items: DeptRecord[]): Array<{ id: number; label: string }> {
+  return items.flatMap((item) => [{ id: item.id, label: item.name }, ...flattenDepartmentOptions(item.children ?? [])])
+}
+
 export function UsersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const can = useAuthStore((state) => state.can)
+  const currentDepartmentName = useAuthStore((state) => state.userInfo?.deptName)
   const canReadAccess = can('system:user:permissions-read')
   const canReadRoles = can('system:role:list')
+  const canReadDepartments = can('system:dept:list')
   const canAssignRoles = canReadRoles && can('system:user:assign-roles')
   const canUpdateDirect = canReadAccess && can('system:user:permissions-update')
   const confirmAction = useConfirm()
@@ -65,6 +72,16 @@ export function UsersPage() {
     queryFn: () => fetchUsers({ page, pageSize: PAGE_SIZE, keyword }),
   })
   const roles = useQuery({ queryKey: ['roles'], queryFn: listRoles, enabled: canReadRoles })
+  const departments = useQuery({
+    queryKey: ['departments'],
+    queryFn: listDepartments,
+    enabled: canReadDepartments && createOpen,
+  })
+  const departmentOptions = useMemo(() => flattenDepartmentOptions(departments.data ?? []), [departments.data])
+  const departmentSelectItems = useMemo(
+    () => Object.fromEntries(departmentOptions.map((item) => [String(item.id), item.label])),
+    [departmentOptions],
+  )
   const access = useQuery({
     queryKey: ['user-access', accessUser?.id],
     queryFn: () => getUserAccess(accessUser!.id),
@@ -113,16 +130,21 @@ export function UsersPage() {
   })
   const pageCount = Math.max(1, Math.ceil((users.data?.total ?? 0) / PAGE_SIZE))
 
-  function openAccess(item: UserRecord) {
-    setAccessUser(item)
-    void queryClient.fetchQuery({
-      queryKey: ['user-access', item.id],
-      queryFn: () => getUserAccess(item.id),
-    }).then((result) => {
-      setSelectedRoles(result.roleIds)
-      setSelectedDirect(result.directPermissions)
-    })
-  }
+  const openAccess = useCallback(
+    (item: UserRecord) => {
+      setAccessUser(item)
+      void queryClient
+        .fetchQuery({
+          queryKey: ['user-access', item.id],
+          queryFn: () => getUserAccess(item.id),
+        })
+        .then((result) => {
+          setSelectedRoles(result.roleIds)
+          setSelectedDirect(result.directPermissions)
+        })
+    },
+    [queryClient],
+  )
 
   const columns = useMemo<ColumnDef<UserRecord>[]>(
     () => [
@@ -210,7 +232,7 @@ export function UsersPage() {
         },
       },
     ],
-    [can, canReadAccess, confirmAction, deleteMutation, resetMutation, t],
+    [can, canReadAccess, confirmAction, deleteMutation, openAccess, resetMutation, t],
   )
 
   const table = useReactTable({
@@ -349,7 +371,10 @@ export function UsersPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="user-status">{t('Status')}</Label>
-              <Select onValueChange={(value) => value != null && update('enable', Number(value))} value={String(form.enable)}>
+              <Select
+                onValueChange={(value) => value != null && update('enable', Number(value))}
+                value={String(form.enable)}
+              >
                 <SelectTrigger aria-label={t('Status')} className="w-full" id="user-status">
                   <SelectValue />
                 </SelectTrigger>
@@ -359,6 +384,32 @@ export function UsersPage() {
                 </SelectContent>
               </Select>
             </div>
+            {canReadDepartments ? (
+              <div className="col-span-2 flex flex-col gap-1.5">
+                <Label htmlFor="user-department">{t('Department')}</Label>
+                <Select
+                  items={departmentSelectItems}
+                  onValueChange={(value) => value != null && update('deptId', Number(value))}
+                  value={form.deptId == null ? null : String(form.deptId)}
+                >
+                  <SelectTrigger aria-label={t('Department')} className="w-full" id="user-department">
+                    <SelectValue placeholder={t('Department')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departmentOptions.map((item) => (
+                      <SelectItem key={item.id} value={String(item.id)}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="col-span-2 flex flex-col gap-1.5">
+                <Label htmlFor="user-department">{t('Department')}</Label>
+                <Input disabled id="user-department" value={currentDepartmentName || t('Not set')} />
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="user-phone">{t('Phone')}</Label>
               <Input id="user-phone" onChange={(event) => update('phone', event.target.value)} value={form.phone} />
@@ -425,9 +476,7 @@ export function UsersPage() {
                   <label className="flex items-center gap-2 rounded-md border p-2 text-sm" key={role.id}>
                     <Checkbox
                       checked={selectedRoles.includes(role.id)}
-                      disabled={
-                        !canAssignRoles || (role.status !== 'enabled' && !selectedRoles.includes(role.id))
-                      }
+                      disabled={!canAssignRoles || (role.status !== 'enabled' && !selectedRoles.includes(role.id))}
                       onCheckedChange={() =>
                         setSelectedRoles((current) =>
                           current.includes(role.id) ? current.filter((id) => id !== role.id) : [...current, role.id],

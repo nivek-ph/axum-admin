@@ -1,4 +1,5 @@
 import { getCurrentMenu, getUserInfo } from '@/api/auth'
+import { isLoginRequiredError } from '@/api/http'
 import { isAuthenticated, useAuthStore } from '@/stores/auth'
 import { useMenuStore } from '@/stores/menu'
 
@@ -18,8 +19,12 @@ export async function bootstrapAuthSession() {
     const permissions = menuResponse.data?.permissions ?? []
     useAuthStore.getState().setUserAndPermissions(user, permissions)
     useMenuStore.getState().setAuthorizedMenus(menuResponse.data?.menus ?? [])
-  } catch {
-    useAuthStore.getState().clearSession()
-    useMenuStore.getState().resetAccess()
+  } catch (error) {
+    if (isLoginRequiredError(error)) {
+      useAuthStore.getState().clearSession()
+      useMenuStore.getState().resetAccess()
+      return
+    }
+    useMenuStore.getState().setAuthorizedMenus([])
   }
 }

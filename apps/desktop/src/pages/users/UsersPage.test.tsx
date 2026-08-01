@@ -41,7 +41,34 @@ describe('Users workflow', () => {
           message: 'ok',
           data: {
             menus: [{ name: 'users', path: 'users' }],
-            permissions: ['system:user:create', 'system:role:list', 'system:user:assign-roles'],
+            permissions: ['system:user:create', 'system:role:list', 'system:user:assign-roles', 'system:dept:list'],
+          },
+        }
+      else if (config.url === '/depts')
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            list: [
+              {
+                id: 1,
+                parent_id: null,
+                name: 'Head Office',
+                code: 'head-office',
+                sort: 0,
+                status: 'enabled',
+                children: [
+                  {
+                    id: 2,
+                    parent_id: 1,
+                    name: 'Product and Engineering',
+                    code: 'rd',
+                    sort: 20,
+                    status: 'enabled',
+                  },
+                ],
+              },
+            ],
           },
         }
       else if (config.url === '/roles')
@@ -78,6 +105,8 @@ describe('Users workflow', () => {
     await user.type(screen.getByLabelText('Nickname'), 'New Operator')
     await user.clear(screen.getByLabelText('Password'))
     await user.type(screen.getByLabelText('Password'), 'safe-password')
+    await user.click(screen.getByRole('combobox', { name: 'Department' }))
+    await user.click(await screen.findByRole('option', { name: 'Product and Engineering' }))
     await user.click(screen.getByRole('checkbox', { name: 'Operator' }))
     await user.click(screen.getByRole('combobox', { name: 'Status' }))
     await user.click(await screen.findByRole('option', { name: 'Disabled' }))
@@ -88,6 +117,7 @@ describe('Users workflow', () => {
       username: 'new-operator',
       nickName: 'New Operator',
       password: 'safe-password',
+      deptId: 2,
       roleIds: [2],
       enable: 0,
     })
@@ -148,6 +178,58 @@ describe('Users workflow', () => {
     expect(await screen.findByText('Matched User')).toBeInTheDocument()
     expect(requestedKeywords).toContain('employee_42')
     expect(screen.queryByRole('button', { name: 'Access' })).not.toBeInTheDocument()
+  })
+
+  it('shows the fixed current department when the creator cannot read the department catalog', async () => {
+    const currentUser = {
+      id: 8,
+      userName: 'department-admin',
+      nickName: 'Department Admin',
+      deptId: 1,
+      deptName: 'Head Office',
+      homeRoute: 'users',
+      roles: [],
+    }
+    useAuthStore.getState().setSession({ accessToken: 'token', refreshToken: 'refresh', userInfo: currentUser })
+    let departmentCalls = 0
+    let createdPayload: Record<string, unknown> | null = null
+    http.defaults.adapter = (async (config) => {
+      let data: unknown
+      if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
+      else if (config.url === '/menus/current')
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'users', path: 'users' }],
+            permissions: ['system:user:list', 'system:user:create'],
+          },
+        }
+      else if (config.url === '/depts') {
+        departmentCalls += 1
+        throw new Error('Department catalog must not be requested')
+      } else if (config.url === '/users' && config.method === 'post') {
+        createdPayload = JSON.parse(String(config.data))
+        data = { code: 'OK', message: 'created', data: { id: 10 } }
+      } else if (config.url === '/users') {
+        data = { code: 'OK', message: 'ok', data: { list: [], total: 0, page: 1, pageSize: 10 } }
+      } else throw new Error(`Unexpected request: ${config.method} ${config.url}`)
+      return { data, status: 200, statusText: 'OK', headers: {}, config }
+    }) as AxiosAdapter
+    window.history.replaceState({}, '', '/users')
+    render(<Application />)
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'New user' }))
+    expect(screen.getByLabelText('Department')).toBeDisabled()
+    expect(screen.getByLabelText('Department')).toHaveValue('Head Office')
+    await user.type(screen.getByLabelText('Username'), 'fixed-department-user')
+    await user.type(screen.getByLabelText('Nickname'), 'Fixed Department User')
+    await user.click(screen.getByRole('button', { name: 'Create user' }))
+
+    await screen.findByText('User created')
+    expect(departmentCalls).toBe(0)
+    expect(createdPayload).not.toHaveProperty('deptId')
   })
 
   it('manages direct employee permissions separately from assigned roles', async () => {

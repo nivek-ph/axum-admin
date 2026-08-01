@@ -70,13 +70,13 @@ interface MenuState {
 }
 
 export const useMenuStore = create<MenuState>((set, get) => ({
-  items: coreMenuItems,
+  items: [],
   accessLoaded: false,
   setAuthorizedMenus: (menus) => set({ items: buildMenuItems(menus), accessLoaded: true }),
-  resetAccess: () => set({ items: coreMenuItems, accessLoaded: false }),
+  resetAccess: () => set({ items: [], accessLoaded: false }),
   canAccess: (routeName) => {
     if (routeName === 'profile' || routeName === 'login') return true
-    if (!get().accessLoaded) return true
+    if (!get().accessLoaded) return false
     return flattenMenuItems(get().items).some((item) => item.key === routeName)
   },
   firstAuthorizedPath: () => flattenMenuItems(get().items).find((item) => item.path)?.path ?? '/profile',

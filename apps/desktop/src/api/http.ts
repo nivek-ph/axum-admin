@@ -14,8 +14,8 @@ export const http = axios.create({
 
 export function isApiEnvelope(value: unknown): value is ApiEnvelope {
   if (!value || typeof value !== 'object') return false
-  const candidate = value as Record<string, unknown>
-  return typeof candidate.code === 'string' && typeof candidate.message === 'string'
+  const data = value as Record<string, unknown>
+  return typeof data.code === 'string' && typeof data.message === 'string'
 }
 
 export class ApiHttpError extends Error {
@@ -37,7 +37,7 @@ interface TokenPair {
 }
 
 let refreshInFlight: Promise<TokenPair> | null = null
-const terminalCodes = new Set([
+const loginRequiredCodes = new Set([
   'ACCESS_TOKEN_EXPIRED',
   'LOGIN_REQUIRED',
   'TOKEN_INVALID',
@@ -45,6 +45,10 @@ const terminalCodes = new Set([
   'REFRESH_TOKEN_INVALID',
   'USER_DISABLED',
 ])
+
+export function isLoginRequiredError(error: unknown) {
+  return error instanceof ApiHttpError && Boolean(error.body && loginRequiredCodes.has(error.body.code))
+}
 
 function endLocalSession() {
   useAuthStore.getState().clearSession()
@@ -112,7 +116,7 @@ http.interceptors.response.use(
         return Promise.reject(refreshError)
       }
     }
-    if (isApiEnvelope(body) && terminalCodes.has(body.code) && !url.includes('/auth/login')) endLocalSession()
+    if (isApiEnvelope(body) && loginRequiredCodes.has(body.code) && !url.includes('/auth/login')) endLocalSession()
     return Promise.reject(rejectedError(error))
   },
 )

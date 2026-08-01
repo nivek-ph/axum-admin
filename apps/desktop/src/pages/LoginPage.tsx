@@ -33,6 +33,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const setSession = useAuthStore((state) => state.setSession)
+  const setTokenPair = useAuthStore((state) => state.setTokenPair)
   const setUserAndPermissions = useAuthStore((state) => state.setUserAndPermissions)
   const setAuthorizedMenus = useMenuStore((state) => state.setAuthorizedMenus)
   const activeSchema = schema.extend({
@@ -66,17 +67,19 @@ export function LoginPage() {
     try {
       const response = await login({ ...values, captchaId: captcha?.captchaId ?? '' })
       if (response.code !== 'OK' || !response.data) throw new Error(response.message || t('Sign in failed'))
-      setSession({
-        accessToken: response.data.accessToken,
-        refreshToken: response.data.refreshToken,
-        userInfo: response.data.user,
-      })
+      setTokenPair(response.data.accessToken, response.data.refreshToken)
       const [userResponse, menuResponse] = await Promise.all([
         getUserInfo(response.data.accessToken),
         getCurrentMenu(response.data.accessToken),
       ])
       const user = userResponse.data?.userInfo ?? response.data.user
       if (userResponse.code !== 'OK' || menuResponse.code !== 'OK') throw new Error(t('Sign in failed'))
+      const { accessToken, refreshToken } = useAuthStore.getState()
+      setSession({
+        accessToken,
+        refreshToken,
+        userInfo: user,
+      })
       setUserAndPermissions(user, menuResponse.data?.permissions ?? [])
       setAuthorizedMenus(menuResponse.data?.menus ?? [])
       const routeName = user.homeRoute?.replace(/^\/+/, '') || 'dashboard'
