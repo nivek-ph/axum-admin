@@ -2,7 +2,7 @@ import { useAuthStore } from '@/stores/auth'
 
 export const API_OK = 'OK'
 
-export interface ApiEnvelope<T = unknown> {
+export interface ApiResponse<T = unknown> {
   code: string
   message: string
   data?: T

@@ -1,4 +1,4 @@
-import type { ApiEnvelope } from './core'
+import type { ApiResponse } from './core'
 import { withAuthHeaders } from './core'
 import { http } from './http'
 
@@ -27,7 +27,7 @@ export interface FileListResult {
 export async function fetchFiles(filters: FileFilters = {}) {
   const page = filters.page ?? 1
   const pageSize = filters.pageSize ?? 10
-  const response = await http.get<never, ApiEnvelope<FileListResult>>('/files', {
+  const response = await http.get<never, ApiResponse<FileListResult>>('/files', {
     ...withAuthHeaders(),
     params: { page, pageSize, keyword: filters.keyword || undefined, category: filters.category || undefined },
   })
@@ -39,13 +39,13 @@ export async function fetchFiles(filters: FileFilters = {}) {
   }
 }
 export function importFileUrl(payload: { name: string; url: string; tag?: string; category?: string }) {
-  return http.post<never, ApiEnvelope>('/files/import-url', payload, withAuthHeaders())
+  return http.post<never, ApiResponse>('/files/import-url', payload, withAuthHeaders())
 }
 export function renameFile(payload: { id: number; name: string }) {
-  return http.patch<never, ApiEnvelope>(`/files/${payload.id}/name`, payload, withAuthHeaders())
+  return http.patch<never, ApiResponse>(`/files/${payload.id}/name`, payload, withAuthHeaders())
 }
 export function deleteFile(id: number) {
-  return http.delete<never, ApiEnvelope>(`/files/${id}`, withAuthHeaders())
+  return http.delete<never, ApiResponse>(`/files/${id}`, withAuthHeaders())
 }
 export function uploadFile(
   file: File,
@@ -54,7 +54,7 @@ export function uploadFile(
 ) {
   const formData = new FormData()
   formData.append('file', file)
-  return http.post<never, ApiEnvelope>('/files/upload', formData, {
+  return http.post<never, ApiResponse>('/files/upload', formData, {
     ...withAuthHeaders(),
     params: { tag: metadata.tag || undefined, category: metadata.category || undefined },
     onUploadProgress: (event) => {

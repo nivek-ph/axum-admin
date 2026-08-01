@@ -1,4 +1,4 @@
-import type { ApiEnvelope } from './core'
+import type { ApiResponse } from './core'
 import { withAuthHeaders } from './core'
 import { http } from './http'
 
@@ -21,15 +21,15 @@ export interface DeptPayload {
 }
 
 export async function listDepartments() {
-  const response = await http.get<never, ApiEnvelope<{ list?: DeptRecord[] }>>('/depts', withAuthHeaders())
+  const response = await http.get<never, ApiResponse<{ list?: DeptRecord[] }>>('/depts', withAuthHeaders())
   return response.data?.list ?? []
 }
 export function createDepartment(payload: DeptPayload) {
-  return http.post<never, ApiEnvelope>('/depts', payload, withAuthHeaders())
+  return http.post<never, ApiResponse>('/depts', payload, withAuthHeaders())
 }
 export function updateDepartment(id: number, payload: DeptPayload) {
-  return http.put<never, ApiEnvelope>(`/depts/${id}`, payload, withAuthHeaders())
+  return http.put<never, ApiResponse>(`/depts/${id}`, payload, withAuthHeaders())
 }
 export function deleteDepartment(id: number) {
-  return http.delete<never, ApiEnvelope>(`/depts/${id}`, withAuthHeaders())
+  return http.delete<never, ApiResponse>(`/depts/${id}`, withAuthHeaders())
 }

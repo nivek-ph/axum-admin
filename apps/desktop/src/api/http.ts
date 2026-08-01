@@ -1,7 +1,7 @@
 import axios, { AxiosHeaders } from 'axios'
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
 
-import type { ApiEnvelope } from './core'
+import type { ApiResponse } from './core'
 import { useAuthStore } from '@/stores/auth'
 import { useMenuStore } from '@/stores/menu'
 
@@ -12,7 +12,7 @@ export const http = axios.create({
   timeout: 15_000,
 })
 
-export function isApiEnvelope(value: unknown): value is ApiEnvelope {
+export function isApiResponse(value: unknown): value is ApiResponse {
   if (!value || typeof value !== 'object') return false
   const data = value as Record<string, unknown>
   return typeof data.code === 'string' && typeof data.message === 'string'
@@ -20,9 +20,9 @@ export function isApiEnvelope(value: unknown): value is ApiEnvelope {
 
 export class ApiHttpError extends Error {
   readonly status?: number
-  readonly body?: ApiEnvelope
+  readonly body?: ApiResponse
 
-  constructor(message: string, options?: { status?: number; body?: ApiEnvelope; cause?: unknown }) {
+  constructor(message: string, options?: { status?: number; body?: ApiResponse; cause?: unknown }) {
     super(message, options?.cause !== undefined ? { cause: options.cause } : undefined)
     this.name = 'ApiHttpError'
     this.status = options?.status
@@ -62,7 +62,7 @@ function endLocalSession() {
 async function refreshTokenPair() {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
-      const response = await http.post<never, ApiEnvelope<TokenPair>>('/auth/refresh', {
+      const response = await http.post<never, ApiResponse<TokenPair>>('/auth/refresh', {
         refreshToken: useAuthStore.getState().refreshToken,
       })
       if (response.code !== 'OK' || !response.data?.accessToken || !response.data.refreshToken) {
@@ -79,7 +79,7 @@ async function refreshTokenPair() {
 
 function rejectedError(error: AxiosError) {
   const body = error.response?.data
-  if (isApiEnvelope(body))
+  if (isApiResponse(body))
     return new ApiHttpError(body.message || 'Request failed', { status: error.response?.status, body, cause: error })
   return error
 }
@@ -99,7 +99,7 @@ http.interceptors.response.use(
     const url = config?.url ?? ''
     if (
       error.response?.status === 401 &&
-      isApiEnvelope(body) &&
+      isApiResponse(body) &&
       body.code === 'ACCESS_TOKEN_EXPIRED' &&
       !url.includes('/auth/login') &&
       !url.includes('/auth/refresh') &&
@@ -116,7 +116,7 @@ http.interceptors.response.use(
         return Promise.reject(refreshError)
       }
     }
-    if (isApiEnvelope(body) && loginRequiredCodes.has(body.code) && !url.includes('/auth/login')) endLocalSession()
+    if (isApiResponse(body) && loginRequiredCodes.has(body.code) && !url.includes('/auth/login')) endLocalSession()
     return Promise.reject(rejectedError(error))
   },
 )

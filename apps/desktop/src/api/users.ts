@@ -1,4 +1,4 @@
-import type { ApiEnvelope } from './core'
+import type { ApiResponse } from './core'
 import { withAuthHeaders } from './core'
 import { http } from './http'
 
@@ -40,7 +40,7 @@ export interface CreateUserForm {
 export async function fetchUsers(filters: UserFilters = {}) {
   const page = filters.page ?? 1
   const pageSize = filters.pageSize ?? 10
-  const response = await http.get<never, ApiEnvelope<UserListResult>>('/users', {
+  const response = await http.get<never, ApiResponse<UserListResult>>('/users', {
     ...withAuthHeaders(),
     params: { page, pageSize, keyword: filters.keyword || undefined },
   })
@@ -53,7 +53,7 @@ export async function fetchUsers(filters: UserFilters = {}) {
 }
 
 export function createUser(form: CreateUserForm) {
-  return http.post<never, ApiEnvelope>(
+  return http.post<never, ApiResponse>(
     '/users',
     {
       username: form.userName.trim(),
@@ -70,7 +70,7 @@ export function createUser(form: CreateUserForm) {
 }
 
 export function assignUserRoles(id: number, roleIds: number[]) {
-  return http.put<never, ApiEnvelope>(`/users/${id}/roles`, { roleIds }, withAuthHeaders())
+  return http.put<never, ApiResponse>(`/users/${id}/roles`, { roleIds }, withAuthHeaders())
 }
 
 export interface EffectiveRoleSource {
@@ -104,7 +104,7 @@ export interface UserAccess {
 }
 
 export async function getUserAccess(id: number) {
-  const response = await http.get<never, ApiEnvelope<UserAccess>>(`/users/${id}/permissions`, withAuthHeaders())
+  const response = await http.get<never, ApiResponse<UserAccess>>(`/users/${id}/permissions`, withAuthHeaders())
   return (
     response.data ?? {
       roleIds: [],
@@ -116,7 +116,7 @@ export async function getUserAccess(id: number) {
 }
 
 export function setUserDirectPermissions(id: number, permissions: string[]) {
-  return http.put<never, ApiEnvelope>(
+  return http.put<never, ApiResponse>(
     `/users/${id}/permissions`,
     { permissions: [...new Set(permissions)].sort() },
     withAuthHeaders(),
@@ -124,11 +124,11 @@ export function setUserDirectPermissions(id: number, permissions: string[]) {
 }
 
 export function deleteUser(id: number) {
-  return http.delete<never, ApiEnvelope>(`/users/${id}`, withAuthHeaders())
+  return http.delete<never, ApiResponse>(`/users/${id}`, withAuthHeaders())
 }
 
 export function resetUserPassword(id: number, password = '123456') {
-  return http.post<never, ApiEnvelope>(`/users/${id}/password/reset`, { id, password }, withAuthHeaders())
+  return http.post<never, ApiResponse>(`/users/${id}/password/reset`, { id, password }, withAuthHeaders())
 }
 
 export interface ChangeOwnPasswordPayload {
@@ -137,7 +137,7 @@ export interface ChangeOwnPasswordPayload {
 }
 
 export function changeOwnPassword(payload: ChangeOwnPasswordPayload) {
-  return http.put<never, ApiEnvelope>('/users/me/password', payload, withAuthHeaders())
+  return http.put<never, ApiResponse>('/users/me/password', payload, withAuthHeaders())
 }
 
 export interface UpdateOwnProfilePayload {
@@ -147,7 +147,7 @@ export interface UpdateOwnProfilePayload {
 }
 
 export function updateOwnProfile(payload: UpdateOwnProfilePayload) {
-  return http.put<never, ApiEnvelope>(
+  return http.put<never, ApiResponse>(
     '/users/me',
     {
       nickName: payload.nickName?.trim() || undefined,

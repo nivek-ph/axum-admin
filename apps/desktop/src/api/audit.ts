@@ -1,4 +1,4 @@
-import type { ApiEnvelope } from './core'
+import type { ApiResponse } from './core'
 import { withAuthHeaders } from './core'
 import { http } from './http'
 
@@ -49,7 +49,7 @@ export interface AuditAnalysis {
 export async function fetchAuditEvents(filters: AuditFilters = {}) {
   const page = filters.page ?? 1
   const pageSize = filters.pageSize ?? 10
-  const response = await http.get<never, ApiEnvelope<AuditListResult>>('/audit/events', {
+  const response = await http.get<never, ApiResponse<AuditListResult>>('/audit/events', {
     ...withAuthHeaders(),
     params: {
       page,
@@ -72,11 +72,11 @@ export async function fetchAuditEvents(filters: AuditFilters = {}) {
   }
 }
 export async function fetchAuditEvent(id: number) {
-  const response = await http.get<never, ApiEnvelope<AuditEventRecord | null>>(`/audit/events/${id}`, withAuthHeaders())
+  const response = await http.get<never, ApiResponse<AuditEventRecord | null>>(`/audit/events/${id}`, withAuthHeaders())
   return response.data ?? null
 }
 export async function analyzeAuditEvents(filters: Omit<AuditFilters, 'page' | 'pageSize'> = {}) {
-  const response = await http.post<never, ApiEnvelope<AuditAnalysis>>(
+  const response = await http.post<never, ApiResponse<AuditAnalysis>>(
     '/audit/events/analyze',
     {
       reqId: filters.reqId || undefined,
@@ -109,7 +109,7 @@ export interface AuditStats {
 }
 
 export async function fetchAuditStats(days = 14) {
-  const response = await http.get<never, ApiEnvelope<AuditStats>>('/audit/events/stats', {
+  const response = await http.get<never, ApiResponse<AuditStats>>('/audit/events/stats', {
     ...withAuthHeaders(),
     params: { days },
   })

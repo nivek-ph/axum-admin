@@ -1,4 +1,4 @@
-import type { ApiEnvelope } from './core'
+import type { ApiResponse } from './core'
 import { withAuthHeaders } from './core'
 import { http } from './http'
 
@@ -30,38 +30,38 @@ export type DictionaryDetailPayload = Pick<
 > & { id?: number }
 
 export async function fetchDictionaries(name = '') {
-  const response = await http.get<never, ApiEnvelope<DictionaryRecord[]>>('/dictionaries', {
+  const response = await http.get<never, ApiResponse<DictionaryRecord[]>>('/dictionaries', {
     ...withAuthHeaders(),
     params: { name: name || undefined },
   })
   return Array.isArray(response.data) ? response.data : []
 }
 export async function fetchDictionaryDetails(dictionaryId: number) {
-  const response = await http.get<never, ApiEnvelope<{ list?: DictionaryDetailRecord[] }>>(
+  const response = await http.get<never, ApiResponse<{ list?: DictionaryDetailRecord[] }>>(
     `/dictionaries/${dictionaryId}/tree`,
     withAuthHeaders(),
   )
   return response.data?.list ?? []
 }
 export function createDictionary(payload: DictionaryPayload) {
-  return http.post<never, ApiEnvelope>('/dictionaries', payload, withAuthHeaders())
+  return http.post<never, ApiResponse>('/dictionaries', payload, withAuthHeaders())
 }
 export function updateDictionary(payload: DictionaryPayload & { id: number }) {
-  return http.put<never, ApiEnvelope>(`/dictionaries/${payload.id}`, payload, withAuthHeaders())
+  return http.put<never, ApiResponse>(`/dictionaries/${payload.id}`, payload, withAuthHeaders())
 }
 export function deleteDictionary(id: number) {
-  return http.delete<never, ApiEnvelope>(`/dictionaries/${id}`, withAuthHeaders())
+  return http.delete<never, ApiResponse>(`/dictionaries/${id}`, withAuthHeaders())
 }
 export function createDictionaryDetail(payload: DictionaryDetailPayload) {
-  return http.post<never, ApiEnvelope>(`/dictionaries/${payload.sysDictionaryId}/tree`, payload, withAuthHeaders())
+  return http.post<never, ApiResponse>(`/dictionaries/${payload.sysDictionaryId}/tree`, payload, withAuthHeaders())
 }
 export function updateDictionaryDetail(payload: DictionaryDetailPayload & { id: number }) {
-  return http.put<never, ApiEnvelope>(
+  return http.put<never, ApiResponse>(
     `/dictionaries/${payload.sysDictionaryId}/tree/${payload.id}`,
     payload,
     withAuthHeaders(),
   )
 }
 export function deleteDictionaryDetail(dictionaryId: number, id: number) {
-  return http.delete<never, ApiEnvelope>(`/dictionaries/${dictionaryId}/tree/${id}`, withAuthHeaders())
+  return http.delete<never, ApiResponse>(`/dictionaries/${dictionaryId}/tree/${id}`, withAuthHeaders())
 }

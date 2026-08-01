@@ -1,4 +1,4 @@
-import type { ApiEnvelope } from './core'
+import type { ApiResponse } from './core'
 import { withAuthHeaders } from './core'
 import { http } from './http'
 
@@ -19,7 +19,7 @@ export interface MenuRecord {
 }
 
 export async function fetchMenuTree() {
-  const response = await http.get<never, ApiEnvelope<MenuRecord[] | { menus?: MenuRecord[] }>>(
+  const response = await http.get<never, ApiResponse<MenuRecord[] | { menus?: MenuRecord[] }>>(
     '/menus/tree',
     withAuthHeaders(),
   )
