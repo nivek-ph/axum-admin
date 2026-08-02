@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use sqlx::PgPool;
 
-use super::{AccessCatalog, AccessEvaluationError};
+use super::{AccessCatalog, AccessEvaluationError, catalog::normalize_request_path};
 use crate::authorization::Authorization;
 
 #[derive(Clone)]
@@ -72,27 +72,9 @@ fn is_self_service_endpoint(method: &str, path: &str) -> bool {
     )
 }
 
-fn normalize_request_path(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    let normalized = if trimmed.is_empty() { "/api" } else { trimmed };
-    if normalized == "/api" || normalized.starts_with("/api/") {
-        normalized.to_string()
-    } else if normalized.starts_with('/') {
-        format!("/api{normalized}")
-    } else {
-        format!("/api/{normalized}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn request_path_normalization_keeps_the_api_boundary() {
-        assert_eq!(normalize_request_path("users"), "/api/users");
-        assert_eq!(normalize_request_path("/api/users/"), "/api/users");
-    }
 
     #[test]
     fn self_service_routes_are_explicit() {

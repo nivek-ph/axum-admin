@@ -1,21 +1,30 @@
 mod menus;
 mod routes;
-
 use std::collections::{BTreeSet, HashSet};
 
 use menus::MenuIndex;
 use routes::RouteIndex;
+pub(crate) use routes::normalize_request_path;
 use sqlx::{FromRow, PgPool};
 
 use super::CatalogError;
 use crate::IamInitError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumString, sqlx::Type)]
+#[strum(serialize_all = "lowercase")]
+#[sqlx(type_name = "text", rename_all = "lowercase")]
+pub enum MenuType {
+    Directory,
+    Page,
+    Action,
+}
 
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct AccessNode {
     pub id: i64,
     pub parent_id: Option<i64>,
     pub title: String,
-    pub menu_type: String,
+    pub menu_type: MenuType,
     pub status: String,
     pub permission: Option<String>,
 }
@@ -120,7 +129,13 @@ impl AccessCatalog {
 mod tests {
     use std::collections::{BTreeSet, HashSet};
 
-    use super::{AccessBinding, AccessCatalog, AccessNode, CatalogError};
+    use super::{AccessBinding, AccessCatalog, AccessNode, CatalogError, MenuType};
+
+    #[test]
+    fn menu_type_uses_lowercase_database_values() {
+        assert_eq!(MenuType::Directory.to_string(), "directory");
+        assert_eq!("page".parse::<MenuType>(), Ok(MenuType::Page));
+    }
 
     fn catalog(bindings: Vec<AccessBinding>) -> Result<AccessCatalog, CatalogError> {
         let menu_ids = bindings
@@ -131,7 +146,7 @@ mod tests {
             id: -1,
             parent_id: None,
             title: "Test directory".to_string(),
-            menu_type: "directory".to_string(),
+            menu_type: MenuType::Directory,
             status: "enabled".to_string(),
             permission: None,
         }];
@@ -139,7 +154,7 @@ mod tests {
             id,
             parent_id: Some(-1),
             title: format!("Menu {id}"),
-            menu_type: "page".to_string(),
+            menu_type: MenuType::Page,
             status: "enabled".to_string(),
             permission: Some(format!("test:menu:{id}")),
         }));
@@ -246,7 +261,7 @@ mod tests {
                     id: 1,
                     parent_id: None,
                     title: "Directory".to_string(),
-                    menu_type: "directory".to_string(),
+                    menu_type: MenuType::Directory,
                     status: "disabled".to_string(),
                     permission: None,
                 },
@@ -254,7 +269,7 @@ mod tests {
                     id: 2,
                     parent_id: Some(1),
                     title: "Users".to_string(),
-                    menu_type: "page".to_string(),
+                    menu_type: MenuType::Page,
                     status: "enabled".to_string(),
                     permission: Some("system:user:list".to_string()),
                 },
@@ -281,7 +296,7 @@ mod tests {
                 id: 2,
                 parent_id: None,
                 title: "Create user".to_string(),
-                menu_type: "action".to_string(),
+                menu_type: MenuType::Action,
                 status: "enabled".to_string(),
                 permission: Some("system:user:create".to_string()),
             }],
@@ -299,7 +314,7 @@ mod tests {
                     id: 1,
                     parent_id: Some(2),
                     title: "First".to_string(),
-                    menu_type: "directory".to_string(),
+                    menu_type: MenuType::Directory,
                     status: "enabled".to_string(),
                     permission: None,
                 },
@@ -307,7 +322,7 @@ mod tests {
                     id: 2,
                     parent_id: Some(1),
                     title: "Second".to_string(),
-                    menu_type: "directory".to_string(),
+                    menu_type: MenuType::Directory,
                     status: "enabled".to_string(),
                     permission: None,
                 },
@@ -326,7 +341,7 @@ mod tests {
                     id: 1,
                     parent_id: None,
                     title: "Directory".to_string(),
-                    menu_type: "directory".to_string(),
+                    menu_type: MenuType::Directory,
                     status: "enabled".to_string(),
                     permission: None,
                 },
@@ -334,7 +349,7 @@ mod tests {
                     id: 2,
                     parent_id: Some(1),
                     title: "Users".to_string(),
-                    menu_type: "page".to_string(),
+                    menu_type: MenuType::Page,
                     status: "enabled".to_string(),
                     permission: Some("system:user:list".to_string()),
                 },
@@ -358,7 +373,7 @@ mod tests {
                     id: 1,
                     parent_id: None,
                     title: "Directory".to_string(),
-                    menu_type: "directory".to_string(),
+                    menu_type: MenuType::Directory,
                     status: "disabled".to_string(),
                     permission: None,
                 },
@@ -366,7 +381,7 @@ mod tests {
                     id: 2,
                     parent_id: Some(1),
                     title: "Users".to_string(),
-                    menu_type: "page".to_string(),
+                    menu_type: MenuType::Page,
                     status: "disabled".to_string(),
                     permission: Some("system:user:list".to_string()),
                 },
@@ -374,7 +389,7 @@ mod tests {
                     id: 3,
                     parent_id: Some(2),
                     title: "Create user".to_string(),
-                    menu_type: "action".to_string(),
+                    menu_type: MenuType::Action,
                     status: "disabled".to_string(),
                     permission: Some("system:user:create".to_string()),
                 },

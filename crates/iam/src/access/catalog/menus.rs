@@ -1,15 +1,12 @@
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    sync::OnceLock,
-};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-use super::{AccessBinding, AccessNode, CatalogError, PermissionCatalogEntry};
+use super::{AccessBinding, AccessNode, CatalogError, MenuType, PermissionCatalogEntry};
 
 #[derive(Debug, Clone)]
 pub(super) struct MenuIndex {
     nodes: HashMap<i64, AccessNode>,
     enabled_menu_ids: HashSet<i64>,
-    enabled_permissions: OnceLock<HashSet<String>>,
+    enabled_permissions: HashSet<String>,
 }
 
 impl MenuIndex {
@@ -33,11 +30,16 @@ impl MenuIndex {
             .filter(|node| node_is_effectively_enabled(node.id, &node_map))
             .map(|node| node.id)
             .collect::<HashSet<_>>();
+        let enabled_permissions = node_map
+            .values()
+            .filter(|node| enabled_menu_ids.contains(&node.id))
+            .filter_map(|node| node.permission.clone())
+            .collect::<HashSet<_>>();
 
         Ok(Self {
             nodes: node_map,
             enabled_menu_ids,
-            enabled_permissions: OnceLock::new(),
+            enabled_permissions,
         })
     }
 
@@ -49,7 +51,7 @@ impl MenuIndex {
             .into_iter()
             .filter_map(|binding| {
                 let node = self.nodes.get(&binding.menu_id)?;
-                if node.menu_type == "directory" || node.permission.is_none() {
+                if node.menu_type == MenuType::Directory || node.permission.is_none() {
                     return Some(Err(CatalogError::InvalidBinding));
                 }
                 self.enabled_menu_ids
@@ -60,13 +62,7 @@ impl MenuIndex {
     }
 
     pub(super) fn enabled_permissions(&self) -> &HashSet<String> {
-        self.enabled_permissions.get_or_init(|| {
-            self.nodes
-                .values()
-                .filter(|node| self.enabled_menu_ids.contains(&node.id))
-                .filter_map(|node| node.permission.clone())
-                .collect()
-        })
+        &self.enabled_permissions
     }
 
     pub(super) fn permission_catalog(
@@ -77,22 +73,22 @@ impl MenuIndex {
         let mut entries = self
             .nodes
             .values()
-            .filter(|node| node.menu_type == "page" || node.menu_type == "action")
+            .filter(|node| matches!(node.menu_type, MenuType::Page | MenuType::Action))
             .filter_map(|node| {
                 let permission = node.permission.clone()?;
-                let page = if node.menu_type == "page" {
+                let page = if node.menu_type == MenuType::Page {
                     node
                 } else {
                     self.nodes.get(&node.parent_id?)?
                 };
                 Some((
                     page.id,
-                    node.menu_type == "action",
+                    node.menu_type == MenuType::Action,
                     node.id,
                     PermissionCatalogEntry {
                         permission,
                         title: node.title.clone(),
-                        menu_type: node.menu_type.clone(),
+                        menu_type: node.menu_type.to_string(),
                         status: node.status.clone(),
                         effectively_enabled: self.enabled_menu_ids.contains(&node.id),
                         owning_page_id: page.id,
@@ -113,14 +109,14 @@ impl MenuIndex {
         configured_menu_ids
             .iter()
             .filter_map(|menu_id| self.nodes.get(menu_id))
-            .filter(|node| node.menu_type == "page")
+            .filter(|node| node.menu_type == MenuType::Page)
             .filter_map(|node| node.permission.clone())
             .collect()
     }
 
     pub(super) fn is_action_permission(&self, permission: &str) -> bool {
         self.nodes.values().any(|node| {
-            node.menu_type == "action" && node.permission.as_deref() == Some(permission)
+            node.menu_type == MenuType::Action && node.permission.as_deref() == Some(permission)
         })
     }
 
@@ -137,7 +133,7 @@ impl MenuIndex {
     pub(super) fn validate_assignment(&self, menu_ids: &HashSet<i64>) -> Result<(), CatalogError> {
         for menu_id in menu_ids {
             let node = self.nodes.get(menu_id).ok_or(CatalogError::InvalidTree)?;
-            if node.menu_type == "action" {
+            if node.menu_type == MenuType::Action {
                 return Err(CatalogError::InvalidTree);
             }
             let mut parent_id = node.parent_id;
@@ -164,7 +160,7 @@ impl MenuIndex {
             let Some(node) = self.nodes.get(menu_id) else {
                 continue;
             };
-            if node.menu_type != "page" || !self.enabled_menu_ids.contains(menu_id) {
+            if node.menu_type != MenuType::Page || !self.enabled_menu_ids.contains(menu_id) {
                 continue;
             }
             effective.insert(*menu_id);
@@ -182,43 +178,34 @@ impl MenuIndex {
 }
 
 fn validate_node(node: &AccessNode, nodes: &HashMap<i64, AccessNode>) -> Result<(), CatalogError> {
-    let valid_type = matches!(node.menu_type.as_str(), "directory" | "page" | "action");
     let valid_status = matches!(node.status.as_str(), "enabled" | "disabled");
-    let valid_permission = match node.menu_type.as_str() {
-        "directory" => node.permission.is_none(),
-        "page" | "action" => node
+    let valid_permission = match node.menu_type {
+        MenuType::Directory => node.permission.is_none(),
+        MenuType::Page | MenuType::Action => node
             .permission
             .as_ref()
             .is_some_and(|value| !value.is_empty()),
-        _ => false,
     };
-    if !valid_type || !valid_status || !valid_permission {
+    if !valid_status || !valid_permission {
         return Err(CatalogError::InvalidTree);
     }
 
-    match (node.menu_type.as_str(), node.parent_id) {
-        ("action", Some(parent_id))
-            if nodes
-                .get(&parent_id)
-                .map(|parent| parent.menu_type.as_str())
-                != Some("page") =>
+    match (node.menu_type, node.parent_id) {
+        (MenuType::Action, Some(parent_id))
+            if nodes.get(&parent_id).map(|parent| parent.menu_type) != Some(MenuType::Page) =>
         {
             return Err(CatalogError::InvalidTree);
         }
-        ("action", None) => return Err(CatalogError::InvalidTree),
-        ("page", Some(parent_id))
-            if nodes
-                .get(&parent_id)
-                .map(|parent| parent.menu_type.as_str())
-                != Some("directory") =>
+        (MenuType::Action, None) => return Err(CatalogError::InvalidTree),
+        (MenuType::Page, Some(parent_id))
+            if nodes.get(&parent_id).map(|parent| parent.menu_type)
+                != Some(MenuType::Directory) =>
         {
             return Err(CatalogError::InvalidTree);
         }
-        ("directory", Some(parent_id))
-            if nodes
-                .get(&parent_id)
-                .map(|parent| parent.menu_type.as_str())
-                != Some("directory") =>
+        (MenuType::Directory, Some(parent_id))
+            if nodes.get(&parent_id).map(|parent| parent.menu_type)
+                != Some(MenuType::Directory) =>
         {
             return Err(CatalogError::InvalidTree);
         }
