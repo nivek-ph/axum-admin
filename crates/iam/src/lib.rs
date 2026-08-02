@@ -26,13 +26,17 @@ pub struct Iam {
 impl Iam {
     pub async fn load(pool: PgPool) -> Result<Self, IamInitError> {
         let authorization = Authorization::load(pool.clone()).await?;
-        let catalog = Arc::new(AccessCatalog::load(&pool).await?);
-        let access =
-            AccessService::from_catalog(pool.clone(), authorization.clone(), catalog.clone());
+        let access_catalog = Arc::new(AccessCatalog::load(&pool).await?);
+        let access = AccessService::from_catalog(
+            pool.clone(),
+            authorization.clone(),
+            access_catalog.clone(),
+        );
         let accounts =
-            accounts::Accounts::new(pool.clone(), authorization.clone(), catalog.clone());
-        let menus = MenuService::from_catalog(pool.clone(), authorization.clone(), catalog.clone());
-        let roles = roles::RoleService::new(pool, catalog, authorization.clone());
+            accounts::Accounts::new(pool.clone(), authorization.clone(), access_catalog.clone());
+        let menus =
+            MenuService::from_catalog(pool.clone(), authorization.clone(), access_catalog.clone());
+        let roles = roles::RoleService::new(pool, authorization.clone(), access_catalog);
         Ok(Self {
             access,
             accounts,

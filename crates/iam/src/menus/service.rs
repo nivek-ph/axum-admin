@@ -11,20 +11,20 @@ use crate::{access::AccessCatalog, authorization::Authorization};
 #[derive(Clone)]
 pub struct MenuService {
     pool: PgPool,
-    catalog: Arc<AccessCatalog>,
     authorization: Authorization,
+    access_catalog: Arc<AccessCatalog>,
 }
 
 impl MenuService {
     pub(crate) fn from_catalog(
         pool: PgPool,
         authorization: Authorization,
-        catalog: Arc<AccessCatalog>,
+        access_catalog: Arc<AccessCatalog>,
     ) -> Self {
         Self {
             pool,
-            catalog,
             authorization,
+            access_catalog,
         }
     }
 
@@ -43,12 +43,12 @@ impl MenuService {
         .await?
         .into_iter()
         .collect::<HashSet<_>>();
-        let menu_ids = self.catalog.effective_page_access(&configured, true);
+        let menu_ids = self.access_catalog.effective_page_access(&configured, true);
         let effective_permissions = self
             .authorization
             .effective_permissions_for(user_id, &active_role_ids)
             .await?;
-        let enabled_permissions = self.catalog.enabled_permissions();
+        let enabled_permissions = self.access_catalog.enabled_permissions();
         let permissions = effective_permissions
             .into_iter()
             .filter(|permission| enabled_permissions.contains(permission))

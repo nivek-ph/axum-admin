@@ -8,20 +8,20 @@ use crate::authorization::Authorization;
 #[derive(Clone)]
 pub struct AccessService {
     pool: PgPool,
-    catalog: Arc<AccessCatalog>,
     authorization: Authorization,
+    access_catalog: Arc<AccessCatalog>,
 }
 
 impl AccessService {
     pub(crate) fn from_catalog(
         pool: PgPool,
         authorization: Authorization,
-        catalog: Arc<AccessCatalog>,
+        access_catalog: Arc<AccessCatalog>,
     ) -> Self {
         Self {
-            authorization,
             pool,
-            catalog,
+            authorization,
+            access_catalog,
         }
     }
 
@@ -45,8 +45,8 @@ impl AccessService {
         if is_self_service_endpoint(&method, &path) {
             return Ok(());
         }
-        let menu_id = self.catalog.resolve(&method, &path)?;
-        let required_permission = self.catalog.permission_for_menu(menu_id)?;
+        let menu_id = self.access_catalog.resolve(&method, &path)?;
+        let required_permission = self.access_catalog.permission_for_menu(menu_id)?;
         let active_role_ids = self.authorization.active_user_role_ids(user_id).await?;
         if self
             .authorization

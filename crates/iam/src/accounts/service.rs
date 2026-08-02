@@ -24,7 +24,7 @@ const HEADER_IMG: &str = "";
 pub struct Accounts {
     pool: sqlx::PgPool,
     authorization: Authorization,
-    catalog: Arc<AccessCatalog>,
+    access_catalog: Arc<AccessCatalog>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -38,12 +38,12 @@ impl Accounts {
     pub(crate) fn new(
         pool: sqlx::PgPool,
         authorization: Authorization,
-        catalog: Arc<AccessCatalog>,
+        access_catalog: Arc<AccessCatalog>,
     ) -> Self {
         Self {
             pool,
             authorization,
-            catalog,
+            access_catalog,
         }
     }
 
@@ -357,9 +357,11 @@ impl Accounts {
         .await?
         .into_iter()
         .collect::<HashSet<_>>();
-        let visible_pages = self.catalog.effective_page_access(&configured_pages, true);
+        let visible_pages = self
+            .access_catalog
+            .effective_page_access(&configured_pages, true);
         let catalog = self
-            .catalog
+            .access_catalog
             .permission_catalog(&visible_pages, true)
             .into_iter()
             .map(|item| AccountPermissionCatalogItem {

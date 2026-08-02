@@ -14,20 +14,20 @@ use crate::{access::AccessCatalog, authorization::Authorization};
 #[derive(Clone)]
 pub struct RoleService {
     pool: PgPool,
-    catalog: Arc<AccessCatalog>,
     authorization: Authorization,
+    access_catalog: Arc<AccessCatalog>,
 }
 
 impl RoleService {
     pub(crate) fn new(
         pool: PgPool,
-        catalog: Arc<AccessCatalog>,
         authorization: Authorization,
+        access_catalog: Arc<AccessCatalog>,
     ) -> Self {
         Self {
             pool,
-            catalog,
             authorization,
+            access_catalog,
         }
     }
 
@@ -106,7 +106,7 @@ impl RoleService {
         .await?;
         let configured = menu_ids.iter().copied().collect::<HashSet<_>>();
         let effective_menu_ids = self
-            .catalog
+            .access_catalog
             .effective_page_access(&configured, role.status == "enabled")
             .into_iter()
             .collect();
@@ -129,14 +129,17 @@ impl RoleService {
             .ensure_role_access_change(actor_user_id, id)
             .await?;
         let configured_menu_ids = values.iter().copied().collect::<HashSet<_>>();
-        self.catalog.validate_assignment(&configured_menu_ids)?;
-        let mut permissions = self.catalog.page_entry_permissions(&configured_menu_ids);
+        self.access_catalog
+            .validate_assignment(&configured_menu_ids)?;
+        let mut permissions = self
+            .access_catalog
+            .page_entry_permissions(&configured_menu_ids);
         permissions.extend(
             mutation
                 .role_permissions(id)
                 .await?
                 .into_iter()
-                .filter(|permission| self.catalog.is_action_permission(permission)),
+                .filter(|permission| self.access_catalog.is_action_permission(permission)),
         );
         sqlx::query("delete from sys_role_menus where role_id = $1")
             .bind(id)
@@ -202,10 +205,10 @@ impl RoleService {
         .into_iter()
         .collect::<HashSet<_>>();
         let visible_pages = self
-            .catalog
+            .access_catalog
             .effective_page_access(&configured_menu_ids, role_enabled);
         Ok(self
-            .catalog
+            .access_catalog
             .permission_catalog(&visible_pages, role_enabled)
             .into_iter()
             .filter(|row| row.menu_type == "action")
@@ -228,7 +231,7 @@ impl RoleService {
             .role_permissions(id)
             .await?
             .into_iter()
-            .filter(|permission| self.catalog.is_action_permission(permission))
+            .filter(|permission| self.access_catalog.is_action_permission(permission))
             .collect())
     }
 
@@ -245,7 +248,7 @@ impl RoleService {
             .await?;
         if !permissions
             .iter()
-            .all(|permission| self.catalog.is_action_permission(permission))
+            .all(|permission| self.access_catalog.is_action_permission(permission))
         {
             return Err(RoleError::InvalidPermissions);
         }
@@ -257,7 +260,10 @@ impl RoleService {
         .await?
         .into_iter()
         .collect();
-        permissions.extend(self.catalog.page_entry_permissions(&configured_menu_ids));
+        permissions.extend(
+            self.access_catalog
+                .page_entry_permissions(&configured_menu_ids),
+        );
         mutation.replace_role_permissions(id, permissions).await?;
         Ok(mutation.commit().await?)
     }

@@ -247,7 +247,7 @@ impl AccessCatalog {
     pub fn permission_for_menu(&self, menu_id: i64) -> Result<&str, CatalogError> {
         self.permissions_by_menu_id
             .get(&menu_id)
-            .map(String::as_str)
+            .map(|permission| permission.as_str())
             .ok_or(CatalogError::InvalidBinding)
     }
 
