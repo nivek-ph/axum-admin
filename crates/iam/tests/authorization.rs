@@ -191,6 +191,21 @@ async fn malformed_policy_prevents_authorization_startup(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn overlapping_catalog_binding_follows_matchit_priority(pool: sqlx::PgPool) {
+    sqlx::query(
+        r#"
+        insert into sys_menu_apis (menu_id, method, path_pattern)
+        values (1106, 'GET', '/api/{area}/{id}/permissions')
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(Iam::load(pool).await.is_ok());
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn employee_access_survives_authorization_restart(pool: sqlx::PgPool) {
     insert_user(&pool, 109, "super-user").await;
     insert_user(&pool, 110, "restart-target").await;

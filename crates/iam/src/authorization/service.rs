@@ -48,7 +48,7 @@ pub struct Authorization {
 pub(crate) struct AuthorizationMutation<'a> {
     authorization: &'a Authorization,
     transaction: Transaction<'a, Postgres>,
-    _reload_guard: MutexGuard<'a, ()>,
+    _guard: MutexGuard<'a, ()>,
 }
 
 impl AuthorizationMutation<'_> {
@@ -171,7 +171,7 @@ impl AuthorizationMutation<'_> {
         let Self {
             authorization,
             transaction,
-            _reload_guard,
+            _guard,
         } = self;
         transaction.commit().await?;
         authorization.engine.publish_change();
@@ -407,13 +407,13 @@ impl Authorization {
     pub(crate) async fn begin_mutation(
         &self,
     ) -> Result<AuthorizationMutation<'_>, AuthorizationError> {
-        let reload_guard = self.engine.lock_policy_change().await;
+        let guard = self.engine.lock_policy_change().await;
         let mut transaction = self.store.pool().begin().await?;
         lock_policy_table(transaction.as_mut()).await?;
         Ok(AuthorizationMutation {
             authorization: self,
             transaction,
-            _reload_guard: reload_guard,
+            _guard: guard,
         })
     }
 }

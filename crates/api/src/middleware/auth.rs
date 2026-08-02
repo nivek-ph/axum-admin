@@ -193,28 +193,6 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn ambiguous_protected_route_binding_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
-        insert_user(&pool, 101, "ambiguous-user", true).await;
-        sqlx::query(
-            r#"
-            insert into sys_menu_apis (menu_id, method, path_pattern)
-            values (1106, 'GET', '/api/{area}/{id}/permissions')
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        let (state, tokens, access_token) = authenticated_state(pool, 101, "ambiguous-user").await;
-
-        let (status, body) =
-            protected_response(state, &access_token, "/api/roles/2/permissions").await;
-
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(body["code"], "AUTHORIZATION_CONFIG_INVALID");
-        tokens.revoke(&access_token).await.unwrap();
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
     async fn permission_denial_records_the_expected_audit_classification(pool: sqlx::PgPool) {
         record_access_denied(
             &audit::AuditService::new(pool.clone()),

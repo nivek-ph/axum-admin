@@ -123,6 +123,13 @@ The Access Catalog is loaded once at IAM startup from `sys_menus` and `sys_menu_
 therefore require an application restart to change route resolution or assignment validation; they
 are not propagated by the Casbin watcher.
 
+Protected route lookup uses a method-keyed `matchit` router inside the private Access Catalog; the
+HTTP `Router` remains owned by `crates/api` and is not the Permission source of truth. Within the
+Catalog's `/api` boundary, route templates and overlap precedence follow the pinned matchit version,
+including named parameters, catch-all parameters, and escaped braces. Static routes take precedence
+over dynamic routes; a selected route's `menu_id` supplies its Permission. Invalid matchit templates
+or matchit insertion conflicts are invalid Catalog configuration.
+
 ## Access model
 
 ### Page Access and operation Permissions

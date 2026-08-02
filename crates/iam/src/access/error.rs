@@ -1,3 +1,5 @@
+use matchit::InsertError;
+
 use crate::authorization::AuthorizationError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -6,12 +8,19 @@ pub enum CatalogError {
     ConflictingBinding,
     #[error("request route is not bound to an access node")]
     Unbound,
-    #[error("request route matches multiple access nodes")]
-    Ambiguous,
     #[error("access catalog contains an invalid route binding")]
     InvalidBinding,
     #[error("access catalog contains an invalid menu tree")]
     InvalidTree,
+}
+
+impl From<InsertError> for CatalogError {
+    fn from(error: InsertError) -> Self {
+        match error {
+            InsertError::Conflict { .. } => Self::ConflictingBinding,
+            _ => Self::InvalidBinding,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

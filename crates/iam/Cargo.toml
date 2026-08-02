@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 audit.workspace = true
 casbin.workspace = true
+matchit.workspace = true
 redis-watcher.workspace = true
 serde.workspace = true
 serde_json.workspace = true
