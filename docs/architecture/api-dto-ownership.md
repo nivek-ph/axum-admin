@@ -1,4 +1,4 @@
-# API schema boundary
+# API DTO ownership
 
 `crates/api` owns HTTP response DTOs and request DTOs whose wire shape differs from the owning capability's behavior input. Known response bodies use concrete `ToSchema` types; `serde_json::Value` is reserved for genuinely open JSON fields.
 

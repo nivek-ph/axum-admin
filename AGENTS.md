@@ -12,6 +12,8 @@ This file gives repo-specific guidance for agents working in this project.
 
 ## Backend
 
+- Read [`docs/architecture/api-dto-ownership.md`](docs/architecture/api-dto-ownership.md) before
+  changing API request or response DTOs, OpenAPI schemas, or capability-side `utoipa` derives.
 - Use REST-style routes under `/api`.
 - Public routes are registered in `crates/api/src/routes/public`.
 - Authenticated routes are registered in `crates/api/src/routes/protected` and use the `Authorization: Bearer <token>` header.
@@ -144,8 +146,8 @@ When present, the local tracker uses the five-role vocabulary in `.notes/agents/
 
 ### Domain docs
 
-Tracked, current architecture is under `docs/architecture/`; IAM's canonical implementation document
-is [`docs/architecture/iam.md`](docs/architecture/iam.md). Local `.notes/` files hold temporary
-planning context and task history and may describe superseded targets; use them for provenance, not
-as durable architecture or evidence that behavior is implemented. See `.notes/agents/domain.md` when
-the local tracker is available.
+- Tracked, current architecture lives in `docs/architecture/`.
+- IAM's implementation document is [`docs/architecture/iam.md`](docs/architecture/iam.md).
+- Local `.notes/` files hold temporary planning context and task history and may describe superseded
+  targets; use them for provenance, not as durable architecture or evidence that behavior is
+  implemented. See `.notes/agents/domain.md` when the local tracker is available.
