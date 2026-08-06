@@ -1,0 +1,152 @@
+use std::time::Duration;
+
+use axum::Router;
+use redis::aio::MultiplexedConnection;
+use tower_rate_limiter::{
+    DefaultResponseFactory, IpKeyExtractor, RateLimitLayer, RedisStore, Store,
+};
+
+const WINDOW: Duration = Duration::from_secs(60);
+// global policy and limit
+const GLOBAL_POLICY: &str = "global";
+const GLOBAL_LIMIT: u64 = 10; // 10 req/min
+
+// captcha policy and limit
+const CAPTCHA_POLICY: &str = "captcha";
+const CAPTCHA_LIMIT: u64 = 3; // 3 req/min
+
+/// Apply the Redis-backed rate limit shared by every route nested under `/api`.
+pub(crate) fn apply_global<S>(router: Router<S>, connection: &MultiplexedConnection) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    apply_policy(
+        router,
+        RedisStore::new(connection.clone()),
+        GLOBAL_POLICY,
+        GLOBAL_LIMIT,
+    )
+}
+
+/// Apply the stricter Redis-backed policy for CAPTCHA creation.
+pub(crate) fn apply_captcha<S>(router: Router<S>, connection: &MultiplexedConnection) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    apply_policy(
+        router,
+        RedisStore::new(connection.clone()),
+        CAPTCHA_POLICY,
+        CAPTCHA_LIMIT,
+    )
+}
+
+fn apply_policy<S, T>(
+    router: Router<S>,
+    store: T,
+    policy_name: &'static str,
+    limit: u64,
+) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    T: Store,
+{
+    let layer = RateLimitLayer::builder(IpKeyExtractor::new())
+        .policy_name(policy_name)
+        .limit(limit)
+        .window(WINDOW)
+        .with_store(store)
+        .response_factory(DefaultResponseFactory::default())
+        .build()
+        .expect("API rate-limit policy should be valid");
+
+    router.layer(layer)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+
+    use axum::{
+        Router,
+        body::{Body, to_bytes},
+        extract::ConnectInfo,
+        http::{Request, StatusCode},
+        response::Response,
+        routing::get,
+    };
+    use tower::ServiceExt;
+    use tower_rate_limiter::MemoryStore;
+
+    use super::{CAPTCHA_LIMIT, CAPTCHA_POLICY, GLOBAL_LIMIT, GLOBAL_POLICY, apply_policy};
+
+    fn request(path: &str, ip: &str) -> Request<Body> {
+        let peer = format!("{ip}:3000")
+            .parse::<SocketAddr>()
+            .expect("test peer address should be valid");
+        Request::get(path)
+            .extension(ConnectInfo(peer))
+            .body(Body::empty())
+            .expect("test request should build")
+    }
+
+    fn app() -> Router {
+        let store = MemoryStore::new();
+        let captcha = apply_policy(
+            Router::new().route("/captcha", get(|| async { StatusCode::OK })),
+            store.clone(),
+            CAPTCHA_POLICY,
+            CAPTCHA_LIMIT,
+        );
+        let api = Router::new()
+            .route("/health", get(|| async { StatusCode::OK }))
+            .merge(captcha);
+        apply_policy(api, store, GLOBAL_POLICY, GLOBAL_LIMIT)
+    }
+
+    #[tokio::test]
+    async fn global_policy_allows_ten_requests_per_ip() {
+        let app = app();
+        for _ in 0..GLOBAL_LIMIT {
+            let response = app
+                .clone()
+                .oneshot(request("/health", "192.0.2.1"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let response = app.oneshot(request("/health", "192.0.2.1")).await.unwrap();
+        assert_rate_limited(response).await;
+    }
+
+    #[tokio::test]
+    async fn captcha_policy_allows_three_requests_per_ip() {
+        let app = app();
+        for _ in 0..CAPTCHA_LIMIT {
+            let response = app
+                .clone()
+                .oneshot(request("/captcha", "192.0.2.2"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let response = app.oneshot(request("/captcha", "192.0.2.2")).await.unwrap();
+        assert_rate_limited(response).await;
+    }
+
+    async fn assert_rate_limited(response: Response<Body>) {
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(response.headers().contains_key("retry-after"));
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({
+                "code": "RATE_LIMITED",
+                "message": "too many requests",
+                "data": null
+            })
+        );
+    }
+}

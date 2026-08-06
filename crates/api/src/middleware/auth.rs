@@ -85,9 +85,12 @@ async fn record_access_denied(audits: &audit::AuditService, context: &AuditConte
 
 #[cfg(test)]
 mod tests {
+    use std::net::SocketAddr;
+
     use auth::token::TokenService;
     use axum::{
         body::{Body, to_bytes},
+        extract::ConnectInfo,
         http::{Request, StatusCode},
     };
     use serde_json::Value;
@@ -125,6 +128,7 @@ mod tests {
         let response = crate::router::router(state)
             .oneshot(
                 Request::get(path)
+                    .extension(ConnectInfo("127.0.0.1:3000".parse::<SocketAddr>().unwrap()))
                     .header(AUTHORIZATION, format!("Bearer {access_token}"))
                     .body(Body::empty())
                     .unwrap(),

@@ -10,18 +10,28 @@ use tower_http::{
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::{docs::ApiDoc, middleware::auth::require_auth, routes, state::AppState};
+use crate::{
+    docs::ApiDoc,
+    middleware::{auth::require_auth, rate_limit},
+    routes,
+    state::AppState,
+};
 
 pub fn router(state: AppState) -> Router {
+    let captcha = rate_limit::apply_captcha(routes::captcha_routes(), &state.redis);
+    let api_router = Router::new()
+        .merge(routes::public_routes())
+        .merge(captcha)
+        .merge(
+            routes::protected_routes()
+                .route_layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        );
+    let api_router = rate_limit::apply_global(api_router, &state.redis);
+
     Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .nest_service("/uploads", ServeDir::new("./uploads"))
-        .nest("/api", routes::public_routes())
-        .nest(
-            "/api",
-            routes::protected_routes()
-                .route_layer(middleware::from_fn_with_state(state.clone(), require_auth)),
-        )
+        .nest("/api", api_router)
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

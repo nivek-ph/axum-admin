@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { IconEye, IconEyeOff, IconRefresh } from '@tabler/icons-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -30,6 +30,8 @@ export function LoginPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [captcha, setCaptcha] = useState<CaptchaData | null>(null)
+  const [captchaLoading, setCaptchaLoading] = useState(false)
+  const captchaLoadingRef = useRef(false)
   const [submitting, setSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const setSession = useAuthStore((state) => state.setSession)
@@ -49,12 +51,18 @@ export function LoginPage() {
   })
 
   const loadCaptcha = useCallback(async () => {
+    if (captchaLoadingRef.current) return
+    captchaLoadingRef.current = true
+    setCaptchaLoading(true)
     try {
       const response = await fetchCaptcha()
       if (response.code === 'OK') setCaptcha(response.data ?? null)
       else toast.error(response.message)
     } catch (error) {
       toast.error(t(getApiErrorMessage(error, 'Sign in failed')))
+    } finally {
+      captchaLoadingRef.current = false
+      setCaptchaLoading(false)
     }
   }, [t])
 
@@ -215,6 +223,7 @@ export function LoginPage() {
                       <button
                         aria-label="Reload captcha"
                         className="group relative flex h-10 w-[9.5rem] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-[oklch(0.96_0.02_250)] transition-colors hover:border-ring/50 dark:bg-muted"
+                        disabled={captchaLoading}
                         onClick={() => void loadCaptcha()}
                         type="button"
                       >

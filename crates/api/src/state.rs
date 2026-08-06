@@ -6,9 +6,11 @@ use iam::{
     roles::RoleService,
 };
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
+use redis::aio::MultiplexedConnection;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub redis: MultiplexedConnection,
     pub public_base_url: String,
     pub tokens: TokenService,
     pub captcha: CaptchaService,
@@ -30,6 +32,13 @@ pub(crate) mod tests {
     use super::*;
 
     pub(crate) async fn test_state(pool: sqlx::PgPool) -> AppState {
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+        let redis = redis::Client::open(redis_url)
+            .expect("Redis test client should construct")
+            .get_multiplexed_async_connection()
+            .await
+            .expect("Redis test connection should open");
         let passwords = auth::password::PasswordService::new();
         let iam = iam::Iam::load(pool.clone())
             .await
@@ -40,6 +49,7 @@ pub(crate) mod tests {
         let parameters = ParameterService::new(pool.clone());
         let files = FileService::new(pool, "./uploads");
         AppState {
+            redis,
             public_base_url: "http://127.0.0.1:3000".to_string(),
             tokens: TokenService::without_session_store("test-secret"),
             captcha: CaptchaService::without_store(),

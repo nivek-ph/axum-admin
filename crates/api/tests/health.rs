@@ -1,5 +1,8 @@
+use std::net::SocketAddr;
+
 use axum::{
     body::{Body, to_bytes},
+    extract::ConnectInfo,
     http::{Method, Request, header},
 };
 use iam::departments::DepartmentService;
@@ -7,7 +10,22 @@ use jsonwebtoken::{EncodingKey, Header, encode};
 use serde_json::json;
 use tower::ServiceExt;
 
+fn request() -> axum::http::request::Builder {
+    Request::builder().extension(ConnectInfo(
+        "127.0.0.1:3000"
+            .parse::<SocketAddr>()
+            .expect("test peer address should be valid"),
+    ))
+}
+
 async fn test_state(pool: sqlx::PgPool) -> api::AppState {
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+    let redis = redis::Client::open(redis_url)
+        .expect("Redis test client should construct")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("Redis test connection should open");
     let passwords = auth::password::PasswordService::new();
     let tokens = auth::token::TokenService::without_session_store("test-secret");
     let captcha = auth::captcha::CaptchaService::without_store();
@@ -17,6 +35,7 @@ async fn test_state(pool: sqlx::PgPool) -> api::AppState {
     let audits = audit::AuditService::new(pool.clone());
     let departments = DepartmentService::new(pool.clone());
     api::AppState {
+        redis,
         public_base_url: "http://127.0.0.1:3000".to_string(),
         tokens,
         captcha,
@@ -39,7 +58,7 @@ async fn health_route_returns_ok_response_body(pool: sqlx::PgPool) {
     let app = api::router(test_state(pool).await);
     let response = app
         .oneshot(
-            Request::builder()
+            request()
                 .uri("/api/health")
                 .body(Body::empty())
                 .expect("request should build"),
@@ -66,7 +85,7 @@ async fn swagger_ui_route_is_available(pool: sqlx::PgPool) {
     let app = api::router(test_state(pool).await);
     let response = app
         .oneshot(
-            Request::builder()
+            request()
                 .uri("/swagger-ui/")
                 .body(Body::empty())
                 .expect("request should build"),
@@ -81,7 +100,7 @@ async fn swagger_ui_route_is_available(pool: sqlx::PgPool) {
 async fn protected_route_without_bearer_returns_login_required_envelope(pool: sqlx::PgPool) {
     let response = api::router(test_state(pool).await)
         .oneshot(
-            Request::builder()
+            request()
                 .uri("/api/users/me")
                 .body(Body::empty())
                 .expect("request should build"),
@@ -107,7 +126,7 @@ async fn protected_route_without_bearer_returns_login_required_envelope(pool: sq
 async fn protected_route_with_invalid_bearer_returns_token_invalid_envelope(pool: sqlx::PgPool) {
     let response = api::router(test_state(pool).await)
         .oneshot(
-            Request::builder()
+            request()
                 .uri("/api/users/me")
                 .header(header::AUTHORIZATION, "Bearer invalid-token")
                 .body(Body::empty())
@@ -147,7 +166,7 @@ async fn protected_route_with_expired_bearer_returns_access_token_expired_envelo
     .expect("expired token should encode");
     let response = api::router(test_state(pool).await)
         .oneshot(
-            Request::builder()
+            request()
                 .uri("/api/users/me")
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
@@ -196,7 +215,7 @@ async fn protected_route_with_missing_login_session_returns_session_invalid_enve
 
     let response = api::router(state)
         .oneshot(
-            Request::builder()
+            request()
                 .uri("/api/users/me")
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
@@ -229,7 +248,7 @@ async fn protected_route_without_session_store_returns_authorization_unavailable
 
     let response = api::router(test_state(pool).await)
         .oneshot(
-            Request::builder()
+            request()
                 .uri("/api/users/me")
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
@@ -256,7 +275,7 @@ async fn protected_route_without_session_store_returns_authorization_unavailable
 async fn malformed_refresh_token_returns_refresh_token_invalid_envelope(pool: sqlx::PgPool) {
     let response = api::router(test_state(pool).await)
         .oneshot(
-            Request::builder()
+            request()
                 .method(Method::POST)
                 .uri("/api/auth/refresh")
                 .header(header::CONTENT_TYPE, "application/json")
@@ -287,7 +306,7 @@ async fn valid_refresh_shape_without_session_store_returns_authorization_unavail
     let refresh_token = format!("{}.{}", "a".repeat(64), "b".repeat(64));
     let response = api::router(test_state(pool).await)
         .oneshot(
-            Request::builder()
+            request()
                 .method(Method::POST)
                 .uri("/api/auth/refresh")
                 .header(header::CONTENT_TYPE, "application/json")
@@ -327,7 +346,7 @@ async fn refresh_for_missing_session_returns_session_invalid_envelope(pool: sqlx
     let refresh_token = format!("{}.{}", "c".repeat(64), "d".repeat(64));
     let response = api::router(state)
         .oneshot(
-            Request::builder()
+            request()
                 .method(Method::POST)
                 .uri("/api/auth/refresh")
                 .header(header::CONTENT_TYPE, "application/json")
@@ -371,8 +390,13 @@ async fn removed_non_core_routes_return_not_found(pool: sqlx::PgPool) {
         ("/api/sysApiToken/getApiTokenList", "POST"),
     ];
 
-    for (uri, method) in requests {
-        let request = Request::builder()
+    for (index, (uri, method)) in requests.into_iter().enumerate() {
+        let request = request()
+            .extension(ConnectInfo(
+                format!("192.0.2.{}:3000", index + 1)
+                    .parse::<SocketAddr>()
+                    .expect("test peer address should be valid"),
+            ))
             .method(method)
             .uri(uri)
             .body(Body::empty())
@@ -396,7 +420,7 @@ async fn cors_preflight_allows_desktop_dev_origin(pool: sqlx::PgPool) {
     let app = api::router(test_state(pool).await);
     let response = app
         .oneshot(
-            Request::builder()
+            request()
                 .method(Method::OPTIONS)
                 .uri("/api/auth/login")
                 .header(header::ORIGIN, "http://localhost:5173")

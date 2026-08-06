@@ -75,6 +75,7 @@ async fn build_state(
     let departments = DepartmentService::new(pool);
 
     Ok(api::AppState {
+        redis: redis_connection,
         public_base_url: config.public_base_url(),
         tokens,
         captcha,

@@ -26,10 +26,16 @@ pub fn routes() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        net::SocketAddr,
+        sync::atomic::{AtomicU8, Ordering},
+    };
+
     use auth::token::TokenService;
     use axum::{
         Router,
         body::{Body, to_bytes},
+        extract::ConnectInfo,
         http::{
             Method, Request, StatusCode,
             header::{AUTHORIZATION, CONTENT_TYPE},
@@ -37,6 +43,8 @@ mod tests {
     };
     use serde_json::{Value, json};
     use tower::ServiceExt;
+
+    static NEXT_TEST_IP: AtomicU8 = AtomicU8::new(1);
 
     async fn insert_user(pool: &sqlx::PgPool, id: i64, username: &str) {
         sqlx::query(
@@ -89,7 +97,13 @@ mod tests {
         path: &str,
         body: Option<Value>,
     ) -> (StatusCode, Value) {
+        let host = NEXT_TEST_IP.fetch_add(1, Ordering::Relaxed);
         let mut request = Request::builder()
+            .extension(ConnectInfo(
+                format!("192.0.2.{host}:3000")
+                    .parse::<SocketAddr>()
+                    .expect("test peer address should be valid"),
+            ))
             .method(method)
             .uri(path)
             .header(AUTHORIZATION, format!("Bearer {token}"));

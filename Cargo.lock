@@ -148,6 +148,7 @@ dependencies = [
  "tokio",
  "tower",
  "tower-http",
+ "tower-rate-limiter",
  "tracing",
  "tracing-error",
  "tracing-otel",
@@ -3816,7 +3817,7 @@ dependencies = [
 [[package]]
 name = "sqlx-adapter"
 version = "1.8.0"
-source = "git+https://github.com/nivek-ph/casbin-sqlx-adapter.git?rev=0f390b03293bbb151d4b0886e10782bc47ea9781#0f390b03293bbb151d4b0886e10782bc47ea9781"
+source = "git+https://github.com/apache/casbin-sqlx-adapter.git?rev=6dbb79b4904fe4b72594466fc0dacece8db56615#6dbb79b4904fe4b72594466fc0dacece8db56615"
 dependencies = [
  "async-trait",
  "casbin",
@@ -4408,6 +4409,20 @@ name = "tower-layer"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "121c2a6cda46980bb0fcd1647ffaf6cd3fc79a013de288782836f6df9c48780e"
+
+[[package]]
+name = "tower-rate-limiter"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e5e0565078507365143d380a664798472017b73b34eaabc402d7e95b967dd2e"
+dependencies = [
+ "axum",
+ "http",
+ "pin-project-lite",
+ "redis 1.2.1",
+ "thiserror 2.0.18",
+ "tower",
+]
 
 [[package]]
 name = "tower-service"

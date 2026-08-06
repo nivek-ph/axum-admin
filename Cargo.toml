@@ -7,14 +7,14 @@ publish = false
 
 [workspace]
 members = [
-    "apps/ava",
-    "crates/api",
-    "crates/audit",
-    "crates/auth",
-    "crates/db",
-    "crates/file-storage",
-    "crates/iam",
-    "crates/metadata",
+  "apps/ava",
+  "crates/api",
+  "crates/audit",
+  "crates/auth",
+  "crates/db",
+  "crates/file-storage",
+  "crates/iam",
+  "crates/metadata",
 ]
 resolver = "2"
 
@@ -61,7 +61,7 @@ sqlx = { version = "0.9", features = [
   "time",
   "tls-rustls",
 ] }
-sqlx-adapter = { git = "https://github.com/nivek-ph/casbin-sqlx-adapter.git", rev = "0f390b03293bbb151d4b0886e10782bc47ea9781", default-features = false, features = [
+sqlx-adapter = { git = "https://github.com/apache/casbin-sqlx-adapter.git", rev = "6dbb79b4904fe4b72594466fc0dacece8db56615", default-features = false, features = [
   "postgres",
   "runtime-tokio",
   "tls-rustls",
@@ -83,6 +83,11 @@ tower-http = { version = "0.6.11", features = [
   "fs",
   "request-id",
   "trace",
+] }
+tower-rate-limiter = { version = "0.1", default-features = false, features = [
+  "axum",
+  "memory",
+  "redis",
 ] }
 tracing = "0.1"
 tracing-error = "0.2"

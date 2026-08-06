@@ -64,8 +64,11 @@ pub async fn refresh(
 
 #[cfg(test)]
 mod tests {
+    use std::net::SocketAddr;
+
     use axum::{
         body::{Body, to_bytes},
+        extract::ConnectInfo,
         http::{Method, Request, StatusCode, header},
     };
     use serde_json::{Value, json};
@@ -77,6 +80,7 @@ mod tests {
         let response = crate::router(state)
             .oneshot(
                 Request::builder()
+                    .extension(ConnectInfo("127.0.0.1:3000".parse::<SocketAddr>().unwrap()))
                     .method(Method::POST)
                     .uri("/api/auth/refresh")
                     .header(header::CONTENT_TYPE, "application/json")

@@ -15,7 +15,10 @@ pub fn public_routes() -> Router<AppState> {
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/refresh", post(refresh))
-        .route("/auth/captcha", post(captcha))
+}
+
+pub fn captcha_routes() -> Router<AppState> {
+    Router::new().route("/auth/captcha", post(captcha))
 }
 
 pub fn protected_routes() -> Router<AppState> {

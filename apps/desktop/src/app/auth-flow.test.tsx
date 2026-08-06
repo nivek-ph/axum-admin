@@ -91,6 +91,44 @@ describe('Admin Console authentication', () => {
     expect(loginCalls).toBe(0)
   })
 
+  it('starts only one captcha refresh while a refresh is already in flight', async () => {
+    let captchaCalls = 0
+    let releaseRefresh!: () => void
+    const refreshBarrier = new Promise<void>((resolve) => {
+      releaseRefresh = resolve
+    })
+    http.defaults.adapter = (async (config) => {
+      if (config.url !== '/auth/captcha') throw new Error(`Unexpected request: ${config.method} ${config.url}`)
+      captchaCalls += 1
+      if (captchaCalls > 1) await refreshBarrier
+      return response(config, {
+        code: 'OK',
+        message: 'ok',
+        data: {
+          captchaLength: 4,
+          picPath: 'data:image/svg+xml;base64,PHN2Zy8+',
+          captchaId: `captcha-${captchaCalls}`,
+          openCaptcha: true,
+        },
+      })
+    }) as AxiosAdapter
+
+    window.history.replaceState({}, '', '/login')
+    render(<Application />)
+
+    const reload = await screen.findByRole('button', { name: 'Reload captcha' })
+    const user = userEvent.setup()
+    const firstRefresh = user.click(reload)
+    await vi.waitFor(() => expect(captchaCalls).toBe(2))
+
+    expect(reload).toBeDisabled()
+    await user.click(reload)
+    expect(captchaCalls).toBe(2)
+
+    releaseRefresh()
+    await firstRefresh
+  })
+
   it('signs in and opens the authorized home route', async () => {
     http.defaults.adapter = (async (config) => {
       if (config.url === '/auth/captcha') {
