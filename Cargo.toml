@@ -84,10 +84,11 @@ tower-http = { version = "0.6.11", features = [
   "request-id",
   "trace",
 ] }
-tower-rate-limiter = { version = "0.1", default-features = false, features = [
+tower-rate-limiter = { version = "0.1.2", default-features = false, features = [
   "axum",
-  "memory",
   "redis",
+  "redis-lua",
+  "runtime-tokio",
 ] }
 tracing = "0.1"
 tracing-error = "0.2"

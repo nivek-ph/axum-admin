@@ -4412,9 +4412,9 @@ checksum = "121c2a6cda46980bb0fcd1647ffaf6cd3fc79a013de288782836f6df9c48780e"
 
 [[package]]
 name = "tower-rate-limiter"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e5e0565078507365143d380a664798472017b73b34eaabc402d7e95b967dd2e"
+checksum = "3419419c8b77a5bc0b6da2d3a4439d13f8bb6b45fa3a819139577f76d8e9c153"
 dependencies = [
  "axum",
  "http",

@@ -9,7 +9,7 @@ use tower_rate_limiter::{
 const WINDOW: Duration = Duration::from_secs(60);
 // global policy and limit
 const GLOBAL_POLICY: &str = "global";
-const GLOBAL_LIMIT: u64 = 10; // 10 req/min
+const GLOBAL_LIMIT: u64 = 60; // 60 req/min
 
 // captcha policy and limit
 const CAPTCHA_POLICY: &str = "captcha";
@@ -65,7 +65,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
+    use std::{
+        collections::HashMap,
+        future::{Ready, ready},
+        net::SocketAddr,
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
     use axum::{
         Router,
@@ -76,9 +82,28 @@ mod tests {
         routing::get,
     };
     use tower::ServiceExt;
-    use tower_rate_limiter::MemoryStore;
+    use tower_rate_limiter::{RateLimitError, Store, Usage};
 
     use super::{CAPTCHA_LIMIT, CAPTCHA_POLICY, GLOBAL_LIMIT, GLOBAL_POLICY, apply_policy};
+
+    #[derive(Clone, Default)]
+    struct TestStore {
+        usage_by_key: Arc<Mutex<HashMap<String, u64>>>,
+    }
+
+    impl Store for TestStore {
+        type Future = Ready<Result<Usage, RateLimitError>>;
+
+        fn increment(&self, key: &str, window: Duration) -> Self::Future {
+            let mut usage_by_key = self.usage_by_key.lock().unwrap();
+            let used = usage_by_key.entry(key.to_string()).or_default();
+            *used += 1;
+            ready(Ok(Usage {
+                used: *used,
+                reset_after: window,
+            }))
+        }
+    }
 
     fn request(path: &str, ip: &str) -> Request<Body> {
         let peer = format!("{ip}:3000")
@@ -91,7 +116,7 @@ mod tests {
     }
 
     fn app() -> Router {
-        let store = MemoryStore::new();
+        let store = TestStore::default();
         let captcha = apply_policy(
             Router::new().route("/captcha", get(|| async { StatusCode::OK })),
             store.clone(),
@@ -105,7 +130,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn global_policy_allows_ten_requests_per_ip() {
+    async fn global_policy_allows_one_hundred_requests_per_ip() {
+        assert_eq!(GLOBAL_LIMIT, 100);
         let app = app();
         for _ in 0..GLOBAL_LIMIT {
             let response = app
@@ -117,7 +143,12 @@ mod tests {
         }
 
         let response = app.oneshot(request("/health", "192.0.2.1")).await.unwrap();
-        assert_rate_limited(response).await;
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(response.headers().contains_key("retry-after"));
+        assert_eq!(
+            response.headers().get("ratelimit-policy").unwrap(),
+            "\"global\";q=100;w=60"
+        );
     }
 
     #[tokio::test]
@@ -133,6 +164,27 @@ mod tests {
         }
 
         let response = app.oneshot(request("/captcha", "192.0.2.2")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(response.headers().contains_key("retry-after"));
+        assert_eq!(
+            response.headers().get("ratelimit-policy").unwrap(),
+            "\"captcha\";q=3;w=60"
+        );
+    }
+
+    #[tokio::test]
+    async fn rate_limited_response_uses_shared_envelope() {
+        let app = app();
+        for _ in 0..CAPTCHA_LIMIT {
+            let response = app
+                .clone()
+                .oneshot(request("/captcha", "192.0.2.3"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let response = app.oneshot(request("/captcha", "192.0.2.3")).await.unwrap();
         assert_rate_limited(response).await;
     }
 
