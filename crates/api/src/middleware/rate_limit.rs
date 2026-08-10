@@ -3,7 +3,8 @@ use std::time::Duration;
 use axum::Router;
 use redis::aio::MultiplexedConnection;
 use tower_rate_limiter::{
-    DefaultResponseFactory, IpKeyExtractor, RateLimitLayer, RedisStore, Store, StoreFailureMode,
+    ClientIpKeyExtractor, DefaultResponseFactory, RateLimitLayer, RedisStore, Store,
+    StoreFailureMode,
 };
 
 const WINDOW: Duration = Duration::from_secs(60);
@@ -51,7 +52,7 @@ where
     S: Clone + Send + Sync + 'static,
     T: Store,
 {
-    let layer = RateLimitLayer::builder(IpKeyExtractor::new())
+    let layer = RateLimitLayer::builder(ClientIpKeyExtractor::new())
         .policy_name(policy_name)
         .limit(limit)
         .window(WINDOW)

@@ -110,6 +110,7 @@ api.workspace = true
 ava.workspace = true
 
 # External crates.
+axum.workspace = true
 tokio.workspace = true
 tower.workspace = true
 vercel_runtime.workspace = true
