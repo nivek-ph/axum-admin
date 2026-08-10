@@ -1620,6 +1620,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-extract"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f74d67c9bcad3eeb80e1b8a83221096f41c4970c144386d878b99e10a63c357"
+dependencies = [
+ "axum",
+ "http",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "http-range-header"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4412,12 +4423,13 @@ checksum = "121c2a6cda46980bb0fcd1647ffaf6cd3fc79a013de288782836f6df9c48780e"
 
 [[package]]
 name = "tower-rate-limiter"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2349bd35124403c4a0d441f8b93e63c1b008be1fc3a7a109acb8345629059a1f"
+checksum = "0d36197c6a1a3e1eaaa2b95e518f2934b52e47c3f98617a2d09f06e6a94ef059"
 dependencies = [
  "axum",
  "http",
+ "http-extract",
  "pin-project-lite",
  "redis 1.2.1",
  "thiserror 2.0.18",
