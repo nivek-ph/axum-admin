@@ -3,7 +3,7 @@ use std::time::Duration;
 use axum::Router;
 use redis::aio::MultiplexedConnection;
 use tower_rate_limiter::{
-    DefaultResponseFactory, IpKeyExtractor, RateLimitLayer, RedisStore, Store,
+    DefaultResponseFactory, IpKeyExtractor, RateLimitLayer, RedisStore, Store, StoreFailureMode,
 };
 
 const WINDOW: Duration = Duration::from_secs(60);
@@ -55,6 +55,8 @@ where
         .policy_name(policy_name)
         .limit(limit)
         .window(WINDOW)
+        .store_failure_mode(StoreFailureMode::Allow)
+        .store_failure_tracing_level(tracing::Level::ERROR)
         .with_store(store)
         .response_factory(DefaultResponseFactory::default())
         .build()
