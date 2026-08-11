@@ -119,9 +119,9 @@ mod tests {
 
     fn request_with_forwarded_header(path: &str, ip: &str, forwarded: &str) -> Request<Body> {
         let mut request = request(path, ip);
-        request
-            .headers_mut()
-            .insert("forwarded", forwarded.parse().unwrap());
+        if let Ok(forwarded) = forwarded.parse() {
+            request.headers_mut().insert("forwarded", forwarded);
+        }
         request
     }
 
