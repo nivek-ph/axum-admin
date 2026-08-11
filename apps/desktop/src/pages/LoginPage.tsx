@@ -31,6 +31,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [captcha, setCaptcha] = useState<CaptchaData | null>(null)
   const [captchaLoading, setCaptchaLoading] = useState(false)
+  const [captchaUnavailable, setCaptchaUnavailable] = useState(false)
   const captchaLoadingRef = useRef(false)
   const [submitting, setSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -56,9 +57,15 @@ export function LoginPage() {
     setCaptchaLoading(true)
     try {
       const response = await fetchCaptcha()
-      if (response.code === 'OK') setCaptcha(response.data ?? null)
-      else toast.error(response.message)
+      if (response.code === 'OK') {
+        setCaptcha(response.data ?? null)
+        setCaptchaUnavailable(false)
+      } else {
+        setCaptchaUnavailable(true)
+        toast.error(response.message)
+      }
     } catch (error) {
+      setCaptchaUnavailable(true)
       toast.error(t(getApiErrorMessage(error, 'Sign in failed')))
     } finally {
       captchaLoadingRef.current = false
@@ -208,7 +215,7 @@ export function LoginPage() {
                   ) : null}
                 </div>
 
-                {captcha?.openCaptcha ? (
+                {captcha?.openCaptcha || captchaLoading || captchaUnavailable ? (
                   <div className="space-y-1.5">
                     <div className="flex gap-2.5">
                       <Input
@@ -216,6 +223,7 @@ export function LoginPage() {
                         aria-invalid={Boolean(errors.captcha)}
                         aria-label={t('Captcha')}
                         className="h-10 flex-1 px-3 text-sm md:text-sm"
+                        disabled={!captcha?.openCaptcha || captchaUnavailable}
                         id="captcha"
                         placeholder={t('Enter captcha')}
                         {...register('captcha')}
@@ -227,15 +235,21 @@ export function LoginPage() {
                         onClick={() => void loadCaptcha()}
                         type="button"
                       >
-                        <img
-                          alt="Captcha"
-                          className="max-h-full max-w-full object-contain select-none"
-                          draggable={false}
-                          src={captcha.picPath}
-                        />
-                        <span className="absolute inset-0 flex items-center justify-center bg-background/70 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                          <IconRefresh className="size-3.5" />
-                        </span>
+                        {captcha?.openCaptcha && !captchaUnavailable ? (
+                          <>
+                            <img
+                              alt="Captcha"
+                              className="max-h-full max-w-full object-contain select-none"
+                              draggable={false}
+                              src={captcha.picPath}
+                            />
+                            <span className="absolute inset-0 flex items-center justify-center bg-background/70 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                              <IconRefresh className="size-3.5" />
+                            </span>
+                          </>
+                        ) : (
+                          <IconRefresh className={captchaLoading ? 'size-4 animate-spin' : 'size-4'} />
+                        )}
                       </button>
                     </div>
                     {errors.captcha ? (
@@ -246,7 +260,7 @@ export function LoginPage() {
                   </div>
                 ) : null}
 
-                <Button className="mt-1 h-10 w-full text-sm" disabled={submitting} type="submit">
+                <Button className="mt-1 h-10 w-full text-sm" disabled={submitting || captchaUnavailable} type="submit">
                   {submitting ? '…' : t('Sign in')}
                 </Button>
               </form>

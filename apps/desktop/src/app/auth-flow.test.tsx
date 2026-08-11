@@ -129,6 +129,39 @@ describe('Admin Console authentication', () => {
     await firstRefresh
   })
 
+  it('keeps a retryable captcha field visible when captcha loading is rate limited', async () => {
+    let captchaCalls = 0
+    http.defaults.adapter = (async (config) => {
+      if (config.url !== '/auth/captcha') throw new Error(`Unexpected request: ${config.method} ${config.url}`)
+      captchaCalls += 1
+      if (captchaCalls === 1) return rejectEnvelope(config, 'RATE_LIMITED', 429)
+      return response(config, {
+        code: 'OK',
+        message: 'ok',
+        data: {
+          captchaLength: 4,
+          picPath: 'data:image/svg+xml;base64,PHN2Zy8+',
+          captchaId: 'captcha-after-retry',
+          openCaptcha: true,
+        },
+      })
+    }) as AxiosAdapter
+
+    window.history.replaceState({}, '', '/login')
+    render(<Application />)
+
+    const captchaInput = await screen.findByLabelText('Captcha')
+    const reload = screen.getByRole('button', { name: 'Reload captcha' })
+    expect(captchaInput).toBeDisabled()
+    expect(screen.queryByRole('img', { name: 'Captcha' })).not.toBeInTheDocument()
+
+    await userEvent.setup().click(reload)
+
+    expect(await screen.findByRole('img', { name: 'Captcha' })).toBeInTheDocument()
+    expect(captchaInput).toBeEnabled()
+    expect(captchaCalls).toBe(2)
+  })
+
   it('signs in and opens the authorized home route', async () => {
     http.defaults.adapter = (async (config) => {
       if (config.url === '/auth/captcha') {
