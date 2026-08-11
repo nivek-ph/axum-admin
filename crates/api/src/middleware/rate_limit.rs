@@ -1,18 +1,18 @@
 use std::time::Duration;
 
 use axum::{
-    Json, Router,
+    Router,
     body::Body,
-    http::{Request, StatusCode},
+    http::Request,
     response::{IntoResponse, Response},
 };
 use redis::aio::MultiplexedConnection;
 use tower_rate_limiter::{
-    DefaultResponseFactory, IpKeyExtractor, RateLimitLayer, RedisStore, ResponseFactory,
-    ResponseReason, Store, StoreFailureMode,
+    IpKeyExtractor, RateLimitError, RateLimitLayer, RedisStore, ResponseFactory, ResponseReason,
+    Store, StoreFailureMode,
 };
 
-use crate::response::ApiErrorResponse;
+use crate::mappings::{INTERNAL_SERVER_ERROR, RATE_LIMIT_UNAVAILABLE, RATE_LIMITED};
 
 const WINDOW: Duration = Duration::from_secs(60);
 // global policy and limit
@@ -29,15 +29,7 @@ struct ApiRateLimitResponseFactory;
 impl ResponseFactory<Body> for ApiRateLimitResponseFactory {
     fn build(&self, request: Request<Body>, reason: ResponseReason) -> Response<Body> {
         match reason {
-            ResponseReason::RateLimited(_, _) => (
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(ApiErrorResponse::new(
-                    "RATE_LIMITED",
-                    "too many requests",
-                    None,
-                )),
-            )
-                .into_response(),
+            ResponseReason::RateLimited(_, _) => RATE_LIMITED.into_error().into_response(),
             ResponseReason::Error(error) => {
                 tracing::error!(
                     method = %request.method(),
@@ -45,7 +37,13 @@ impl ResponseFactory<Body> for ApiRateLimitResponseFactory {
                     error = %error,
                     "rate-limit request failed",
                 );
-                DefaultResponseFactory::default().build(request, ResponseReason::Error(error))
+                let spec = match &error {
+                    RateLimitError::Key(_, _) | RateLimitError::Quota(_, _) => {
+                        INTERNAL_SERVER_ERROR
+                    }
+                    RateLimitError::Store(_, _) => RATE_LIMIT_UNAVAILABLE,
+                };
+                spec.into_error().with_source(error).into_response()
             }
         }
     }

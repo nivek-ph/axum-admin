@@ -2,8 +2,18 @@ use axum::http::StatusCode;
 
 use crate::{AppError, error::ErrorSpec};
 
-const INTERNAL_SERVER_ERROR: ErrorSpec =
+pub(crate) const INTERNAL_SERVER_ERROR: ErrorSpec =
     ErrorSpec::internal("INTERNAL_SERVER_ERROR", "internal server error");
+pub(crate) const RATE_LIMITED: ErrorSpec = ErrorSpec::new(
+    StatusCode::TOO_MANY_REQUESTS,
+    "RATE_LIMITED",
+    "too many requests",
+);
+pub(crate) const RATE_LIMIT_UNAVAILABLE: ErrorSpec = ErrorSpec::new(
+    StatusCode::SERVICE_UNAVAILABLE,
+    "RATE_LIMIT_UNAVAILABLE",
+    "rate limit service is unavailable",
+);
 pub(crate) const LOGIN_REQUIRED: ErrorSpec =
     ErrorSpec::unauthorized("LOGIN_REQUIRED", "login required");
 const TOKEN_INVALID: ErrorSpec = ErrorSpec::unauthorized("TOKEN_INVALID", "session expired");
