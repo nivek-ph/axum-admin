@@ -73,6 +73,7 @@ const zh = {
   'Not signed in': '未登录',
   'Sign in failed': '登录失败',
   'Network unavailable': '网络不可用',
+  'too many requests': '请求过于频繁，请稍后再试',
   'Logins today': '今日登录',
   'IPs today': '今日 IP',
   'Login trend': '登录趋势',
@@ -150,8 +151,7 @@ const zh = {
   'Choose which directories and pages this role can navigate.': '选择该角色可以访问的目录和页面。',
   'Page access includes its entry permission; choose additional actions here.':
     '页面访问会自动包含入口权限；请在此选择额外操作。',
-  'The protected super_admin grants are maintained by migrations.':
-    '受保护的 super_admin 具体授予由迁移维护。',
+  'The protected super_admin grants are maintained by migrations.': '受保护的 super_admin 具体授予由迁移维护。',
   'Page not visible': '页面不可见',
   Dormant: '已休眠',
   Protected: '受保护',

@@ -45,4 +45,10 @@ describe('Chinese admin terminology', () => {
       i18n.t('Effective Permissions'),
     ]).toEqual(['基础信息', '页面访问', '直接权限', '生效权限'])
   })
+
+  it('translates the rate-limit error shown by the shared toast', async () => {
+    await i18n.changeLanguage('zh-CN')
+
+    expect(i18n.t('too many requests')).toBe('请求过于频繁，请稍后再试')
+  })
 })

@@ -1,10 +1,18 @@
 use std::time::Duration;
 
-use axum::Router;
+use axum::{
+    Json, Router,
+    body::Body,
+    http::{Request, StatusCode},
+    response::{IntoResponse, Response},
+};
 use redis::aio::MultiplexedConnection;
 use tower_rate_limiter::{
-    DefaultResponseFactory, IpKeyExtractor, RateLimitLayer, RedisStore, Store, StoreFailureMode,
+    DefaultResponseFactory, IpKeyExtractor, RateLimitLayer, RedisStore, ResponseFactory,
+    ResponseReason, Store, StoreFailureMode,
 };
+
+use crate::response::ApiErrorResponse;
 
 const WINDOW: Duration = Duration::from_secs(60);
 // global policy and limit
@@ -14,6 +22,34 @@ const GLOBAL_LIMIT: u64 = 60; // 60 req/min
 // captcha policy and limit
 const CAPTCHA_POLICY: &str = "captcha";
 const CAPTCHA_LIMIT: u64 = 3; // 3 req/min
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ApiRateLimitResponseFactory;
+
+impl ResponseFactory<Body> for ApiRateLimitResponseFactory {
+    fn build(&self, request: Request<Body>, reason: ResponseReason) -> Response<Body> {
+        match reason {
+            ResponseReason::RateLimited(_, _) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(ApiErrorResponse::new(
+                    "RATE_LIMITED",
+                    "too many requests",
+                    None,
+                )),
+            )
+                .into_response(),
+            ResponseReason::Error(error) => {
+                tracing::error!(
+                    method = %request.method(),
+                    path = %request.uri().path(),
+                    error = %error,
+                    "rate-limit request failed",
+                );
+                DefaultResponseFactory::default().build(request, ResponseReason::Error(error))
+            }
+        }
+    }
+}
 
 /// Apply the Redis-backed rate limit shared by every route nested under `/api`.
 pub(crate) fn apply_global<S>(router: Router<S>, connection: &MultiplexedConnection) -> Router<S>
@@ -58,7 +94,7 @@ where
         .store_failure_mode(StoreFailureMode::Allow)
         .store_failure_tracing_level(tracing::Level::ERROR)
         .with_store(store)
-        .response_factory(DefaultResponseFactory::default())
+        .response_factory(ApiRateLimitResponseFactory)
         .build()
         .expect("API rate-limit policy should be valid");
 

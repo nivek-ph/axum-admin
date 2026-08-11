@@ -7,6 +7,7 @@ use axum::{
     response::Response,
 };
 use tower::ServiceBuilder;
+use tracing_otel::Logger;
 use vercel_runtime::{Error, axum::VercelLayer};
 
 const VERCEL_FORWARDED_FOR: &str = "x-vercel-forwarded-for";
@@ -28,6 +29,11 @@ async fn inject_vercel_connect_info(mut request: Request, next: Next) -> Respons
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     ava::install_crypto_provider();
+    dotenvy::dotenv().ok();
+
+    let logger = Logger::from_env(Some("LOG"))?.with_ansi(false);
+    let _guard = logger.init()?;
+
     let config = ServeConfig::from_env();
     let state = app::boot(&config).await?;
     let app = ServiceBuilder::new()

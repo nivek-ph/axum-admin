@@ -424,8 +424,10 @@ dependencies = [
  "api",
  "ava",
  "axum",
+ "dotenvy",
  "tokio",
  "tower",
+ "tracing-otel",
  "vercel_runtime",
 ]
 

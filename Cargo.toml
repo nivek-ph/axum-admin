@@ -7,14 +7,14 @@ publish = false
 
 [workspace]
 members = [
-  "apps/ava",
-  "crates/api",
-  "crates/audit",
-  "crates/auth",
-  "crates/db",
-  "crates/file-storage",
-  "crates/iam",
-  "crates/metadata",
+    "apps/ava",
+    "crates/api",
+    "crates/audit",
+    "crates/auth",
+    "crates/db",
+    "crates/file-storage",
+    "crates/iam",
+    "crates/metadata",
 ]
 resolver = "2"
 
@@ -111,6 +111,8 @@ ava.workspace = true
 
 # External crates.
 axum.workspace = true
+dotenvy.workspace = true
 tokio.workspace = true
 tower.workspace = true
+tracing-otel.workspace = true
 vercel_runtime.workspace = true
