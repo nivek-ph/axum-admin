@@ -84,7 +84,7 @@ tower-http = { version = "0.6.11", features = [
   "request-id",
   "trace",
 ] }
-tower-rate-limiter = { version = "0.1.4", default-features = false, features = [
+tower-rate-limiter = { git = "https://github.com/nivek-ph/tower-rate-limiter.git", rev = "cfa1fc088a64978a4449ebab52e871428ce87402", default-features = false, features = [
   "axum",
   "redis",
   "redis-lua",

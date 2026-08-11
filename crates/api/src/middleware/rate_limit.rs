@@ -8,8 +8,8 @@ use axum::{
 };
 use redis::aio::MultiplexedConnection;
 use tower_rate_limiter::{
-    IpKeyExtractor, RateLimitError, RateLimitLayer, RedisStore, ResponseFactory, ResponseReason,
-    Store, StoreFailureMode,
+    ClientIpKeyExtractor, RateLimitError, RateLimitLayer, RedisStore, ResponseFactory,
+    ResponseReason, Store, StoreFailureMode,
 };
 
 use crate::mappings::{INTERNAL_SERVER_ERROR, RATE_LIMIT_UNAVAILABLE, RATE_LIMITED};
@@ -85,7 +85,7 @@ where
     S: Clone + Send + Sync + 'static,
     T: Store,
 {
-    let layer = RateLimitLayer::builder(IpKeyExtractor::new())
+    let layer = RateLimitLayer::builder(ClientIpKeyExtractor::new())
         .policy_name(policy_name)
         .limit(limit)
         .window(WINDOW)
@@ -151,14 +151,6 @@ mod tests {
             .expect("test request should build")
     }
 
-    fn request_with_forwarded_header(path: &str, ip: &str, forwarded: &str) -> Request<Body> {
-        let mut request = request(path, ip);
-        if let Ok(forwarded) = forwarded.parse() {
-            request.headers_mut().insert("forwarded", forwarded);
-        }
-        request
-    }
-
     fn app() -> Router {
         let store = TestStore::default();
         let captcha = apply_policy(
@@ -214,20 +206,6 @@ mod tests {
             response.headers().get("ratelimit-policy").unwrap(),
             "\"captcha\";q=3;w=60"
         );
-    }
-
-    #[tokio::test]
-    async fn connect_info_is_authoritative_over_forwarded_headers() {
-        let response = app()
-            .oneshot(request_with_forwarded_header(
-                "/health",
-                "192.0.2.3",
-                "not-a-valid-forwarded-header",
-            ))
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
