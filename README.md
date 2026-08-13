@@ -1,105 +1,59 @@
 # axum-admin
 
-Rust + React admin system. The backend exposes REST APIs with Axum, and the
-default Admin Console is a React + Vite single-page application.
+[Rust](https://github.com/nivek-ph/axum-admin/actions/workflows/rust.yml)
+[License: MIT](LICENSE)
+
+An extensible Rust full-stack admin foundation for internal tools, SaaS consoles, and B2B
+operations. It pairs an Axum + SQLx + PostgreSQL API with a React + Vite Admin Console.
+
+[Live Demo](https://axum-admin-web.vercel.app) · [Quick Start](#quick-start) ·
+[IAM Architecture](docs/architecture/iam.md) · [Swagger UI](http://127.0.0.1:3000/swagger-ui/)
 
 [Deploy existing projects with Vercel](https://github.com/nivek-ph/axum-admin/actions/workflows/vercel.yml)
 
-## Online Demo
+axum-admin dashboard
+
+## Features
+
+- Axum REST API with SQLx, PostgreSQL, OpenAPI, and Swagger UI
+- React Admin Console with Vite, TanStack Query, TanStack Table, and shadcn/ui on Base UI
+- Authentication and IAM with users, roles, menus, page access, and concrete permissions
+- Departments, parameters, dictionaries, files, profiles, and structured audit events
+- Separate API and Admin Console deployment projects on Vercel
+
+
+
+## Demo
 
 - URL: [https://axum-admin-web.vercel.app](https://axum-admin-web.vercel.app)
 - Username: `admin`
 - Password: `123456`
 
-The previous Vue 3 + Tauri implementation is available in the
-[`v1.1.0`](https://github.com/nivek-ph/axum-admin/releases/tag/v1.0.0) tag.
+These credentials are for the public demo only. Do not reuse them elsewhere.
 
-## Acknowledgements
+## Screenshots
 
-Product layout and navigation patterns borrow ideas from **[gin-vue-admin](https://github.com/flipped-aurora/gin-vue-admin)** (the common Go + Gin + Vue admin stack; people sometimes shorthand it as "go-vue-admin"). This repo is a separate implementation: the API is Rust (Axum), not Gin.
+![Login](docs/screenshots/login.png)
 
-## Stack
+![Dashboard](docs/screenshots/dashboard.png)
 
-- Backend: Rust 2024, Axum, SQLx, PostgreSQL, Utoipa Swagger UI
-- Frontend: React, Vite, React Router, Zustand, TanStack Query, Axios, Radix UI, Tailwind CSS
-- Auth: JWT returned by login and sent with the `Authorization: Bearer <token>` header
+![User management](docs/screenshots/users.png)
 
+![Page and permission access catalog](docs/screenshots/apis.png)
 
+## Quick Start
 
-## Workspace layout:
-
-```text
-apps/ava           Ava CLI and backend composition root
-apps/desktop       React/Vite Admin Console
-crates/api         Axum HTTP adapter
-crates/audit       structured business and security audit events
-crates/auth        password, token, and captcha helpers
-crates/db          database connection and migrations
-crates/file-storage
-crates/iam         users, roles, departments, menus, and access control
-crates/metadata    parameters and dictionaries
-migrations         SQLx migrations
-```
-
-
-
-## Environment
-
-Copy `.env.example` to `.env` or export the variables in your shell.
-
-Required:
-
-- `HTTP_PORT`
-- `DATABASE_URL`
-- `REDIS_URL` (Redis 8 or newer required)
-- `JWT_SECRET`
-
-Optional:
-
-- `PUBLIC_BASE_URL`
-- `ADMIN_USERNAME`, default `admin`
-- `ADMIN_NICKNAME`, default `Administrator`
-
-Required only by `ava init`:
-
-- `ADMIN_PASSWORD`
-
-Example:
+You need the Rust toolchain pinned in `rust-toolchain.toml`, Node.js with pnpm, PostgreSQL, and
+Redis 8 or newer. Create the PostgreSQL database configured by `DATABASE_URL`, then start
+PostgreSQL and Redis.
 
 ```bash
 cp .env.example .env
-```
-
-Default local database URL from `.env.example`:
-
-```text
-postgres://postgres:postgres@localhost/ava
-```
-
-On API startup, the server runs migrations. Default authority, menu, route
-registry, and admin user data are initialized by the Ava CLI.
-
-## Run
-
-Start the backend:
-
-```bash
+cargo run -p ava init
 cargo run -p ava serve
 ```
 
-The API listens on:
-
-```text
-http://127.0.0.1:3000
-```
-
-Swagger UI:
-
-```text
-http://127.0.0.1:3000/swagger-ui/
-```
-
-Start the frontend:
+In another terminal:
 
 ```bash
 cd apps/desktop
@@ -107,142 +61,48 @@ pnpm install
 pnpm dev
 ```
 
-The frontend defaults to:
-
-```text
-http://127.0.0.1:5173
-```
-
-The frontend API base URL defaults to:
-
-```text
-http://127.0.0.1:3000/api
-```
-
-Override it with:
-
-```bash
-VITE_API_BASE_URL=http://127.0.0.1:3000/api pnpm dev
-```
-
-Login after running `ava init`:
-
-```text
-username: value of ADMIN_USERNAME (default: admin)
-password: value of ADMIN_PASSWORD
-```
-
-Bootstrap default system data when setting up a database:
-
-```bash
-cargo run -p ava init
-```
-
-This pre-release branch may rewrite the initial migrations. If startup reports that an already
-applied migration was modified, reset the local development database before running `init` again.
-This deletes all local data in `ava`:
-
-```bash
-dropdb --if-exists --force --host 127.0.0.1 --username postgres ava
-createdb --host 127.0.0.1 --username postgres ava
-cargo run -p ava init
-```
-
-For a non-default `DATABASE_URL`, use the matching PostgreSQL host, user, and database name rather
-than the example values above. Never use this reset procedure on a shared or production database.
-
-Optionally load the fictional 50-person company data for local development:
-
-```bash
-set -a
-source .env
-set +a
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f docs/sql/init.sql
-```
-
-The optional script adds demo departments, roles, users, role assignments,
-parameters, and dictionaries. It does not create login credentials, audit
-events, or uploaded-file records.
-
-
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and sign in with the
+`ADMIN_USERNAME` / `ADMIN_PASSWORD` values from `.env`. The API defaults to
+`http://127.0.0.1:3000/api`; override it with `VITE_API_BASE_URL` when needed.
 
 ## Deployment
 
-The backend and Admin Console are deployed as two independent Vercel projects from this monorepo.
+The API and Admin Console deploy as separate Vercel projects.
 
-### Deploy existing projects
-
-Repository maintainers can deploy the configured backend and frontend projects through the manual
-[Deploy to Vercel workflow](https://github.com/nivek-ph/axum-admin/actions/workflows/vercel.yml).
-
-### Create new Vercel projects
-
-Each Vercel Deploy Button creates a new Git repository and one Vercel project. Deploy the backend
-and frontend separately, then set the frontend `VITE_API_BASE_URL` to the deployed backend URL with
-the `/api` suffix.
+- Maintainers: use the [Deploy existing projects workflow](https://github.com/nivek-ph/axum-admin/actions/workflows/vercel.yml).
+- New projects: use the deploy buttons below, then point `VITE_API_BASE_URL` at the deployed API
+URL with the `/api` suffix.
 
 Backend:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin&env=HTTP_PORT%2CDATABASE_URL%2CREDIS_URL%2CJWT_SECRET&envDescription=Configure%20the%20backend%20database%2C%20Redis%2C%20and%20JWT%20secret.&envDefaults=%7B%22HTTP_PORT%22%3A%223000%22%7D&envLink=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin%23environment&project-name=axum-admin&repository-name=axum-admin)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin&env=HTTP_PORT%2CDATABASE_URL%2CREDIS_URL%2CJWT_SECRET&envDescription=Configure%20the%20backend%20database%2C%20Redis%2C%20and%20JWT%20secret.&envDefaults=%7B%22HTTP_PORT%22%3A%223000%22%7D&envLink=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin%2Fblob%2Fmain%2F.env.example&project-name=axum-admin&repository-name=axum-admin)
 
 Frontend:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin&root-directory=apps%2Fdesktop&env=VITE_API_BASE_URL&envDescription=Enter%20the%20public%20backend%20API%20base%20URL%2C%20including%20%2Fapi.&envLink=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin%23deployment&project-name=axum-admin-web&repository-name=axum-admin-web)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin&root-directory=apps%2Fdesktop&env=VITE_API_BASE_URL&envDescription=Enter%20the%20public%20backend%20API%20base%20URL%2C%20including%20%2Fapi.&envLink=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin%2Fblob%2Fmain%2F.env.example&project-name=axum-admin-web&repository-name=axum-admin-web)
 
-The frontend Deploy Button configures Root Directory as `apps/desktop` for Vercel's native Git
-deployment. Keep that setting for projects created with the button. Clear it only when reusing this
-repository's GitHub Actions workflow, which already runs Vercel CLI from `apps/desktop`.
+See [Vercel deployment](docs/deployment/vercel.md) for project settings, required secrets, and
+workflow behavior.
 
+## Architecture
 
-| Component | Vercel project | Vercel CLI working directory | Project configuration           |
-| --------- | -------------- | ---------------------------- | ------------------------------- |
-| Backend   | `axum-admin`   | Repository root              | `vercel.json` and `api/axum.rs` |
-| Frontend  | `axum-admin-web`      | `apps/desktop`               | `apps/desktop/vercel.json`      |
+```text
+apps/ava           CLI and backend composition root
+apps/desktop       React/Vite Admin Console
+crates/api         Axum HTTP adapter
+crates/audit       business and security audit events
+crates/auth        password, token, and captcha helpers
+crates/db          database connection and migrations
+crates/file-storage
+crates/iam         accounts, roles, menus, and access control
+crates/metadata    parameters and dictionaries
+migrations         SQLx migrations
+```
 
+- [IAM architecture](docs/architecture/iam.md)
+- [API DTO ownership](docs/architecture/api-dto-ownership.md)
 
-For the existing `axum-admin-web` project deployed through GitHub Actions, leave
-**Settings → Build and Deployment → Root Directory** empty. The GitHub Actions job already runs
-Vercel CLI from `apps/desktop`; configuring the same directory in Vercel would resolve it twice as
-`apps/desktop/apps/desktop`.
-
-Deployments are manual through the **Deploy to Vercel** workflow in
-`.github/workflows/vercel.yml`. Running the workflow requires three choices:
-
-1. Select the Git branch to deploy.
-2. Select `both`, `backend`, or `frontend` as the deployment target.
-3. Select `preview` or `production` as the Vercel environment.
-
-The workflow does not deploy on pushes or pull requests. `preview` creates a non-production
-deployment; `production` updates the production deployment and its configured domains.
-
-Configure these GitHub Actions repository secrets before running the workflow:
-
-
-| Secret                       | Purpose                                                                  |
-| ---------------------------- | ------------------------------------------------------------------------ |
-| `VERCEL_ORG_ID`              | Vercel account or team ID shared by both projects                        |
-| `VERCEL_BACKEND_PROJECT_ID`  | Backend Vercel project ID                                                |
-| `VERCEL_FRONTEND_PROJECT_ID` | Frontend Vercel project ID                                               |
-| `VERCEL_TOKEN`               | Vercel access token used by CI                                           |
-| `VITE_API_BASE_URL`          | Public backend API base URL used by the frontend build, including `/api` |
-
-
-Vercel project names and production domains are managed separately. Renaming a project does not
-replace an existing production domain; update the project's **Domains** settings when a different
-domain is required.
-
-Deployment uploads are isolated with two ignore files:
-
-- `.vercelignore` applies to the backend deployment from the repository root and excludes
-`apps/desktop`.
-- `apps/desktop/.vercelignore` applies to the frontend deployment and excludes local environment,
-dependency, and build-output directories.
-
-
-
-## API Contract
-
-Successful responses use a stable envelope:
+Successful API responses use a shared envelope:
 
 ```json
 {
@@ -252,127 +112,20 @@ Successful responses use a stable envelope:
 }
 ```
 
-Error responses use the same `code` and `message` shape where possible.
-Authenticated requests send the JWT in the `Authorization: Bearer <token>` header.
-
-## Error Design
-
-- `crates/api` owns the HTTP response envelope and the shared error boundary:
-public `AppError` and `AppResult<T>` types. Repeated fixed HTTP contracts use
-crate-private `ErrorSpec` constants; callers use ordinary `ok_or` and `?`.
-- Stable user-facing error codes and messages live in the owning layer:
-domain errors in their owning capability crate and API boundary errors in
-`crates/api/src/mappings.rs`, with route-local errors reserved for multi-capability workflows.
-- Route and middleware handlers should return `AppResult<T>`.
-- Use `impl From<DomainError> for AppError` only when the source error has one
-stable HTTP/API meaning everywhere it is used.
-- Use explicit `.map_err(...)` at the call site when the same domain error needs
-different HTTP semantics in different contexts.
-- User-management and authentication errors remain distinct:
-  - CRUD/user management returns `UserError` from `crates/iam/src/users`.
-  - Login returns `AuthenticateError`; unknown users and incorrect passwords both become
-  `INVALID_CREDENTIALS` so the login API does not reveal whether an account exists.
-  - Auth middleware loads an Access Snapshot; access evaluation maps missing/deleted
-  users to `SESSION_INVALID` and disabled users to `USER_DISABLED`.
-
-
-
-## API Overview
-
-Public routes:
-
-
-| Method | Path                |
-| ------ | ------------------- |
-| GET    | `/api/health`       |
-| POST   | `/api/auth/login`   |
-| POST   | `/api/auth/refresh` |
-| POST   | `/api/auth/captcha` |
-
-
-Authenticated route groups:
-
-
-| Area         | Prefix or route     |
-| ------------ | ------------------- |
-| Users        | `/api/users`        |
-| Roles        | `/api/roles`        |
-| Departments  | `/api/depts`        |
-| Menus        | `/api/menus`        |
-| Params       | `/api/params`       |
-| Dictionaries | `/api/dictionaries` |
-| Files        | `/api/files`        |
-| Audit events | `/api/audit/events` |
-| Logout       | `/api/auth/logout`  |
-
-
-See Swagger UI for the current method-level contract.
-
-## Features
-
-Main Admin Console modules:
-
-- Dashboard
-- Users
-- Roles
-- Menus
-- Departments
-- Params
-- Dictionaries and dictionary details
-- Files
-- Structured audit events
-- Profile
-
-Main workflows:
-
-- Login and current-menu loading
-- User list, delete, reset password
-- Role CRUD and role-user assignment
-- Read-only menu and permission catalog
-- Department hierarchy CRUD
-- Param CRUD
-- Dictionary CRUD
-- Dictionary detail CRUD, including child nodes
-- File URL import
-- File multipart upload with current loading feedback
-- File rename and delete
-- Audit event filtering and detail inspection
-- Profile settings and password change
-
-Percentage upload progress and expanded action-level ACL are future enhancements and do not block
-the React parity gate.
-
-## Verification
-
-Backend and workspace tests:
+## Development
 
 ```bash
 cargo test --workspace
+cd apps/desktop && pnpm test && pnpm build
 ```
 
-Frontend tests:
+The previous Vue 3 + Tauri is available in the
+[v1.1.0](https://github.com/nivek-ph/axum-admin/releases/tag/v1.1.0).
 
-```bash
-cd apps/desktop
-pnpm test
-```
+Product layout and navigation patterns borrow ideas from
+[gin-vue-admin](https://github.com/flipped-aurora/gin-vue-admin). This repository is a separate
+Rust + React.
 
-Frontend production build:
+## License
 
-```bash
-cd apps/desktop
-pnpm build
-```
-
-Recommended manual integration sweep:
-
-1. Start PostgreSQL for the configured `DATABASE_URL`.
-2. Start Redis 8 or newer for the configured `REDIS_URL`.
-3. Start the backend with `cargo run -p ava serve`.
-4. Start the frontend with `cd apps/desktop && pnpm dev`.
-5. Log in with `ADMIN_USERNAME / ADMIN_PASSWORD` from the environment.
-6. Complete the fixed parity path: login, a Users workflow, save a non-system
-  role's permissions, upload a file, and open an audit-event detail.
-
-React Router uses browser history. Production static hosting must serve `apps/desktop/dist/index.html`
-for unknown non-API paths so direct navigation and reloads such as `/roles` continue to work.
+- [MIT License](LICENSE).
