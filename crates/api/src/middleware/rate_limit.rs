@@ -26,10 +26,10 @@ const CAPTCHA_LIMIT: u64 = 3; // 3 req/min
 #[derive(Clone, Copy, Debug, Default)]
 struct ApiRateLimitResponseFactory;
 
-impl ResponseFactory<Body> for ApiRateLimitResponseFactory {
+impl ResponseFactory<Body, Body> for ApiRateLimitResponseFactory {
     fn build(&self, request: Request<Body>, reason: ResponseReason) -> Response<Body> {
         match reason {
-            ResponseReason::RateLimited(_, _) => RATE_LIMITED.into_error().into_response(),
+            ResponseReason::RateLimited(_) => RATE_LIMITED.into_error().into_response(),
             ResponseReason::Error(error) => {
                 tracing::error!(
                     method = %request.method(),
@@ -83,7 +83,8 @@ fn apply_policy<S, T>(
 ) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
-    T: Store,
+    T: Store + Clone + Send + Sync + 'static,
+    T::Future: Send + 'static,
 {
     let layer = RateLimitLayer::builder(ClientIpKeyExtractor::new())
         .policy_name(policy_name)

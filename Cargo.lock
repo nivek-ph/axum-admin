@@ -4426,16 +4426,17 @@ checksum = "121c2a6cda46980bb0fcd1647ffaf6cd3fc79a013de288782836f6df9c48780e"
 
 [[package]]
 name = "tower-rate-limiter"
-version = "0.1.5"
-source = "git+https://github.com/nivek-ph/tower-rate-limiter.git?rev=cfa1fc088a64978a4449ebab52e871428ce87402#cfa1fc088a64978a4449ebab52e871428ce87402"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8d3df330c57d63322802355ad6125fdcc9acb1d82be06bfac84cf91bba97937"
 dependencies = [
- "axum",
  "http",
  "http-extract",
  "pin-project-lite",
  "redis 1.2.1",
  "thiserror 2.0.18",
- "tower",
+ "tower-layer",
+ "tower-service",
  "tracing",
 ]
 
