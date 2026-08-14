@@ -49,7 +49,8 @@ async fn test_state(pool: sqlx::PgPool) -> api::AppState {
         menus: iam.menus,
         audits,
         audit_analyzer: audit::AuditAnalyzer::new("http://127.0.0.1:9/v1", "test"),
-        files: file_storage::files::FileService::new(pool, "./uploads"),
+        files: file_storage::files::FileService::local(pool, "./uploads")
+            .expect("local test file storage should configure"),
     }
 }
 

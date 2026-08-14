@@ -19,6 +19,7 @@ axum-admin dashboard
 - React Admin Console with Vite, TanStack Query, TanStack Table, and shadcn/ui on Base UI
 - Authentication and IAM with users, roles, menus, page access, and concrete permissions
 - Departments, parameters, dictionaries, files, profiles, and structured audit events
+- Local and S3-compatible file storage through Apache OpenDAL
 - Separate API and Admin Console deployment projects on Vercel
 
 
@@ -75,7 +76,7 @@ URL with the `/api` suffix.
 
 Backend:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin&env=HTTP_PORT%2CDATABASE_URL%2CREDIS_URL%2CJWT_SECRET&envDescription=Configure%20the%20backend%20database%2C%20Redis%2C%20and%20JWT%20secret.&envDefaults=%7B%22HTTP_PORT%22%3A%223000%22%7D&envLink=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin%2Fblob%2Fmain%2F.env.example&project-name=axum-admin&repository-name=axum-admin)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin&env=HTTP_PORT%2CDATABASE_URL%2CREDIS_URL%2CJWT_SECRET%2CFILE_STORAGE_DRIVER%2CS3_BUCKET%2CS3_REGION%2CS3_ENDPOINT%2CS3_ROOT%2CS3_PUBLIC_BASE_URL%2CAWS_ACCESS_KEY_ID%2CAWS_SECRET_ACCESS_KEY&envDescription=Configure%20the%20backend%20database%2C%20Redis%2C%20JWT%20secret%2C%20and%20durable%20S3-compatible%20file%20storage.&envDefaults=%7B%22HTTP_PORT%22%3A%223000%22%2C%22FILE_STORAGE_DRIVER%22%3A%22s3%22%2C%22S3_ROOT%22%3A%22uploads%22%7D&envLink=https%3A%2F%2Fgithub.com%2Fnivek-ph%2Faxum-admin%2Fblob%2Fmain%2F.env.example&project-name=axum-admin&repository-name=axum-admin)
 
 Frontend:
 

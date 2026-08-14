@@ -1,7 +1,13 @@
 use anyhow::{Context, Result};
-use clap::{Parser, builder::NonEmptyStringValueParser};
+use clap::{Parser, ValueEnum, builder::NonEmptyStringValueParser};
 
 use crate::app;
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub(crate) enum FileStorageDriver {
+    Local,
+    S3,
+}
 
 #[derive(Debug, Clone, Parser)]
 #[command(about = "Start the API server")]
@@ -51,6 +57,60 @@ pub struct ServeConfig {
         hide_env_values = true
     )]
     pub(crate) jwt_secret: String,
+
+    /// File storage adapter
+    #[arg(long, env = "FILE_STORAGE_DRIVER", default_value = "local", value_enum)]
+    pub(crate) file_storage_driver: FileStorageDriver,
+
+    /// Local file storage directory
+    #[arg(
+        long,
+        env = "FILE_STORAGE_LOCAL_ROOT",
+        default_value = "./uploads",
+        hide_env_values = true
+    )]
+    pub(crate) file_storage_local_root: String,
+
+    /// S3 bucket name
+    #[arg(long, env = "S3_BUCKET", hide_env_values = true)]
+    pub(crate) s3_bucket: Option<String>,
+
+    /// S3 region
+    #[arg(long, env = "S3_REGION", hide_env_values = true)]
+    pub(crate) s3_region: Option<String>,
+
+    /// S3-compatible endpoint
+    #[arg(long, env = "S3_ENDPOINT", hide_env_values = true)]
+    pub(crate) s3_endpoint: Option<String>,
+
+    /// Object prefix inside the S3 bucket
+    #[arg(
+        long,
+        env = "S3_ROOT",
+        default_value = "uploads",
+        hide_env_values = true
+    )]
+    pub(crate) s3_root: String,
+
+    /// Public URL for the S3 bucket or custom domain
+    #[arg(long, env = "S3_PUBLIC_BASE_URL", hide_env_values = true)]
+    pub(crate) s3_public_base_url: Option<String>,
+
+    /// S3 access key ID
+    #[arg(long, env = "AWS_ACCESS_KEY_ID", hide_env_values = true)]
+    pub(crate) s3_access_key_id: Option<String>,
+
+    /// S3 secret access key
+    #[arg(long, env = "AWS_SECRET_ACCESS_KEY", hide_env_values = true)]
+    pub(crate) s3_secret_access_key: Option<String>,
+
+    /// Temporary S3 session token
+    #[arg(long, env = "AWS_SESSION_TOKEN", hide_env_values = true)]
+    pub(crate) s3_session_token: Option<String>,
+
+    /// Use virtual-hosted-style S3 URLs
+    #[arg(long, env = "S3_VIRTUAL_HOST_STYLE", default_value_t = false)]
+    pub(crate) s3_virtual_host_style: bool,
 
     /// Ollama OpenAI-compatible base URL
     #[arg(

@@ -108,7 +108,8 @@ mod tests {
     async fn upload_route_streams_a_file_to_safe_storage(pool: sqlx::PgPool) {
         let upload_dir = upload_dir();
         let mut state = crate::state::tests::test_state(pool.clone()).await;
-        state.files = FileService::new(pool, upload_dir.to_string_lossy());
+        state.files = FileService::local(pool, &upload_dir)
+            .expect("local test file storage should configure");
         let app = routes().with_state(state);
         let (content_type, body) = multipart_body(vec![(
             "../../Quarterly Report.PDF",
@@ -153,7 +154,8 @@ mod tests {
     async fn upload_route_returns_stable_error_and_cleans_up_oversized_file(pool: sqlx::PgPool) {
         let upload_dir = upload_dir();
         let mut state = crate::state::tests::test_state(pool.clone()).await;
-        state.files = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+        state.files = FileService::local(pool.clone(), &upload_dir)
+            .expect("local test file storage should configure");
         let app = routes().with_state(state);
         let (content_type, body) =
             multipart_body(vec![("large.bin", vec![0; MAX_UPLOAD_BYTES + 1])]);
@@ -181,7 +183,8 @@ mod tests {
     async fn upload_route_rejects_multiple_files_without_partial_state(pool: sqlx::PgPool) {
         let upload_dir = upload_dir();
         let mut state = crate::state::tests::test_state(pool.clone()).await;
-        state.files = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+        state.files = FileService::local(pool.clone(), &upload_dir)
+            .expect("local test file storage should configure");
         let app = routes().with_state(state);
         let (content_type, body) = multipart_body(vec![
             ("first.txt", b"first".to_vec()),
@@ -211,7 +214,8 @@ mod tests {
     async fn upload_route_rejects_an_oversized_non_file_part(pool: sqlx::PgPool) {
         let upload_dir = upload_dir();
         let mut state = crate::state::tests::test_state(pool.clone()).await;
-        state.files = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+        state.files = FileService::local(pool.clone(), &upload_dir)
+            .expect("local test file storage should configure");
         let app = routes().with_state(state);
         let (content_type, body) =
             multipart_value_body(vec![0; MAX_UPLOAD_BYTES + 1024 * 1024 + 1]);
@@ -229,12 +233,11 @@ mod tests {
         let body = response_json(response).await;
         assert_eq!(body["code"], "FILE_TOO_LARGE");
 
-        let stored_count: i64 = sqlx::query_scalar("select count(*) from uploaded_files")
-            .fetch_one(&pool)
+        assert_no_upload_state(&pool, &upload_dir).await;
+
+        tokio::fs::remove_dir_all(upload_dir)
             .await
-            .expect("stored file count should be readable");
-        assert_eq!(stored_count, 0);
-        assert!(!upload_dir.exists());
+            .expect("test upload directory should be removed");
     }
 
     #[sqlx::test(migrations = "../../migrations")]

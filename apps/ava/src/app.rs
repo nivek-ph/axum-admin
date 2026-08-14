@@ -3,12 +3,12 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
-use file_storage::files::FileService;
+use file_storage::files::{FileService, S3StorageConfig};
 use iam::departments::DepartmentService;
 use metadata::{dictionaries::DictionaryService, parameters::ParameterService};
 use tracing::{info, warn};
 
-use crate::ServeConfig;
+use crate::{ServeConfig, commands::serve::FileStorageDriver};
 
 // boot the application and return the app state
 pub async fn boot(config: &ServeConfig) -> Result<api::AppState> {
@@ -58,7 +58,26 @@ async fn build_state(
     let dictionaries = DictionaryService::new(pool.clone());
     let parameters = ParameterService::new(pool.clone());
     let audit_analyzer = AuditAnalyzer::new(&config.ollama_base_url, &config.ollama_model);
-    let files = FileService::new(pool.clone(), "./uploads");
+    let files = match config.file_storage_driver {
+        FileStorageDriver::Local => {
+            FileService::local(pool.clone(), &config.file_storage_local_root)
+        }
+        FileStorageDriver::S3 => FileService::s3(
+            pool.clone(),
+            S3StorageConfig {
+                bucket: config.s3_bucket.clone().unwrap_or_default(),
+                region: config.s3_region.clone(),
+                endpoint: config.s3_endpoint.clone(),
+                root: config.s3_root.clone(),
+                public_base_url: config.s3_public_base_url.clone().unwrap_or_default(),
+                access_key_id: config.s3_access_key_id.clone(),
+                secret_access_key: config.s3_secret_access_key.clone(),
+                session_token: config.s3_session_token.clone(),
+                enable_virtual_host_style: config.s3_virtual_host_style,
+            },
+        ),
+    }
+    .context("file storage should configure")?;
 
     // 2. authorization catalog (needed by IAM services below)
     let iam = iam::Iam::load(pool.clone())

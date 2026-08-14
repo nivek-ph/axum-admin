@@ -57,3 +57,29 @@ the `/api` suffix.
 The frontend Deploy Button configures Root Directory as `apps/desktop` for Vercel's native Git
 deployment. Keep that setting for projects created with the button. Clear it only when reusing the
 GitHub Actions workflow, which already runs Vercel CLI from `apps/desktop`.
+
+## File storage
+
+Vercel Functions do not provide a durable writable filesystem. Configure the backend with an
+S3-compatible bucket instead of the default local adapter:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `FILE_STORAGE_DRIVER=s3` | yes | Select the S3 adapter |
+| `S3_BUCKET` | yes | Bucket name |
+| `S3_PUBLIC_BASE_URL` | yes | Public bucket, CDN, or custom-domain URL |
+| `S3_ROOT` | no | Object prefix; defaults to `uploads` |
+| `S3_REGION` | provider-specific | AWS region or provider region |
+| `S3_ENDPOINT` | provider-specific | Custom endpoint for R2, MinIO, and other compatible providers |
+| `AWS_ACCESS_KEY_ID` | provider-specific | Access key ID |
+| `AWS_SECRET_ACCESS_KEY` | provider-specific | Secret access key |
+| `AWS_SESSION_TOKEN` | no | Temporary credential session token |
+| `S3_VIRTUAL_HOST_STYLE` | no | Enable virtual-hosted-style requests; defaults to `false` |
+
+The configured bucket must allow public reads because the existing file module returns direct file
+URLs. Keep write credentials private in the backend project. OpenDAL also supports ambient AWS
+credentials when explicit access keys are omitted.
+
+Uploads still pass through the authenticated Rust endpoint. Vercel Functions reject request bodies
+larger than 4.5 MB before the application-level 20 MiB limit is reached. Direct browser uploads and
+presigned upload URLs are a separate follow-up for larger files.

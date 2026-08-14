@@ -10,7 +10,8 @@ fn upload_dir() -> PathBuf {
 #[sqlx::test(migrations = "../../migrations")]
 async fn file_can_be_uploaded_in_multiple_chunks(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
-    let service = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+    let service =
+        FileService::local(pool.clone(), &upload_dir).expect("local storage should configure");
 
     let mut upload = service
         .begin_upload("../../Quarterly Report.PDF", "finance", "report")
@@ -45,9 +46,46 @@ async fn file_can_be_uploaded_in_multiple_chunks(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn deleting_metadata_also_deletes_the_managed_object(pool: sqlx::PgPool) {
+    let upload_dir = upload_dir();
+    let service =
+        FileService::local(pool.clone(), &upload_dir).expect("local storage should configure");
+    let mut upload = service
+        .begin_upload("report.pdf", "finance", "report")
+        .await
+        .expect("upload should start");
+    upload
+        .write_chunk(b"report contents")
+        .await
+        .expect("upload content should write");
+    let stored = upload.finish().await.expect("upload should finish");
+    let stored_name = Path::new(&stored.url)
+        .file_name()
+        .expect("stored URL should contain a file name");
+    let stored_path = upload_dir.join(stored_name);
+
+    service
+        .delete(stored.id)
+        .await
+        .expect("managed file should delete");
+
+    assert!(!stored_path.exists());
+    let stored_count: i64 = sqlx::query_scalar("select count(*) from uploaded_files")
+        .fetch_one(&pool)
+        .await
+        .expect("stored file count should be readable");
+    assert_eq!(stored_count, 0);
+
+    tokio::fs::remove_dir_all(upload_dir)
+        .await
+        .expect("test upload directory should be removed");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn oversized_file_is_rejected_while_streaming_and_cleaned_up(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
-    let service = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+    let service =
+        FileService::local(pool.clone(), &upload_dir).expect("local storage should configure");
     let mut upload = service
         .begin_upload("large.bin", "", "")
         .await
@@ -93,7 +131,8 @@ async fn oversized_file_is_rejected_while_streaming_and_cleaned_up(pool: sqlx::P
 #[sqlx::test(migrations = "../../migrations")]
 async fn file_at_the_limit_is_fully_persisted(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
-    let service = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+    let service =
+        FileService::local(pool.clone(), &upload_dir).expect("local storage should configure");
     let mut upload = service
         .begin_upload("limit.bin", "", "")
         .await
@@ -126,7 +165,7 @@ async fn file_at_the_limit_is_fully_persisted(pool: sqlx::PgPool) {
 #[sqlx::test(migrations = "../../migrations")]
 async fn finalization_failure_removes_the_temporary_file(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
-    let service = FileService::new(pool, upload_dir.to_string_lossy());
+    let service = FileService::local(pool, &upload_dir).expect("local storage should configure");
     let mut upload = service
         .begin_upload("report.pdf", "finance", "report")
         .await
@@ -153,7 +192,7 @@ async fn finalization_failure_removes_the_temporary_file(pool: sqlx::PgPool) {
         .finish()
         .await
         .expect_err("missing temporary file should fail finalization");
-    assert!(matches!(error, FileError::Io(_)));
+    assert!(matches!(error, FileError::Storage(_)));
     assert!(
         entries
             .next_entry()
@@ -171,7 +210,8 @@ async fn finalization_failure_removes_the_temporary_file(pool: sqlx::PgPool) {
 #[sqlx::test(migrations = "../../migrations")]
 async fn metadata_failure_removes_the_uploaded_file(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
-    let service = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+    let service =
+        FileService::local(pool.clone(), &upload_dir).expect("local storage should configure");
     let mut upload = service
         .begin_upload("report.pdf", "finance", "report")
         .await

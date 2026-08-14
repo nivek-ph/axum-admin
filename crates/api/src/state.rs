@@ -47,7 +47,8 @@ pub(crate) mod tests {
         let departments = DepartmentService::new(pool.clone());
         let dictionaries = DictionaryService::new(pool.clone());
         let parameters = ParameterService::new(pool.clone());
-        let files = FileService::new(pool, "./uploads");
+        let files = FileService::local(pool, "./uploads")
+            .expect("local test file storage should configure");
         AppState {
             redis,
             public_base_url: "http://127.0.0.1:3000".to_string(),

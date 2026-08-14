@@ -15,7 +15,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     #[command(name = "serve", about = "Start the API server")]
-    Serve(serve::ServeConfig),
+    Serve(Box<serve::ServeConfig>),
     #[command(
         name = "init",
         about = "Initialize the database and administrator account"
@@ -28,7 +28,7 @@ pub async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Serve(config) => serve::execute(config).await?,
+        Command::Serve(config) => serve::execute(*config).await?,
         Command::Init(config) => init::execute(config).await?,
     }
     Ok(())

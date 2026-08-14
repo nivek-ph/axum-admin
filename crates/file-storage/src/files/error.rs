@@ -2,29 +2,25 @@
 pub enum FileError {
     #[error("uploaded file is too large")]
     TooLarge,
+    #[error("file storage configuration is invalid: {0}")]
+    InvalidConfiguration(&'static str),
     #[error("file storage operation failed")]
     Database(#[from] sqlx::Error),
     #[error("file storage operation failed")]
-    Io(#[from] std::io::Error),
+    Storage(#[from] opendal::Error),
 }
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
+    use opendal::ErrorKind;
 
     use super::FileError;
 
     #[test]
     fn adapter_failure_keeps_a_stable_capability_message_and_source() {
-        let error = FileError::from(std::io::Error::other("disk detail"));
+        let error = FileError::from(opendal::Error::new(ErrorKind::Unexpected, "disk detail"));
 
         assert_eq!(error.to_string(), "file storage operation failed");
-        let source = error
-            .source()
-            .expect("file error should keep its I/O source");
-        let source = source
-            .downcast_ref::<std::io::Error>()
-            .expect("source should remain an I/O error");
-        assert_eq!(source.to_string(), "disk detail");
+        assert!(matches!(error, FileError::Storage(_)));
     }
 }

@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub fn router(state: AppState) -> Router {
+    let local_upload_root = state.files.local_root().map(ToOwned::to_owned);
     let captcha = rate_limit::apply_captcha(routes::captcha_routes(), &state.redis);
     let api_router = Router::new()
         .merge(routes::public_routes())
@@ -28,9 +29,8 @@ pub fn router(state: AppState) -> Router {
         );
     let api_router = rate_limit::apply_global(api_router, &state.redis);
 
-    Router::new()
+    let app = Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .nest_service("/uploads", ServeDir::new("./uploads"))
         .nest("/api", api_router)
         .layer(
             CorsLayer::new()
@@ -48,6 +48,10 @@ pub fn router(state: AppState) -> Router {
                         .on_failure(AxumOtelOnFailure::new().level(Level::ERROR)),
                 )
                 .layer(PropagateRequestIdLayer::x_request_id()),
-        )
-        .with_state(state)
+        );
+    let app = match local_upload_root {
+        Some(root) => app.nest_service("/uploads", ServeDir::new(root)),
+        None => app,
+    };
+    app.with_state(state)
 }

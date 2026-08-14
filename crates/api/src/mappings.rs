@@ -296,9 +296,9 @@ impl From<file_storage::files::FileError> for AppError {
 
         match error {
             FileError::TooLarge => FILE_TOO_LARGE.into(),
-            source @ (FileError::Database(_) | FileError::Io(_)) => {
-                INTERNAL_SERVER_ERROR.into_error().with_source(source)
-            }
+            source @ (FileError::InvalidConfiguration(_)
+            | FileError::Database(_)
+            | FileError::Storage(_)) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
         }
     }
 }
