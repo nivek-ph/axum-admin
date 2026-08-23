@@ -127,7 +127,7 @@ const zh = {
   'Save roles': '保存角色',
   'Access control': '访问控制',
   'Manage roles and their access in one tree.': '在一棵树中管理角色及其访问权限。',
-  'Manage employee accounts and individual access.': '管理员工账号和个人访问权限。',
+  'Manage employee accounts and role access.': '管理员工账号和角色访问权限。',
   'New role': '新建角色',
   'Current role': '当前角色',
   Edit: '编辑',

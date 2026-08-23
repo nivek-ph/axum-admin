@@ -53,6 +53,7 @@ describe('Role-only User Access', () => {
 
   it('shows Assigned Roles and read-only Effective Permissions without Direct Permissions', async () => {
     renderUsers(adapter())
+    expect(await screen.findByRole('heading', { name: 'Manage employee accounts and role access.' })).toBeInTheDocument()
     await userEvent.click(await screen.findByRole('button', { name: 'Access' }))
 
     expect(screen.getByRole('tab', { name: 'Assigned Roles' })).toBeInTheDocument()

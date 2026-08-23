@@ -98,6 +98,29 @@ Removing every active `super_admin` membership intentionally leaves no access ad
 is no hidden bootstrap bypass or final-member invariant. Recovery is a deliberate database operation
 that inserts a valid `g` membership and then reloads or restarts the service.
 
+For an authorized emergency repair, replace `admin` below with the intended enabled account name,
+run the statement against the correct PostgreSQL database, and then reload or restart every service
+instance. The empty `v2` through `v5` values are required by the `casbin_rule` schema.
+
+```sql
+INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
+SELECT
+    'g',
+    'user:' || users.id,
+    'role:' || roles.id,
+    '', '', '', ''
+FROM sys_users AS users
+CROSS JOIN sys_roles AS roles
+WHERE users.username = 'admin'
+  AND users.enable = true
+  AND roles.code = 'super_admin'
+  AND roles.status = 'enabled'
+ON CONFLICT (ptype, v0, v1, v2, v3, v4, v5) DO NOTHING;
+```
+
+If the statement inserts no row, verify the account name and the protected Role before retrying;
+do not create a wildcard policy or a bypass Role as a substitute.
+
 Catalog migrations must add the corresponding concrete `super_admin` grant in the same migration.
 Startup validation rejects a missing or disabled protected Role, incomplete concrete grants,
 wildcard policy, Direct Permission rows, Role inheritance, unknown subjects, and unknown or disabled

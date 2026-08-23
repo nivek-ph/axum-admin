@@ -248,7 +248,7 @@ export function UsersPage() {
       <PageHeader
         description={
           <h1 className="text-base font-semibold text-foreground">
-            {t('Manage employee accounts and individual access.')}
+            {t('Manage employee accounts and role access.')}
           </h1>
         }
         actions={
