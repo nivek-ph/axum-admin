@@ -1,0 +1,9 @@
+[[production]]
+package = "ava"
+bin = "ava"
+reason = "shipped Ava command-line"
+
+[[production]]
+package = "axum-admin"
+bin = "axum-admin"
+reason = "Vercel HTTP entrypoint"
