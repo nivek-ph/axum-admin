@@ -17,7 +17,7 @@ metadata.workspace = true
 # External crates.
 anyhow.workspace = true
 clap.workspace = true
-dotenvy.workspace = true
+dotenv.workspace = true
 redis.workspace = true
 rustls.workspace = true
 thiserror.workspace = true

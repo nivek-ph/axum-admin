@@ -69,7 +69,7 @@ pub struct ServeConfig {
 impl ServeConfig {
     /// Parse from environment variables (and clap defaults).
     pub fn from_env() -> Self {
-        dotenvy::dotenv().ok();
+        dotenv::dotenv().ok();
         Self::parse()
     }
 

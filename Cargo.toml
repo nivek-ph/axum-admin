@@ -42,7 +42,7 @@ axum-otel = "0.33.1"
 captcha-rs = "0.5"
 casbin = { version = "2.20", features = ["watcher"] }
 clap = { version = "4", features = ["derive", "env"] }
-dotenvy = "0.15"
+dotenv = { package = "dotenvy", version = "0.15" }
 hex = "0.4"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 matchit = "=0.8.4"
@@ -111,7 +111,7 @@ ava.workspace = true
 
 # External crates.
 axum.workspace = true
-dotenvy.workspace = true
+dotenv.workspace = true
 tokio.workspace = true
 tower.workspace = true
 tracing-otel.workspace = true

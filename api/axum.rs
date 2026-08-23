@@ -6,7 +6,7 @@ use vercel_runtime::{Error, axum::VercelLayer};
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     ava::install_crypto_provider();
-    dotenvy::dotenv().ok();
+    dotenv::dotenv().ok();
 
     let logger = Logger::from_env(Some("LOG"))?.with_ansi(false);
     let _guard = logger.init()?;
