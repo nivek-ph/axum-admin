@@ -6,7 +6,7 @@ use crate::commands::{init, serve};
 #[command(name = "ava", version, about = "Axum Vue Admin command line")]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Command,
+    command: Command,
 }
 
 /// Work seamlessly with ava from the command line.

@@ -10,7 +10,7 @@ use tokio::sync::{Mutex, MutexGuard, RwLock};
 
 use super::{AuthorizationError, store::PolicyStore};
 
-pub(crate) const REDIS_CHANNEL: &str = "/ava/casbin";
+const REDIS_CHANNEL: &str = "/ava/casbin";
 
 /// An enforcement engine for the authorization policy.
 pub(super) struct EnforcementEngine {
@@ -77,7 +77,7 @@ impl EnforcementEngine {
         });
     }
 
-    pub(super) async fn reload(&self) -> Result<(), AuthorizationError> {
+    async fn reload(&self) -> Result<(), AuthorizationError> {
         let _guard = self.policy_change_lock.lock().await;
         self.reload_locked().await
     }

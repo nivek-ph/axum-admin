@@ -11,21 +11,6 @@ pub struct DictionaryListQuery {
 }
 
 #[derive(Debug, Clone)]
-pub struct DictionaryTreeQuery {
-    pub sys_dictionary_id: i64,
-}
-
-#[derive(Debug, Clone)]
-pub struct DictionaryTypeQuery {
-    pub dict_type: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct DictionaryParentQuery {
-    pub parent_id: i64,
-}
-
-#[derive(Debug, Clone)]
 pub struct DictionaryInput {
     pub name: String,
     pub dict_type: String,

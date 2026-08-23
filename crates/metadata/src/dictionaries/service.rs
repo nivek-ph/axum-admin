@@ -134,7 +134,7 @@ async fn ensure_dictionary_exists(
     Ok(())
 }
 
-pub(crate) async fn list(
+async fn list(
     pool: &sqlx::PgPool,
     query: DictionaryListQuery,
 ) -> Result<Vec<SysDictionary>, sqlx::Error> {
@@ -153,10 +153,7 @@ pub(crate) async fn list(
     Ok(list)
 }
 
-pub(crate) async fn create(
-    pool: &sqlx::PgPool,
-    payload: DictionaryInput,
-) -> Result<(), sqlx::Error> {
+async fn create(pool: &sqlx::PgPool, payload: DictionaryInput) -> Result<(), sqlx::Error> {
     sqlx::query(
         "insert into sys_dictionaries (name, type, status, \"desc\", parent_id) values ($1, $2, $3, $4, $5)",
     )
@@ -170,11 +167,7 @@ pub(crate) async fn create(
     Ok(())
 }
 
-pub(crate) async fn update(
-    pool: &sqlx::PgPool,
-    id: i64,
-    payload: DictionaryInput,
-) -> Result<(), sqlx::Error> {
+async fn update(pool: &sqlx::PgPool, id: i64, payload: DictionaryInput) -> Result<(), sqlx::Error> {
     sqlx::query(
         "update sys_dictionaries set name = $1, type = $2, status = $3, \"desc\" = $4, parent_id = $5 where id = $6",
     )
@@ -189,10 +182,7 @@ pub(crate) async fn update(
     Ok(())
 }
 
-pub(crate) async fn find(
-    pool: &sqlx::PgPool,
-    id: i64,
-) -> Result<Option<SysDictionary>, sqlx::Error> {
+async fn find(pool: &sqlx::PgPool, id: i64) -> Result<Option<SysDictionary>, sqlx::Error> {
     sqlx::query_as::<_, SysDictionary>(
         "select id, name, type as dict_type, status, \"desc\", parent_id from sys_dictionaries where id = $1",
     )
@@ -201,7 +191,7 @@ pub(crate) async fn find(
     .await
 }
 
-pub(crate) async fn find_by_query(
+async fn find_by_query(
     pool: &sqlx::PgPool,
     id: Option<i64>,
     dict_type: Option<String>,
@@ -225,7 +215,7 @@ pub(crate) async fn find_by_query(
     Ok(None)
 }
 
-pub(crate) async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<(), sqlx::Error> {
+async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<(), sqlx::Error> {
     sqlx::query("delete from sys_dictionary_details where sys_dictionary_id = $1")
         .bind(id)
         .execute(pool)
@@ -237,7 +227,7 @@ pub(crate) async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<(), sqlx::Err
     Ok(())
 }
 
-pub(crate) async fn find_by_type(
+async fn find_by_type(
     pool: &sqlx::PgPool,
     dict_type: &str,
 ) -> Result<Option<SysDictionary>, sqlx::Error> {
@@ -249,7 +239,7 @@ pub(crate) async fn find_by_type(
     .await
 }
 
-pub(crate) async fn create_detail(
+async fn create_detail(
     pool: &sqlx::PgPool,
     dictionary_id: i64,
     payload: DictionaryDetailInput,
@@ -284,7 +274,7 @@ pub(crate) async fn create_detail(
     Ok(())
 }
 
-pub(crate) async fn update_detail(
+async fn update_detail(
     pool: &sqlx::PgPool,
     dictionary_id: i64,
     detail_id: i64,
@@ -403,7 +393,7 @@ pub(crate) async fn update_detail(
     Ok(())
 }
 
-pub(crate) async fn find_detail(
+async fn find_detail(
     pool: &sqlx::PgPool,
     dictionary_id: i64,
     detail_id: i64,
@@ -421,7 +411,7 @@ pub(crate) async fn find_detail(
     .map(|opt| opt.map(detail_from_row))
 }
 
-pub(crate) async fn delete_detail(
+async fn delete_detail(
     pool: &sqlx::PgPool,
     dictionary_id: i64,
     detail_id: i64,
@@ -449,7 +439,7 @@ pub(crate) async fn delete_detail(
     Ok(())
 }
 
-pub(crate) async fn tree_by_dictionary(
+async fn tree_by_dictionary(
     pool: &sqlx::PgPool,
     sys_dictionary_id: i64,
 ) -> Result<Vec<SysDictionaryDetail>, sqlx::Error> {
@@ -473,7 +463,7 @@ pub(crate) async fn tree_by_dictionary(
     Ok(build_detail_tree(&mut rows_by_parent, None))
 }
 
-pub(crate) async fn tree_by_type(
+async fn tree_by_type(
     pool: &sqlx::PgPool,
     dict_type: &str,
 ) -> Result<Vec<SysDictionaryDetail>, sqlx::Error> {
@@ -483,7 +473,7 @@ pub(crate) async fn tree_by_type(
     Ok(Vec::new())
 }
 
-pub(crate) async fn details_by_parent(
+async fn details_by_parent(
     pool: &sqlx::PgPool,
     dictionary_id: i64,
     parent_id: i64,
@@ -503,7 +493,7 @@ pub(crate) async fn details_by_parent(
     Ok(rows.into_iter().map(detail_from_row).collect())
 }
 
-pub(crate) async fn detail_path(
+async fn detail_path(
     pool: &sqlx::PgPool,
     dictionary_id: i64,
     detail_id: i64,
@@ -535,7 +525,7 @@ pub(crate) async fn detail_path(
     Ok(rows.into_iter().map(detail_from_row).collect())
 }
 
-pub(crate) async fn export_dictionary(
+async fn export_dictionary(
     pool: &sqlx::PgPool,
     id: i64,
 ) -> Result<Option<DictionaryWithDetails>, sqlx::Error> {

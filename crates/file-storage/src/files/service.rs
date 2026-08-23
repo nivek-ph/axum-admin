@@ -233,7 +233,7 @@ impl FileService {
     }
 }
 
-pub(crate) async fn list(
+async fn list(
     pool: &sqlx::PgPool,
     query: FileListQuery,
 ) -> Result<(Vec<StoredFile>, i64, i64, i64), FileError> {
@@ -278,7 +278,7 @@ pub(crate) async fn list(
     Ok((list, total, page, page_size))
 }
 
-pub(crate) async fn edit_name(pool: &sqlx::PgPool, payload: RenameFile) -> Result<(), FileError> {
+async fn edit_name(pool: &sqlx::PgPool, payload: RenameFile) -> Result<(), FileError> {
     sqlx::query("update uploaded_files set name = $1, updated_at = now() where id = $2")
         .bind(payload.name)
         .bind(payload.id)
@@ -287,10 +287,7 @@ pub(crate) async fn edit_name(pool: &sqlx::PgPool, payload: RenameFile) -> Resul
     Ok(())
 }
 
-pub(crate) async fn find_file(
-    pool: &sqlx::PgPool,
-    id: i64,
-) -> Result<Option<StoredFile>, FileError> {
+async fn find_file(pool: &sqlx::PgPool, id: i64) -> Result<Option<StoredFile>, FileError> {
     Ok(sqlx::query_as::<_, StoredFile>(
         r#"
         select
@@ -310,7 +307,7 @@ pub(crate) async fn find_file(
     .await?)
 }
 
-pub(crate) async fn delete_file(pool: &sqlx::PgPool, id: i64) -> Result<(), FileError> {
+async fn delete_file(pool: &sqlx::PgPool, id: i64) -> Result<(), FileError> {
     sqlx::query("delete from uploaded_files where id = $1")
         .bind(id)
         .execute(pool)
@@ -318,10 +315,7 @@ pub(crate) async fn delete_file(pool: &sqlx::PgPool, id: i64) -> Result<(), File
     Ok(())
 }
 
-pub(crate) async fn import_url(
-    pool: &sqlx::PgPool,
-    payload: ImportFileUrl,
-) -> Result<(), FileError> {
+async fn import_url(pool: &sqlx::PgPool, payload: ImportFileUrl) -> Result<(), FileError> {
     let ext = normalized_extension(&payload.url);
     sqlx::query(
         "insert into uploaded_files (name, url, ext, tag, category) values ($1, $2, $3, $4, $5)",

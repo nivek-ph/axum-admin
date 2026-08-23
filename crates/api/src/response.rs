@@ -28,10 +28,6 @@ impl<T> ApiResponse<T> {
     pub fn ok(data: T) -> Self {
         Self::new("OK", "ok", Some(data))
     }
-
-    pub fn ok_message(message: impl Into<String>) -> Self {
-        Self::new("OK", message, None)
-    }
 }
 
 pub type ApiErrorResponse = ApiResponse<EmptyData>;

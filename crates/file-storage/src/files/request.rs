@@ -4,11 +4,11 @@ use utoipa::IntoParams;
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct FileListQuery {
-    pub page: i64,
+    pub(crate) page: i64,
     #[serde(rename = "pageSize")]
-    pub page_size: i64,
-    pub keyword: Option<String>,
-    pub category: Option<String>,
+    pub(crate) page_size: i64,
+    pub(crate) keyword: Option<String>,
+    pub(crate) category: Option<String>,
 }
 
 #[derive(Debug, Clone)]

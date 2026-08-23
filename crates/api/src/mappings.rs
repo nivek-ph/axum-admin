@@ -22,8 +22,7 @@ const ACCESS_TOKEN_EXPIRED: ErrorSpec =
 const REFRESH_TOKEN_INVALID: ErrorSpec =
     ErrorSpec::unauthorized("REFRESH_TOKEN_INVALID", "session expired");
 const SESSION_INVALID: ErrorSpec = ErrorSpec::unauthorized("SESSION_INVALID", "session expired");
-pub(crate) const PERMISSION_DENIED: ErrorSpec =
-    ErrorSpec::forbidden("PERMISSION_DENIED", "permission denied");
+const PERMISSION_DENIED: ErrorSpec = ErrorSpec::forbidden("PERMISSION_DENIED", "permission denied");
 const AUTHORIZATION_CONFIG_INVALID: ErrorSpec = ErrorSpec::internal(
     "AUTHORIZATION_CONFIG_INVALID",
     "authorization configuration is invalid",

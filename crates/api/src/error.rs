@@ -116,104 +116,9 @@ impl From<AnyError> for AppError {
 }
 
 impl AppError {
-    pub fn new(
-        status: StatusCode,
-        code: impl Into<Cow<'static, str>>,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::custom(status, code, message)
-    }
-
-    pub fn custom(
-        status: StatusCode,
-        code: impl Into<Cow<'static, str>>,
-        message: impl Into<String>,
-    ) -> Self {
-        ErrorKind::http(status, code, message).into()
-    }
-
-    pub fn bad_request(message: impl Into<String>) -> Self {
-        let status = StatusCode::BAD_REQUEST;
-        ErrorKind::http(status, ErrorKind::status_code(status), message).into()
-    }
-
-    pub fn validation(message: impl Into<String>) -> Self {
-        Self::bad_request(message)
-    }
-
-    pub fn unauthorized(message: impl Into<String>) -> Self {
-        let status = StatusCode::UNAUTHORIZED;
-        ErrorKind::http(status, ErrorKind::status_code(status), message).into()
-    }
-
-    pub fn unauthenticated(message: impl Into<String>) -> Self {
-        Self::unauthorized(message)
-    }
-
-    pub fn forbidden(message: impl Into<String>) -> Self {
-        let status = StatusCode::FORBIDDEN;
-        ErrorKind::http(status, ErrorKind::status_code(status), message).into()
-    }
-
-    pub fn not_found(message: impl Into<String>) -> Self {
-        let status = StatusCode::NOT_FOUND;
-        ErrorKind::http(status, ErrorKind::status_code(status), message).into()
-    }
-
-    pub fn conflict(message: impl Into<String>) -> Self {
-        let status = StatusCode::CONFLICT;
-        ErrorKind::http(status, ErrorKind::status_code(status), message).into()
-    }
-
-    pub fn failed_precondition(message: impl Into<String>) -> Self {
-        let status = StatusCode::PRECONDITION_FAILED;
-        ErrorKind::http(status, ErrorKind::status_code(status), message).into()
-    }
-
-    pub fn unavailable(message: impl Into<String>) -> Self {
-        let status = StatusCode::SERVICE_UNAVAILABLE;
-        ErrorKind::http(status, ErrorKind::status_code(status), message).into()
-    }
-
-    pub fn internal(message: impl Into<String>) -> Self {
-        let status = StatusCode::INTERNAL_SERVER_ERROR;
-        ErrorKind::http(status, ErrorKind::status_code(status), message).into()
-    }
-
-    pub fn with_code(mut self, code: impl Into<Cow<'static, str>>) -> Self {
-        let code = code.into();
-        self.kind = match self.kind {
-            ErrorKind::Http(status, _, message) => ErrorKind::Http(status, code, message),
-            other => ErrorKind::Http(other.status(), code, other.to_string()),
-        };
-        self
-    }
-
     pub fn with_source(mut self, error: impl Into<AnyError>) -> Self {
         self.source = Some(error.into());
         self
-    }
-
-    pub fn from_error(status: StatusCode, error: impl Into<AnyError>) -> Self {
-        let error = error.into();
-        let message = error.to_string();
-        Self::custom(status, ErrorKind::status_code(status), message).with_source(error)
-    }
-
-    pub fn bad_request_error(error: impl Into<AnyError>) -> Self {
-        Self::from_error(StatusCode::BAD_REQUEST, error)
-    }
-
-    pub fn validation_error(error: impl Into<AnyError>) -> Self {
-        Self::bad_request_error(error)
-    }
-
-    pub fn unauthenticated_error(error: impl Into<AnyError>) -> Self {
-        Self::from_error(StatusCode::UNAUTHORIZED, error)
-    }
-
-    pub fn internal_error(error: impl Into<AnyError>) -> Self {
-        Self::from_error(StatusCode::INTERNAL_SERVER_ERROR, error)
     }
 
     pub fn status(&self) -> StatusCode {
@@ -229,10 +134,6 @@ impl AppError {
             ErrorKind::Http(_, _, message) => message.clone(),
             _ => self.kind.to_string(),
         }
-    }
-
-    pub fn span_trace(&self) -> &SpanTrace {
-        &self.context
     }
 }
 
@@ -317,31 +218,6 @@ const INTERNAL_SERVER_ERROR: &str = "internal server error";
 ///
 /// A public response message.
 ///
-/// # Examples
-///
-/// ```ignore
-/// let error = AppError::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "internal server error");
-/// let public_response_message = public_response_message(&error.kind, &error.message());
-/// assert_eq!(public_response_message, "internal server error");
-/// ```
-///
-/// ```ignore
-/// let error = AppError::new(StatusCode::BAD_REQUEST, "BAD_REQUEST", "bad request");
-/// let public_response_message = public_response_message(&error.kind, &error.message());
-/// assert_eq!(public_response_message, "bad request");
-/// ```
-///
-/// ```ignore
-/// let error = AppError::new(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "unauthorized");
-/// let public_response_message = public_response_message(&error.kind, &error.message());
-/// assert_eq!(public_response_message, "unauthorized");
-/// ```
-///
-/// ```ignore
-/// let error = AppError::new(StatusCode::FORBIDDEN, "FORBIDDEN", "forbidden");
-/// let public_response_message = public_response_message(&error.kind, &error.message());
-/// assert_eq!(public_response_message, "forbidden");
-/// ```
 fn public_response_message(kind: &ErrorKind, diagnostic: &str) -> String {
     match kind {
         ErrorKind::Any(_) => INTERNAL_SERVER_ERROR.to_string(),
