@@ -81,45 +81,21 @@ export interface EffectiveRoleSource {
 
 export interface EffectivePermission {
   permission: string
-  direct: boolean
   roles: EffectiveRoleSource[]
 }
 
-export interface UserPermissionCatalogItem {
-  permission: string
-  title: string
-  menuType: 'page' | 'action'
-  status: 'enabled' | 'disabled'
-  effectivelyEnabled: boolean
-  owningPageId: number
-  owningPageTitle: string
-  pageVisible: boolean
-}
-
 export interface UserAccess {
-  roleIds: number[]
-  directPermissions: string[]
+  assignedRoles: Array<EffectiveRoleSource & { status: string; sort: number }>
   effectivePermissions: EffectivePermission[]
-  catalog: UserPermissionCatalogItem[]
 }
 
 export async function getUserAccess(id: number) {
-  const response = await http.get<never, ApiResponse<UserAccess>>(`/users/${id}/permissions`, withAuthHeaders())
+  const response = await http.get<never, ApiResponse<UserAccess>>(`/users/${id}/access`, withAuthHeaders())
   return (
     response.data ?? {
-      roleIds: [],
-      directPermissions: [],
+      assignedRoles: [],
       effectivePermissions: [],
-      catalog: [],
     }
-  )
-}
-
-export function setUserDirectPermissions(id: number, permissions: string[]) {
-  return http.put<never, ApiResponse>(
-    `/users/${id}/permissions`,
-    { permissions: [...new Set(permissions)].sort() },
-    withAuthHeaders(),
   )
 }
 

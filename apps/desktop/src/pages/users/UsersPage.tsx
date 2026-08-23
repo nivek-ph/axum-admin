@@ -14,7 +14,6 @@ import {
   fetchUsers,
   getUserAccess,
   resetUserPassword,
-  setUserDirectPermissions,
   type CreateUserForm,
   type UserRecord,
 } from '@/api/users'
@@ -53,11 +52,10 @@ export function UsersPage() {
   const queryClient = useQueryClient()
   const can = useAuthStore((state) => state.can)
   const currentDepartmentName = useAuthStore((state) => state.userInfo?.deptName)
-  const canReadAccess = can('system:user:permissions-read')
+  const canReadAccess = can('system:user:access-read')
   const canReadRoles = can('system:role:list')
   const canReadDepartments = can('system:dept:list')
   const canAssignRoles = canReadRoles && can('system:user:assign-roles')
-  const canUpdateDirect = canReadAccess && can('system:user:permissions-update')
   const confirmAction = useConfirm()
   const [page, setPage] = useState(1)
   const [draftKeyword, setDraftKeyword] = useState('')
@@ -66,7 +64,6 @@ export function UsersPage() {
   const [accessUser, setAccessUser] = useState<UserRecord | null>(null)
   const [form, setForm] = useState<CreateUserForm>(emptyForm)
   const [selectedRoles, setSelectedRoles] = useState<number[]>([])
-  const [selectedDirect, setSelectedDirect] = useState<string[]>([])
   const users = useQuery({
     queryKey: ['users', page, PAGE_SIZE, keyword],
     queryFn: () => fetchUsers({ page, pageSize: PAGE_SIZE, keyword }),
@@ -108,15 +105,6 @@ export function UsersPage() {
     },
     onError: (error) => toast.error(error.message),
   })
-  const directMutation = useMutation({
-    mutationFn: ({ id, permissions }: { id: number; permissions: string[] }) =>
-      setUserDirectPermissions(id, permissions),
-    onSuccess: async () => {
-      toast.success(t('Direct permissions updated'))
-      await invalidateAccess()
-    },
-    onError: (error) => toast.error(error.message),
-  })
   const deleteMutation = useMutation({
     mutationFn: deleteUser,
     onSuccess: async () => {
@@ -139,8 +127,7 @@ export function UsersPage() {
           queryFn: () => getUserAccess(item.id),
         })
         .then((result) => {
-          setSelectedRoles(result.roleIds)
-          setSelectedDirect(result.directPermissions)
+          setSelectedRoles(result.assignedRoles.map((role) => role.id))
         })
     },
     [queryClient],
@@ -467,7 +454,6 @@ export function UsersPage() {
           <Tabs defaultValue="roles">
             <TabsList>
               <TabsTrigger value="roles">{t('Assigned Roles')}</TabsTrigger>
-              <TabsTrigger value="direct">{t('Direct Permissions')}</TabsTrigger>
               <TabsTrigger value="effective">{t('Effective Permissions')}</TabsTrigger>
             </TabsList>
             <TabsContent className="space-y-3 pt-3" value="roles">
@@ -501,52 +487,11 @@ export function UsersPage() {
                 </div>
               )}
             </TabsContent>
-            <TabsContent className="space-y-3 pt-3" value="direct">
-              <p className="text-xs text-muted-foreground">
-                {t('Direct permissions add exceptions for this employee; they do not remove role permissions.')}
-              </p>
-              <div className="max-h-[420px] divide-y overflow-y-auto rounded-lg border">
-                {access.data?.catalog.map((item) => (
-                  <label className="flex items-center gap-2 px-3 py-2 text-sm" key={item.permission}>
-                    <Checkbox
-                      checked={selectedDirect.includes(item.permission)}
-                      disabled={
-                        !canUpdateDirect || (!item.effectivelyEnabled && !selectedDirect.includes(item.permission))
-                      }
-                      onCheckedChange={(checked) =>
-                        setSelectedDirect((current) =>
-                          checked === true
-                            ? [...new Set([...current, item.permission])].sort()
-                            : current.filter((permission) => permission !== item.permission),
-                        )
-                      }
-                    />
-                    <span>{t(item.title)}</span>
-                    <small className="text-muted-foreground">{item.permission}</small>
-                    {!item.pageVisible && <Badge variant="outline">{t('Page not visible')}</Badge>}
-                    {!item.effectivelyEnabled && <Badge variant="outline">{t('Dormant')}</Badge>}
-                  </label>
-                ))}
-              </div>
-              {canUpdateDirect && (
-                <div className="flex justify-end">
-                  <Button
-                    disabled={directMutation.isPending || access.isLoading}
-                    onClick={() =>
-                      accessUser && directMutation.mutate({ id: accessUser.id, permissions: selectedDirect })
-                    }
-                  >
-                    {t('Save direct permissions')}
-                  </Button>
-                </div>
-              )}
-            </TabsContent>
             <TabsContent className="pt-3" value="effective">
               <div className="max-h-[440px] divide-y overflow-y-auto rounded-lg border">
                 {access.data?.effectivePermissions.map((item) => (
                   <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm" key={item.permission}>
                     <strong>{item.permission}</strong>
-                    {item.direct && <Badge>{t('Direct')}</Badge>}
                     {item.roles.map((role) => (
                       <Badge key={role.id} variant="secondary">
                         {role.name}

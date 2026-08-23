@@ -11,14 +11,16 @@ pub enum RoleError {
     NotFound,
     #[error("protected role cannot be changed")]
     Immutable,
+    #[error("role cannot be deleted while users are assigned")]
+    HasMembers,
     #[error("only an active super_admin may manage role access")]
     AccessDenied,
     #[error(transparent)]
-    InvalidMenuAssignment(#[from] CatalogError),
+    InvalidAccess(#[from] CatalogError),
+    #[error(transparent)]
+    Menu(#[from] crate::menus::MenuError),
     #[error(transparent)]
     Authorization(#[from] AuthorizationError),
-    #[error("selected permissions are invalid")]
-    InvalidPermissions,
 }
 
 impl From<RolePolicyError> for RoleError {

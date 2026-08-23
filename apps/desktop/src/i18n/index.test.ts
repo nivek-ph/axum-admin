@@ -40,10 +40,10 @@ describe('Chinese admin terminology', () => {
 
     expect([
       i18n.t('Basic Info'),
-      i18n.t('Page Access'),
-      i18n.t('Direct Permissions'),
+      i18n.t('Role Access'),
+      i18n.t('Assigned Roles'),
       i18n.t('Effective Permissions'),
-    ]).toEqual(['基础信息', '页面访问', '直接权限', '生效权限'])
+    ]).toEqual(['基础信息', '角色权限', '分配角色', '生效权限'])
   })
 
   it('translates the rate-limit error shown by the shared toast', async () => {

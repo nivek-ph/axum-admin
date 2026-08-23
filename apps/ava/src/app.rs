@@ -64,7 +64,10 @@ async fn build_state(
     let iam = iam::Iam::load(pool.clone())
         .await
         .context("IAM should initialize")?;
-    if let Err(error) = iam.start_policy_sync(&config.redis_url, Duration::from_secs(30)) {
+    if let Err(error) = iam
+        .start_policy_sync(&config.redis_url, Duration::from_secs(30))
+        .await
+    {
         warn!(
             error = ?error,
             "Casbin Redis watcher unavailable; periodic policy reload remains active"

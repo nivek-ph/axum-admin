@@ -1,20 +1,16 @@
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{BTreeSet, HashMap};
 
 use audit::AuditContext;
 use uuid::Uuid;
 
 use super::{
-    AccountAccessView, AccountError, AccountPermissionCatalogItem, CreateAccountInput,
-    EffectivePermissionSource, EffectiveRoleSource, GetUserListRequest, LoginAccount,
-    PreparedPasswordUpdate, RefreshIdentity, RefreshIdentityError, SetSelfInfoRequest,
-    SetSelfSettingRequest, UpdateUserInput, UserInfoView, UserRecord,
+    AccountAccessView, AccountError, CreateAccountInput, EffectivePermissionSource,
+    EffectiveRoleSource, GetUserListRequest, LoginAccount, PreparedPasswordUpdate, RefreshIdentity,
+    RefreshIdentityError, SetSelfInfoRequest, SetSelfSettingRequest, UpdateUserInput, UserInfoView,
+    UserRecord,
 };
 use crate::{
-    access::AccessCatalog,
-    authorization::{Authorization, ReplaceUserPermissions, ReplaceUserRoles},
+    authorization::{Authorization, ReplaceUserRoles},
     roles::RoleSummary,
 };
 
@@ -24,7 +20,6 @@ const HEADER_IMG: &str = "";
 pub struct Accounts {
     pool: sqlx::PgPool,
     authorization: Authorization,
-    access_catalog: Arc<AccessCatalog>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -35,15 +30,10 @@ enum AccountBoundary {
 }
 
 impl Accounts {
-    pub(crate) fn new(
-        pool: sqlx::PgPool,
-        authorization: Authorization,
-        access_catalog: Arc<AccessCatalog>,
-    ) -> Self {
+    pub(crate) fn new(pool: sqlx::PgPool, authorization: Authorization) -> Self {
         Self {
             pool,
             authorization,
-            access_catalog,
         }
     }
 
@@ -76,16 +66,9 @@ impl Accounts {
         nickname: &str,
     ) -> Result<(), AccountError> {
         let user_id = ensure_admin_user(&self.pool, username, password_hash, nickname).await?;
-        let mut role_ids = self
-            .authorization
-            .user_role_ids(user_id)
-            .await?
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-        role_ids.insert(super_admin_role_id(&self.pool).await?);
-        let mut mutation = self.authorization.begin_mutation().await?;
-        mutation.replace_user_roles(user_id, role_ids).await?;
-        mutation.commit().await?;
+        self.authorization
+            .ensure_bootstrap_role(user_id, super_admin_role_id(&self.pool).await?)
+            .await?;
         Ok(())
     }
 
@@ -93,6 +76,7 @@ impl Accounts {
         &self,
         actor_user_id: i64,
         payload: CreateAccountInput,
+        audit_context: AuditContext,
     ) -> Result<(), AccountError> {
         if find_by_username(&self.pool, &payload.user_name)
             .await?
@@ -114,8 +98,11 @@ impl Accounts {
             }
             AccountBoundary::SelfOnly(_) => return Err(AccountError::AccessDenied),
         };
+        let role_ids = self
+            .authorization
+            .prepare_initial_user_roles(actor_user_id, &role_ids)
+            .await?;
 
-        let mut mutation = self.authorization.begin_mutation().await?;
         let user_id: i64 = sqlx::query_scalar(
             r#"
             insert into sys_users (
@@ -134,12 +121,11 @@ impl Accounts {
         .bind(payload.phone)
         .bind(payload.email)
         .bind(dept_id)
-        .fetch_one(mutation.connection())
+        .fetch_one(&self.pool)
         .await?;
-        mutation
-            .replace_initial_user_roles(actor_user_id, user_id, &role_ids)
+        self.authorization
+            .assign_initial_user_roles(user_id, role_ids, audit_context)
             .await?;
-        mutation.commit().await?;
         Ok(())
     }
 
@@ -200,10 +186,6 @@ impl Accounts {
                 }
             }
         }
-        let mut mutation = self.authorization.begin_mutation().await?;
-        mutation
-            .ensure_account_change(actor_user_id, target_user_id, payload.enable == 1, false)
-            .await?;
         let updated = sqlx::query(
             r#"
             update sys_users
@@ -224,12 +206,11 @@ impl Accounts {
         .bind(payload.email)
         .bind(payload.dept_id)
         .bind(target_user_id)
-        .execute(mutation.connection())
+        .execute(&self.pool)
         .await?;
         if updated.rows_affected() == 0 {
             return Err(AccountError::NotFound);
         }
-        mutation.commit().await?;
         Ok(())
     }
 
@@ -278,20 +259,15 @@ impl Accounts {
         target_user_id: i64,
     ) -> Result<(), AccountError> {
         self.ensure_visible(actor_user_id, target_user_id).await?;
-        let mut mutation = self.authorization.begin_mutation().await?;
-        mutation
-            .ensure_account_change(actor_user_id, target_user_id, false, true)
-            .await?;
-        mutation.remove_user(target_user_id).await?;
+        self.authorization.remove_user(target_user_id).await?;
         let deleted = sqlx::query("delete from sys_users where id = $1")
             .bind(target_user_id)
-            .execute(mutation.connection())
+            .execute(&self.pool)
             .await?
             .rows_affected();
         if deleted == 0 {
             return Err(AccountError::NotFound);
         }
-        mutation.commit().await?;
         Ok(())
     }
 
@@ -325,19 +301,18 @@ impl Accounts {
             .ensure_access_manager(actor_user_id, target_user_id)
             .await?;
         let role_ids = self.authorization.user_role_ids(target_user_id).await?;
-        let direct_permissions = self.authorization.user_permissions(target_user_id).await?;
+        let assigned_roles = load_roles(&self.pool, &role_ids).await?;
         let active_role_ids = self
             .authorization
             .active_user_role_ids(target_user_id)
             .await?;
         let effective_permissions = self
             .authorization
-            .effective_permission_grants(target_user_id, &active_role_ids)
+            .effective_permission_grants(&active_role_ids)
             .await?
             .into_iter()
             .map(|grant| EffectivePermissionSource {
                 permission: grant.permission,
-                direct: grant.direct,
                 roles: grant
                     .roles
                     .into_iter()
@@ -349,37 +324,9 @@ impl Accounts {
                     .collect(),
             })
             .collect();
-        let configured_pages = sqlx::query_scalar::<_, i64>(
-            "select distinct menu_id from sys_role_menus where role_id = any($1) order by menu_id",
-        )
-        .bind(&active_role_ids)
-        .fetch_all(&self.pool)
-        .await?
-        .into_iter()
-        .collect::<HashSet<_>>();
-        let visible_pages = self
-            .access_catalog
-            .effective_page_access(&configured_pages, true);
-        let catalog = self
-            .access_catalog
-            .permission_catalog(&visible_pages, true)
-            .into_iter()
-            .map(|item| AccountPermissionCatalogItem {
-                permission: item.permission,
-                title: item.title,
-                menu_type: item.menu_type,
-                status: item.status,
-                effectively_enabled: item.effectively_enabled,
-                owning_page_id: item.owning_page_id,
-                owning_page_title: item.owning_page_title,
-                page_visible: item.page_visible,
-            })
-            .collect();
         Ok(AccountAccessView {
-            role_ids,
-            direct_permissions,
+            assigned_roles,
             effective_permissions,
-            catalog,
         })
     }
 
@@ -395,24 +342,6 @@ impl Accounts {
                 actor_user_id,
                 user_id: target_user_id,
                 role_ids,
-                audit_context,
-            })
-            .await?;
-        Ok(())
-    }
-
-    pub async fn replace_direct_permissions(
-        &self,
-        actor_user_id: i64,
-        target_user_id: i64,
-        permissions: Vec<String>,
-        audit_context: AuditContext,
-    ) -> Result<(), AccountError> {
-        self.authorization
-            .replace_user_permissions(ReplaceUserPermissions {
-                actor_user_id,
-                user_id: target_user_id,
-                permissions,
                 audit_context,
             })
             .await?;
@@ -699,7 +628,10 @@ async fn get_roles_by_user_ids(
     if user_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let memberships = authorization.active_user_role_ids_for(user_ids).await?;
+    let mut memberships = HashMap::new();
+    for user_id in user_ids {
+        memberships.insert(*user_id, authorization.user_role_ids(*user_id).await?);
+    }
     let role_ids = memberships
         .values()
         .flatten()
@@ -727,6 +659,21 @@ async fn get_roles_by_user_ids(
             (user_id, user_roles)
         })
         .collect())
+}
+
+async fn load_roles(
+    pool: &sqlx::PgPool,
+    role_ids: &[i64],
+) -> Result<Vec<RoleSummary>, sqlx::Error> {
+    if role_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    sqlx::query_as(
+        "select id, code, name, status, sort from sys_roles where id = any($1) order by sort, id",
+    )
+    .bind(role_ids)
+    .fetch_all(pool)
+    .await
 }
 
 #[cfg(test)]

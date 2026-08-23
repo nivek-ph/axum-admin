@@ -1,6 +1,7 @@
 import type { ApiResponse } from './core'
 import { withAuthHeaders } from './core'
 import { http } from './http'
+import type { MenuRecord } from './menus'
 
 export interface RoleResource {
   id: number
@@ -32,47 +33,19 @@ export function deleteRole(id: number) {
   return http.delete<never, ApiResponse>(`/roles/${id}`, withAuthHeaders())
 }
 
-function sortedIds(ids: number[]) {
-  return [...new Set(ids)].filter(Number.isFinite).sort((a, b) => a - b)
-}
-
-export interface RolePageAccess {
-  menuIds: number[]
-  effectiveMenuIds: number[]
-  protected: boolean
-}
-
-export interface PermissionCatalogItem {
-  permission: string
-  title: string
-  menuType: 'page' | 'action'
-  status: 'enabled' | 'disabled'
-  effectivelyEnabled: boolean
-  owningPageId: number
-  owningPageTitle: string
-  pageVisible: boolean
-}
-
-export interface RolePermissions {
+export interface RoleAccess {
   permissions: string[]
-  catalog: PermissionCatalogItem[]
+  tree: MenuRecord[]
   protected: boolean
 }
 
-export async function getRolePageAccess(id: number) {
-  const response = await http.get<never, ApiResponse<RolePageAccess>>(`/roles/${id}/menus`, withAuthHeaders())
-  return response.data ?? { menuIds: [], effectiveMenuIds: [], protected: false }
+export async function getRoleAccess(id: number) {
+  const response = await http.get<never, ApiResponse<RoleAccess>>(`/roles/${id}/access`, withAuthHeaders())
+  return response.data ?? { permissions: [], tree: [], protected: false }
 }
-export function setRolePageAccess(id: number, menuIds: number[]) {
-  return http.put<never, ApiResponse>(`/roles/${id}/menus`, { menuIds: sortedIds(menuIds) }, withAuthHeaders())
-}
-export async function getRolePermissions(id: number) {
-  const response = await http.get<never, ApiResponse<RolePermissions>>(`/roles/${id}/permissions`, withAuthHeaders())
-  return response.data ?? { permissions: [], catalog: [], protected: false }
-}
-export function setRolePermissions(id: number, permissions: string[]) {
+export function setRoleAccess(id: number, permissions: string[]) {
   return http.put<never, ApiResponse>(
-    `/roles/${id}/permissions`,
+    `/roles/${id}/access`,
     { permissions: [...new Set(permissions)].sort() },
     withAuthHeaders(),
   )

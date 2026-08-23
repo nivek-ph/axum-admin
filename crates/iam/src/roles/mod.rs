@@ -14,36 +14,11 @@ pub struct RoleSummary {
     pub sort: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RoleMenuAccess {
-    pub menu_ids: Vec<i64>,
-    pub effective_menu_ids: Vec<i64>,
-    pub protected: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RoleOperationPermissionSelection {
+#[derive(Debug, Clone)]
+pub struct RoleAccessView {
     pub permissions: Vec<String>,
+    pub tree: Vec<crate::menus::MenuView>,
     pub protected: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RoleOperationPermissionsWithCatalog {
-    pub permissions: Vec<String>,
-    pub catalog: Vec<OperationPermissionCatalogItem>,
-    pub protected: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OperationPermissionCatalogItem {
-    pub permission: String,
-    pub title: String,
-    pub menu_type: String,
-    pub status: String,
-    pub effectively_enabled: bool,
-    pub owning_page_id: i64,
-    pub owning_page_title: String,
-    pub page_visible: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -30,24 +30,13 @@ impl MenuService {
 
     pub async fn current(&self, user_id: i64) -> Result<(Vec<MenuView>, Vec<String>), MenuError> {
         let active_role_ids = self.authorization.active_user_role_ids(user_id).await?;
-        let configured = sqlx::query_scalar::<_, i64>(
-            r#"
-            select distinct menu_id
-            from sys_role_menus
-            where role_id = any($1)
-            order by menu_id
-            "#,
-        )
-        .bind(&active_role_ids)
-        .fetch_all(&self.pool)
-        .await?
-        .into_iter()
-        .collect::<HashSet<_>>();
-        let menu_ids = self.access_catalog.effective_page_access(&configured, true);
         let effective_permissions = self
             .authorization
             .effective_permissions_for(user_id, &active_role_ids)
             .await?;
+        let menu_ids = self
+            .access_catalog
+            .navigation_menu_ids(&effective_permissions);
         let enabled_permissions = self.access_catalog.enabled_permissions();
         let permissions = effective_permissions
             .into_iter()
@@ -207,7 +196,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn current_navigation_uses_page_access_and_effective_permissions(pool: PgPool) {
+    async fn current_navigation_uses_effective_page_permissions(pool: PgPool) {
         sqlx::query(
             r#"
             insert into sys_users (
@@ -226,10 +215,6 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::query("insert into sys_role_menus (role_id, menu_id) values (9001, 10), (9001, 11)")
-            .execute(&pool)
-            .await
-            .unwrap();
         sqlx::query(
             r#"
             insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)

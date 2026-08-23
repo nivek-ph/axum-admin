@@ -1,4 +1,19 @@
+use audit::{AuditActor, AuditContext, AuditSource};
 use iam::{Iam, access::AccessEvaluationError, roles::RoleError};
+
+fn audit_context(actor_id: i64) -> AuditContext {
+    AuditContext {
+        req_id: format!("role-{actor_id}"),
+        actor: AuditActor {
+            id: Some(actor_id),
+            label: format!("user-{actor_id}"),
+        },
+        source: AuditSource {
+            ip: "127.0.0.1".to_string(),
+            user_agent: "role-integration-test".to_string(),
+        },
+    }
+}
 
 async fn insert_user(pool: &sqlx::PgPool, id: i64, name: &str) {
     sqlx::query(
@@ -39,7 +54,7 @@ async fn assign_role(pool: &sqlx::PgPool, user_id: i64, role_id: i64) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn only_active_super_admin_can_replace_role_access(pool: sqlx::PgPool) {
+async fn only_super_admin_can_read_or_replace_role_access(pool: sqlx::PgPool) {
     insert_user(&pool, 300, "super-user").await;
     insert_user(&pool, 301, "ordinary-user").await;
     insert_role(&pool, 2).await;
@@ -47,81 +62,120 @@ async fn only_active_super_admin_can_replace_role_access(pool: sqlx::PgPool) {
     let iam = Iam::load(pool).await.unwrap();
 
     assert!(matches!(
-        iam.roles.set_menu_ids(301, 2, vec![10, 11]).await,
+        iam.roles.access(301, 2).await,
         Err(RoleError::AccessDenied)
     ));
     assert!(matches!(
         iam.roles
-            .set_permissions(301, 2, vec!["system:user:create".to_string()])
-            .await,
-        Err(RoleError::AccessDenied)
-    ));
-    assert!(matches!(
-        iam.roles.set_menu_ids(301, 2, vec![1101]).await,
-        Err(RoleError::AccessDenied)
-    ));
-    assert!(matches!(
-        iam.roles
-            .set_permissions(301, 2, vec!["unknown:permission".to_string()])
+            .replace_access(
+                301,
+                2,
+                vec!["system:user:list".to_string()],
+                audit_context(301),
+            )
             .await,
         Err(RoleError::AccessDenied)
     ));
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn page_access_atomically_maintains_entry_permission(pool: sqlx::PgPool) {
+async fn action_selection_adds_page_and_persists_through_restart(pool: sqlx::PgPool) {
     insert_user(&pool, 302, "super-user").await;
     insert_user(&pool, 303, "operator-user").await;
     insert_role(&pool, 2).await;
     assign_role(&pool, 302, 1).await;
     assign_role(&pool, 303, 2).await;
-    let iam = Iam::load(pool).await.unwrap();
+    let iam = Iam::load(pool.clone()).await.unwrap();
 
     iam.roles
-        .set_permissions(302, 2, vec!["system:user:create".to_string()])
+        .replace_access(
+            302,
+            2,
+            vec!["system:user:create".to_string()],
+            audit_context(302),
+        )
         .await
         .unwrap();
-    iam.roles.set_menu_ids(302, 2, vec![10, 11]).await.unwrap();
-
+    let access = iam.roles.access(302, 2).await.unwrap();
+    assert_eq!(
+        access.permissions,
+        vec!["system:user:create", "system:user:list"]
+    );
     assert!(iam.access.evaluate(303, "GET", "/api/users").await.is_ok());
     assert!(iam.access.evaluate(303, "POST", "/api/users").await.is_ok());
-    assert_eq!(
-        iam.roles
-            .assigned_operation_permissions(2)
-            .await
-            .unwrap()
-            .permissions,
-        vec!["system:user:create"]
-    );
+
+    let restarted = Iam::load(pool).await.unwrap();
     assert!(
-        iam.roles
-            .operation_permission_catalog(2)
+        restarted
+            .access
+            .evaluate(303, "GET", "/api/users")
             .await
-            .unwrap()
-            .iter()
-            .all(|item| item.menu_type == "action")
+            .is_ok()
     );
-
-    iam.roles.set_menu_ids(302, 2, Vec::new()).await.unwrap();
-
-    assert!(matches!(
-        iam.access.evaluate(303, "GET", "/api/users").await,
-        Err(AccessEvaluationError::PermissionDenied { .. })
-    ));
-    assert!(iam.access.evaluate(303, "POST", "/api/users").await.is_ok());
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn action_permission_replacement_preserves_required_page_entry(pool: sqlx::PgPool) {
+async fn removing_page_and_actions_removes_navigation_and_operations(pool: sqlx::PgPool) {
     insert_user(&pool, 304, "super-user").await;
     insert_user(&pool, 305, "operator-user").await;
     insert_role(&pool, 2).await;
     assign_role(&pool, 304, 1).await;
     assign_role(&pool, 305, 2).await;
     let iam = Iam::load(pool).await.unwrap();
+    iam.roles
+        .replace_access(
+            304,
+            2,
+            vec!["system:user:create".to_string()],
+            audit_context(304),
+        )
+        .await
+        .unwrap();
 
-    iam.roles.set_menu_ids(304, 2, vec![10, 11]).await.unwrap();
-    iam.roles.set_permissions(304, 2, Vec::new()).await.unwrap();
+    iam.roles
+        .replace_access(304, 2, Vec::new(), audit_context(304))
+        .await
+        .unwrap();
+    assert!(matches!(
+        iam.access.evaluate(305, "GET", "/api/users").await,
+        Err(AccessEvaluationError::PermissionDenied { .. })
+    ));
+    assert!(matches!(
+        iam.access.evaluate(305, "POST", "/api/users").await,
+        Err(AccessEvaluationError::PermissionDenied { .. })
+    ));
+    assert!(iam.menus.current(305).await.unwrap().0.is_empty());
+}
 
-    assert!(iam.access.evaluate(305, "GET", "/api/users").await.is_ok());
+#[sqlx::test(migrations = "../../migrations")]
+async fn role_with_members_cannot_be_deleted(pool: sqlx::PgPool) {
+    insert_user(&pool, 306, "super-user").await;
+    insert_user(&pool, 307, "member-user").await;
+    insert_role(&pool, 2).await;
+    assign_role(&pool, 306, 1).await;
+    assign_role(&pool, 307, 2).await;
+    let iam = Iam::load(pool).await.unwrap();
+
+    assert!(matches!(
+        iam.roles.delete(306, 2, audit_context(306)).await,
+        Err(RoleError::HasMembers)
+    ));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn protected_role_metadata_access_and_delete_are_immutable(pool: sqlx::PgPool) {
+    insert_user(&pool, 308, "super-user").await;
+    assign_role(&pool, 308, 1).await;
+    let iam = Iam::load(pool).await.unwrap();
+
+    assert!(matches!(
+        iam.roles
+            .replace_access(308, 1, Vec::new(), audit_context(308))
+            .await,
+        Err(RoleError::Immutable)
+    ));
+    assert!(matches!(
+        iam.roles.delete(308, 1, audit_context(308)).await,
+        Err(RoleError::Immutable)
+    ));
 }

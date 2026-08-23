@@ -32,8 +32,7 @@ impl Iam {
             authorization.clone(),
             access_catalog.clone(),
         );
-        let accounts =
-            accounts::Accounts::new(pool.clone(), authorization.clone(), access_catalog.clone());
+        let accounts = accounts::Accounts::new(pool.clone(), authorization.clone());
         let menus =
             MenuService::from_catalog(pool.clone(), authorization.clone(), access_catalog.clone());
         let roles = roles::RoleService::new(pool, authorization.clone(), access_catalog);
@@ -48,13 +47,14 @@ impl Iam {
 
     /// An error means only that the Redis watcher is unavailable; the periodic
     /// reload fallback is running either way.
-    pub fn start_policy_sync(
+    pub async fn start_policy_sync(
         &self,
         redis_url: &str,
         reload_interval: Duration,
     ) -> Result<(), AuthorizationError> {
         self.authorization
             .start_policy_sync(redis_url, reload_interval)
+            .await
     }
 }
 

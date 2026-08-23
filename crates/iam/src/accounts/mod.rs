@@ -52,28 +52,13 @@ pub struct EffectiveRoleSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectivePermissionSource {
     pub permission: String,
-    pub direct: bool,
     pub roles: Vec<EffectiveRoleSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AccountPermissionCatalogItem {
-    pub permission: String,
-    pub title: String,
-    pub menu_type: String,
-    pub status: String,
-    pub effectively_enabled: bool,
-    pub owning_page_id: i64,
-    pub owning_page_title: String,
-    pub page_visible: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountAccessView {
-    pub role_ids: Vec<i64>,
-    pub direct_permissions: Vec<String>,
+    pub assigned_roles: Vec<RoleSummary>,
     pub effective_permissions: Vec<EffectivePermissionSource>,
-    pub catalog: Vec<AccountPermissionCatalogItem>,
 }
 
 #[derive(Debug, Clone)]

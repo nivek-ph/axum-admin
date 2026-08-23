@@ -41,8 +41,18 @@ impl AuditService {
 
     pub async fn record_best_effort(&self, event: AuditEvent) {
         let action = event.action.to_string();
+        let resource_type = event.resource.resource_type();
+        let resource_id = event.resource.resource_id();
+        let req_id = event.req_id.clone();
         if let Err(error) = self.record(event).await {
-            tracing::error!(action, error = ?error, "audit event write failed");
+            tracing::error!(
+                action,
+                resource_type,
+                resource_id,
+                req_id,
+                error = ?error,
+                "HIGH PRIORITY: committed operation has no audit event"
+            );
         }
     }
 

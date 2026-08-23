@@ -10,12 +10,6 @@ pub enum AccountError {
     InvalidRoles,
     #[error("only an active super_admin may perform this operation")]
     AccessDenied,
-    #[error("the final active super_admin cannot be removed")]
-    LastSuperAdmin,
-    #[error("selected permissions are invalid")]
-    InvalidPermissions,
-    #[error(transparent)]
-    Audit(#[from] audit::AuditError),
     #[error("{0}")]
     Database(#[from] sqlx::Error),
     #[error(transparent)]
@@ -27,11 +21,8 @@ impl From<AccountPolicyError> for AccountError {
         match error {
             AccountPolicyError::UserNotFound => Self::NotFound,
             AccountPolicyError::AccessDenied => Self::AccessDenied,
-            AccountPolicyError::LastSuperAdmin => Self::LastSuperAdmin,
             AccountPolicyError::InvalidRoleAssignment => Self::InvalidRoles,
-            AccountPolicyError::InvalidPermissionAssignment => Self::InvalidPermissions,
             AccountPolicyError::Database(source) => Self::Database(source),
-            AccountPolicyError::Audit(source) => Self::Audit(source),
             AccountPolicyError::Authorization(source) => Self::Authorization(source),
         }
     }

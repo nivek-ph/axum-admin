@@ -34,18 +34,17 @@ mod tests {
         let role_routes = Router::new()
             .route("/", get(|| ok_marker("roles:list")))
             .route("/{id}", put(|| ok_marker("roles:update")))
-            .route("/{id}/menus", get(|| ok_marker("roles:menus")))
-            .route("/{id}/permissions", get(|| ok_marker("roles:permissions")));
+            .route("/{id}/access", get(|| ok_marker("roles:access")));
 
         Router::new().nest("/roles", role_routes)
     }
 
     #[tokio::test]
-    async fn role_menu_assignment_route_stays_reachable() {
+    async fn unified_role_access_route_stays_reachable() {
         let response = role_shape_router()
             .oneshot(
                 Request::builder()
-                    .uri("/roles/7/menus")
+                    .uri("/roles/7/access")
                     .body(Body::empty())
                     .expect("request should build"),
             )
@@ -58,26 +57,6 @@ mod tests {
         let body = String::from_utf8(bytes.to_vec()).expect("body should be utf8");
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, "roles:menus");
-    }
-
-    #[tokio::test]
-    async fn role_permission_route_stays_distinct_from_page_access() {
-        let response = role_shape_router()
-            .oneshot(
-                Request::builder()
-                    .uri("/roles/7/permissions")
-                    .body(Body::empty())
-                    .expect("request should build"),
-            )
-            .await
-            .expect("router should respond");
-        let status = response.status();
-        let bytes = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body should be readable");
-
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(&bytes[..], b"roles:permissions");
+        assert_eq!(body, "roles:access");
     }
 }

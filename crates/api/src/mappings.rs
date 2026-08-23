@@ -50,14 +50,6 @@ const INVALID_ROLES: ErrorSpec =
 const ROLE_NOT_FOUND: ErrorSpec = ErrorSpec::not_found("ROLE_NOT_FOUND", "role not found");
 const ROLE_IMMUTABLE: ErrorSpec =
     ErrorSpec::failed_precondition("ROLE_IMMUTABLE", "protected role cannot be changed");
-const LAST_SUPER_ADMIN: ErrorSpec = ErrorSpec::failed_precondition(
-    "LAST_SUPER_ADMIN",
-    "the final active super_admin cannot be removed",
-);
-const INVALID_PERMISSION_ASSIGNMENT: ErrorSpec = ErrorSpec::validation(
-    "INVALID_PERMISSION_ASSIGNMENT",
-    "selected permissions must exist in the access catalog",
-);
 const INVALID_AUDIT_TIME_RANGE: ErrorSpec = ErrorSpec::validation(
     "INVALID_AUDIT_TIME_RANGE",
     "audit time range must use RFC 3339 timestamps",
@@ -221,10 +213,7 @@ impl From<iam::accounts::AccountError> for AppError {
             AccountError::NotFound => USER_NOT_FOUND.into(),
             AccountError::AlreadyExists => USER_ALREADY_EXISTS.into(),
             AccountError::InvalidRoles => INVALID_ROLES.into(),
-            AccountError::InvalidPermissions => INVALID_PERMISSION_ASSIGNMENT.into(),
             AccountError::AccessDenied => PERMISSION_DENIED.into(),
-            AccountError::LastSuperAdmin => LAST_SUPER_ADMIN.into(),
-            AccountError::Audit(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
             AccountError::Database(source) => {
                 INTERNAL_SERVER_ERROR.into_error().with_source(source)
             }
@@ -257,15 +246,20 @@ impl From<iam::roles::RoleError> for AppError {
         match error {
             RoleError::NotFound => ROLE_NOT_FOUND.into(),
             RoleError::Immutable => ROLE_IMMUTABLE.into(),
+            RoleError::HasMembers => ErrorSpec::failed_precondition(
+                "ROLE_HAS_MEMBERS",
+                "role cannot be deleted while users are assigned",
+            )
+            .into(),
             RoleError::AccessDenied => PERMISSION_DENIED.into(),
-            RoleError::InvalidMenuAssignment(source) => ErrorSpec::validation(
-                "INVALID_MENU_ASSIGNMENT",
-                "selected menu nodes must be directory or page nodes and include every ancestor",
+            RoleError::InvalidAccess(source) => ErrorSpec::validation(
+                "INVALID_ROLE_ACCESS",
+                "selected role access must contain enabled concrete Catalog Permissions",
             )
             .into_error()
             .with_source(source),
+            RoleError::Menu(source) => source.into(),
             RoleError::Authorization(source) => source.into(),
-            RoleError::InvalidPermissions => INVALID_PERMISSION_ASSIGNMENT.into(),
             RoleError::Database(source) => INTERNAL_SERVER_ERROR.into_error().with_source(source),
         }
     }
@@ -395,18 +389,6 @@ mod tests {
         assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(error.code(), "AUTHORIZATION_CONFIG_INVALID");
         assert_eq!(error.message(), "authorization configuration is invalid");
-    }
-
-    #[test]
-    fn final_super_admin_has_a_specific_precondition_contract() {
-        let error = AppError::from(iam::accounts::AccountError::LastSuperAdmin);
-
-        assert_eq!(error.status(), StatusCode::PRECONDITION_FAILED);
-        assert_eq!(error.code(), "LAST_SUPER_ADMIN");
-        assert_eq!(
-            error.message(),
-            "the final active super_admin cannot be removed"
-        );
     }
 
     #[test]

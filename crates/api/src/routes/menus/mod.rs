@@ -1,4 +1,4 @@
-mod dto;
+pub(crate) mod dto;
 mod handler;
 
 use axum::{Router, routing::get};
@@ -72,12 +72,6 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
-            "insert into sys_role_menus (role_id, menu_id) values (9001, 10), (9001, 11), (9001, 12)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
             r#"
             insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
             values
@@ -93,6 +87,21 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query(
+            r#"
+            delete from casbin_rule
+            where ptype = 'p'
+              and v0 = 'role:1'
+              and v1 in (
+                  select permission
+                  from sys_menus
+                  where (id = 12 or parent_id = 12) and permission is not null
+              )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let body = request_current_menu(pool, 9001).await;
 
@@ -137,12 +146,13 @@ mod tests {
         .unwrap()
         .into_iter()
         .collect::<BTreeSet<_>>();
-        let permissions = sqlx::query_scalar::<_, String>(
-            "select permission from sys_menus where status = 'enabled' and permission is not null order by permission",
+        let mut permissions = sqlx::query_scalar::<_, String>(
+            "select permission from sys_menus where status = 'enabled' and permission is not null",
         )
         .fetch_all(&pool)
         .await
         .unwrap();
+        permissions.sort();
 
         let body = request_current_menu(pool, 9002).await;
 

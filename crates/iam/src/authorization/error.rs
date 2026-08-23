@@ -18,16 +18,10 @@ pub(crate) enum AccountPolicyError {
     UserNotFound,
     #[error("only an active super_admin may manage employee access")]
     AccessDenied,
-    #[error("the final active super_admin cannot be removed")]
-    LastSuperAdmin,
-    #[error("selected permissions are invalid")]
-    InvalidPermissionAssignment,
     #[error("selected roles are invalid")]
     InvalidRoleAssignment,
     #[error("authorization administration database operation failed")]
     Database(#[from] sqlx::Error),
-    #[error(transparent)]
-    Audit(#[from] audit::AuditError),
     #[error(transparent)]
     Authorization(AuthorizationError),
 }

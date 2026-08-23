@@ -11,8 +11,14 @@ pub enum AuditAction {
     AccessDenied,
     #[strum(serialize = "user.assign_roles")]
     AssignUserRoles,
-    #[strum(serialize = "user.assign_direct_permissions")]
-    AssignUserDirectPermissions,
+    #[strum(serialize = "role.create")]
+    CreateRole,
+    #[strum(serialize = "role.update")]
+    UpdateRole,
+    #[strum(serialize = "role.delete")]
+    DeleteRole,
+    #[strum(serialize = "role.replace_access")]
+    ReplaceRoleAccess,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +33,8 @@ pub enum AuditResource {
     Account(String),
     #[strum(props(resource_type = "user"))]
     User(i64),
+    #[strum(props(resource_type = "role"))]
+    Role(i64),
     #[strum(props(resource_type = "route"))]
     Route(String),
 }
@@ -41,7 +49,7 @@ impl AuditResource {
     pub fn resource_id(&self) -> String {
         match self {
             Self::Account(value) | Self::Route(value) => value.clone(),
-            Self::User(id) => id.to_string(),
+            Self::User(id) | Self::Role(id) => id.to_string(),
         }
     }
 }

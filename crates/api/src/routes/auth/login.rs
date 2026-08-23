@@ -486,7 +486,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn identity_assembly_failure_keeps_failed_login_audit_anonymous(pool: sqlx::PgPool) {
+    async fn account_lookup_failure_keeps_failed_login_audit_anonymous(pool: sqlx::PgPool) {
         let password_hash = auth::password::PasswordService::new()
             .hash_password("correct-password")
             .unwrap();
@@ -508,7 +508,7 @@ mod tests {
         seed_captcha(&mut redis, "identity-failure", "ABCD").await;
         let mut state = crate::state::tests::test_state(pool.clone()).await;
         state.captcha = auth::captcha::CaptchaService::new(redis);
-        sqlx::query("drop table casbin_rule")
+        sqlx::query("drop table sys_users cascade")
             .execute(&pool)
             .await
             .unwrap();
@@ -518,7 +518,7 @@ mod tests {
             login_input("identity-failure", "correct-password", "identity-failure"),
         )
         .await
-        .expect_err("identity assembly should fail when authorization storage is unavailable");
+        .expect_err("account lookup should fail when account storage is unavailable");
 
         let event = sqlx::query_as::<_, (Option<i64>, String, String)>(
             "select actor_id, result, reason_code from sys_audit_events",

@@ -41,22 +41,24 @@ This file gives repo-specific guidance for agents working in this project.
   Axum middleware performs token/session work and calls `AccessService::evaluate` exactly once for
   IAM request admission; HTTP handlers call Accounts or Roles for access administration and never
   call private Authorization directly.
-- PostgreSQL is authoritative. `sys_role_menus` stores Page Access; `casbin_rule` stores concrete
-  Permission policy (`p`) and user-role membership (`g`). Redis only propagates reload notifications
-  and must not become an authorization source of truth.
-- Page Access controls navigation, not backend authorization. Selecting a page for a Role must
-  atomically include that page's entry Permission; operation/action Permissions remain independent.
-  Direct Permissions remain valid without Page Access and must not silently create navigation.
-- Effective Permissions are the additive union of Direct Permissions and Permissions inherited from
-  enabled Roles. Do not add deny rules, wildcard grants, `is_system` authorization flags, frontend
-  role-code bypasses, or configurable Data Scope without an explicit architecture change.
-- Preserve the concrete protected `super_admin` model and the final-active-member invariant. Catalog
-  additions and their concrete `super_admin` Page Access and Permission grants belong in the same
-  migration change set.
-- Authorization mutations must preserve PostgreSQL transaction boundaries, deterministic locks,
-  post-commit reload semantics, periodic repair, and fail-closed request error mappings. Do not claim
-  strict fail-closed policy freshness: the current runtime retains the last successfully loaded
-  Enforcer when a reload fails; see the documented consistency boundary.
+- PostgreSQL is authoritative. Casbin's `SqlxAdapter` exclusively persists concrete Role Permission
+  policy (`p`) and User-to-Role membership (`g`) through Casbin Management APIs. Do not query or
+  mutate `casbin_rule` directly in application code. Redis only propagates reload notifications.
+- Access is role-only, additive, and allow-only. A User may have zero, one, or multiple Roles.
+  Effective Permissions are the union of concrete Permissions from enabled assigned Roles. Do not
+  add Direct Permissions, deny rules, wildcard grants, Role inheritance, configurable Data Scope,
+  `is_system` authorization flags, or frontend role-code bypasses without an architecture change.
+- Role Access is one directory/page/action tree. Directories are structural. Selecting an action
+  includes its owning page Permission; selecting a page does not include its actions. Navigation is
+  derived only from effective page Permissions and their directory ancestors.
+- `super_admin` is an enabled, protected Role with concrete grants for every enabled Permission.
+  Its code, status, access, and deletion are immutable through supported APIs; its memberships remain
+  mutable, including removal of the final active membership. Recovery after removing all members is
+  a manual database operation.
+- Policy writes commit before best-effort audit recording. An audit failure is logged at high
+  priority and does not roll back a successful policy mutation. Redis reload and periodic repair
+  replace an Enforcer only after a complete successful load; a failed reload retains the last good
+  Enforcer, so do not claim strict fail-closed policy freshness.
 
 ### Error Design
 

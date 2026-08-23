@@ -58,12 +58,17 @@ pub async fn get_user_list_by_query(
 pub async fn admin_register(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
+    Extension(audit_context): Extension<audit::AuditContext>,
     Json(payload): Json<RegisterUserRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     let password_hash = state.passwords.hash_password(&payload.password)?;
     state
         .accounts
-        .create(user.id, payload.into_account_input(password_hash))
+        .create(
+            user.id,
+            payload.into_account_input(password_hash),
+            audit_context,
+        )
         .await?;
     Ok(Json(ApiResponse::new("OK", "registered", None)))
 }
@@ -235,7 +240,7 @@ pub async fn set_user_roles_by_id(
 
 #[utoipa::path(
     get,
-    path = "/users/{id}/permissions",
+    path = "/users/{id}/access",
     tag = "user",
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "User ID")),
@@ -248,32 +253,5 @@ pub async fn get_user_access(
 ) -> AppResult<Json<ApiResponse<UserAccessData>>> {
     Ok(Json(ApiResponse::ok(
         state.accounts.access(user.id, id).await?.into(),
-    )))
-}
-
-#[utoipa::path(
-    put,
-    path = "/users/{id}/permissions",
-    tag = "user",
-    security(("bearer_auth" = [])),
-    params(("id" = i64, Path, description = "User ID")),
-    request_body = SetUserPermissionsRequest,
-    responses((status = 200, description = "User permissions updated", body = ApiResponse<EmptyData>))
-)]
-pub async fn set_user_permissions(
-    State(state): State<AppState>,
-    CurrentUser(user): CurrentUser,
-    Extension(audit_context): Extension<audit::AuditContext>,
-    Path(id): Path<i64>,
-    Json(payload): Json<SetUserPermissionsRequest>,
-) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state
-        .accounts
-        .replace_direct_permissions(user.id, id, payload.permissions, audit_context)
-        .await?;
-    Ok(Json(ApiResponse::new(
-        "OK",
-        "direct permissions updated",
-        None,
     )))
 }

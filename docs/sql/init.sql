@@ -91,8 +91,9 @@ WHERE (
 );
 
 -- Every job role can access the dashboard. Department heads also receive user
--- management visibility, which the backend limits to their exact department.
--- Menu assignments use stable names rather than frontend component paths.
+-- management access, which the backend limits to their exact department.
+-- Assignments use stable catalog names and become concrete Role Permissions;
+-- directory nodes are structural and therefore have no policy row.
 CREATE TEMP TABLE demo_role_menu_names (
     role_code TEXT NOT NULL,
     menu_name TEXT NOT NULL
@@ -179,14 +180,6 @@ VALUES
         ('executive', 'audit'),
         ('executive', 'audit-events');
 
-INSERT INTO sys_role_menus (role_id, menu_id)
-SELECT role.id, menu.id
-FROM demo_role_menu_names assignment
-JOIN sys_roles role ON role.code = assignment.role_code
-JOIN sys_menus menu ON menu.name = assignment.menu_name
-WHERE menu.menu_type <> 'action'
-ON CONFLICT DO NOTHING;
-
 INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
 SELECT
     'p',
@@ -199,19 +192,8 @@ SELECT
 FROM demo_role_menu_names assignment
 JOIN sys_roles role ON role.code = assignment.role_code
 JOIN sys_menus menu ON menu.name = assignment.menu_name
-WHERE menu.menu_type = 'action'
-UNION
-SELECT
-    'p',
-    'role:' || access.role_id::text,
-    menu.permission,
-    '',
-    '',
-    '',
-    ''
-FROM sys_role_menus access
-JOIN sys_menus menu ON menu.id = access.menu_id
-WHERE menu.menu_type = 'page'
+WHERE menu.permission IS NOT NULL
+  AND menu.permission <> ''
 ON CONFLICT DO NOTHING;
 
 -- Demo accounts use a valid Argon2id hash that is not tied to a distributed

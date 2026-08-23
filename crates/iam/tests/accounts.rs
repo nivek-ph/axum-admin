@@ -1,7 +1,22 @@
+use audit::{AuditActor, AuditContext, AuditSource};
 use iam::{
     Iam,
     accounts::{AccountError, CreateAccountInput, GetUserListRequest, UpdateUserInput},
 };
+
+fn audit_context(actor_id: i64) -> AuditContext {
+    AuditContext {
+        req_id: format!("account-{actor_id}"),
+        actor: AuditActor {
+            id: Some(actor_id),
+            label: format!("user-{actor_id}"),
+        },
+        source: AuditSource {
+            ip: "127.0.0.1".to_string(),
+            user_agent: "account-test".to_string(),
+        },
+    }
+}
 
 fn list_request() -> GetUserListRequest {
     GetUserListRequest {
@@ -105,6 +120,7 @@ async fn no_department_administrator_is_self_only_and_cannot_create(pool: sqlx::
                     phone: None,
                     email: None,
                 },
+                audit_context(203),
             )
             .await,
         Err(AccountError::AccessDenied)
@@ -112,7 +128,7 @@ async fn no_department_administrator_is_self_only_and_cannot_create(pool: sqlx::
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn ordinary_administrator_may_edit_super_profile_but_not_status(pool: sqlx::PgPool) {
+async fn ordinary_administrator_may_edit_and_disable_final_super_account(pool: sqlx::PgPool) {
     insert_user(&pool, 204, "department-admin", Some(1)).await;
     insert_user(&pool, 205, "active-super", Some(1)).await;
     sqlx::query(
@@ -127,10 +143,11 @@ async fn ordinary_administrator_may_edit_super_profile_but_not_status(pool: sqlx
         .update(204, 205, update_input(1))
         .await
         .unwrap();
-    assert!(matches!(
-        iam.accounts.update(204, 205, update_input(0)).await,
-        Err(AccountError::AccessDenied)
-    ));
+    iam.accounts
+        .update(204, 205, update_input(0))
+        .await
+        .unwrap();
+    assert_eq!(iam.accounts.info(205).await.unwrap().enable, 2);
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -196,6 +213,7 @@ async fn account_creation_allows_an_empty_initial_role_set(pool: sqlx::PgPool) {
                 phone: None,
                 email: None,
             },
+            audit_context(210),
         )
         .await
         .unwrap();
@@ -216,6 +234,87 @@ async fn account_creation_allows_an_empty_initial_role_set(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn invalid_initial_role_is_rejected_before_account_insert(pool: sqlx::PgPool) {
+    insert_user(&pool, 211, "creation-super", Some(1)).await;
+    assign_role(&pool, 211, 1).await;
+    sqlx::query(
+        "insert into sys_roles (id, code, name, status) values (2, 'disabled-role', 'Disabled Role', 'disabled')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let iam = Iam::load(pool.clone()).await.unwrap();
+
+    let result = iam
+        .accounts
+        .create(
+            211,
+            CreateAccountInput {
+                user_name: "must-not-exist".to_string(),
+                password_hash: "hash".to_string(),
+                nick_name: "Must Not Exist".to_string(),
+                header_img: None,
+                role_ids: Some(vec![2]),
+                dept_id: Some(1),
+                enable: None,
+                phone: None,
+                email: None,
+            },
+            audit_context(211),
+        )
+        .await;
+
+    assert!(matches!(result, Err(AccountError::InvalidRoles)));
+    let exists = sqlx::query_scalar::<_, bool>(
+        "select exists(select 1 from sys_users where username = 'must-not-exist')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!exists);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn initial_role_assignment_is_audited_after_policy_commit(pool: sqlx::PgPool) {
+    insert_user(&pool, 212, "audit-super", Some(1)).await;
+    assign_role(&pool, 212, 1).await;
+    sqlx::query(
+        "insert into sys_roles (id, code, name, status) values (2, 'audited-role', 'Audited Role', 'enabled')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let iam = Iam::load(pool.clone()).await.unwrap();
+
+    iam.accounts
+        .create(
+            212,
+            CreateAccountInput {
+                user_name: "audited-user".to_string(),
+                password_hash: "hash".to_string(),
+                nick_name: "Audited User".to_string(),
+                header_img: None,
+                role_ids: Some(vec![2]),
+                dept_id: Some(1),
+                enable: None,
+                phone: None,
+                email: None,
+            },
+            audit_context(212),
+        )
+        .await
+        .unwrap();
+
+    let action = sqlx::query_scalar::<_, String>(
+        "select action from sys_audit_events where action = 'user.assign_roles'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(action, "user.assign_roles");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn deleting_an_account_cleans_authorization_rows(pool: sqlx::PgPool) {
     insert_user(&pool, 211, "super-user", Some(1)).await;
     insert_user(&pool, 212, "target-user", Some(1)).await;
@@ -227,12 +326,6 @@ async fn deleting_an_account_cleans_authorization_rows(pool: sqlx::PgPool) {
     .unwrap();
     assign_role(&pool, 211, 1).await;
     assign_role(&pool, 212, 2).await;
-    sqlx::query(
-        "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5) values ('p', 'user:212', 'system:user:list', '', '', '', '')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
     let iam = Iam::load(pool.clone()).await.unwrap();
 
     iam.accounts.delete(211, 212).await.unwrap();
@@ -263,7 +356,14 @@ async fn ensure_admin_preserves_existing_role_memberships(pool: sqlx::PgPool) {
         .unwrap();
 
     assert_eq!(
-        iam.accounts.access(213, 213).await.unwrap().role_ids,
+        iam.accounts
+            .access(213, 213)
+            .await
+            .unwrap()
+            .assigned_roles
+            .into_iter()
+            .map(|role| role.id)
+            .collect::<Vec<_>>(),
         vec![1, 2]
     );
 }

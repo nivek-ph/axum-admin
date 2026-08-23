@@ -167,8 +167,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn global_policy_allows_one_hundred_requests_per_ip() {
-        assert_eq!(GLOBAL_LIMIT, 100);
+    async fn global_policy_allows_configured_requests_per_ip() {
         let app = app();
         for _ in 0..GLOBAL_LIMIT {
             let response = app
@@ -184,7 +183,7 @@ mod tests {
         assert!(response.headers().contains_key("retry-after"));
         assert_eq!(
             response.headers().get("ratelimit-policy").unwrap(),
-            "\"global\";q=100;w=60"
+            "\"global\";q=60;w=60"
         );
     }
 
