@@ -1,6 +1,6 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use sqlx::PgPool;
+use sqlx::{AssertSqlSafe, PgPool};
 use tokio::sync::RwLock;
 
 use super::{
@@ -170,7 +170,7 @@ impl StorageService {
 
     pub(crate) async fn default_entry(&self) -> Result<StorageRegistryEntry, StorageError> {
         let sql = format!("{STORAGE_SELECT} where is_default = true");
-        let record = sqlx::query_as::<_, StorageRecord>(sqlx::AssertSqlSafe(sql))
+        let record = sqlx::query_as::<_, StorageRecord>(AssertSqlSafe(sql))
             .fetch_optional(&self.pool)
             .await?
             .ok_or(StorageError::DisabledDefault)?;
@@ -208,12 +208,12 @@ impl StorageService {
 
     pub async fn list(&self, query: StorageQuery) -> Result<Vec<StorageView>, StorageError> {
         let sql = format!(
-            "{STORAGE_SELECT}\n\
-             where ($1::text is null or name ilike '%' || $1 || '%' or code ilike '%' || $1 || '%')\n\
-               and ($2::text is null or driver = $2)\n\
-             order by sort asc, id asc"
+            r#"{STORAGE_SELECT}
+            where ($1::text is null or name ilike '%' || $1 || '%' or code ilike '%' || $1 || '%')
+              and ($2::text is null or driver = $2)
+            order by sort asc, id asc"#
         );
-        let records = sqlx::query_as::<_, StorageRecord>(sqlx::AssertSqlSafe(sql))
+        let records = sqlx::query_as::<_, StorageRecord>(AssertSqlSafe(sql))
             .bind(query.keyword.as_deref())
             .bind(query.driver.as_deref())
             .fetch_all(&self.pool)
@@ -414,14 +414,14 @@ fn validate_input(payload: &StorageInput) -> Result<(), StorageError> {
 
 async fn fetch_all(pool: &PgPool) -> Result<Vec<StorageRecord>, sqlx::Error> {
     let sql = format!("{STORAGE_SELECT} order by sort asc, id asc");
-    sqlx::query_as::<_, StorageRecord>(sqlx::AssertSqlSafe(sql))
+    sqlx::query_as::<_, StorageRecord>(AssertSqlSafe(sql))
         .fetch_all(pool)
         .await
 }
 
 async fn fetch_one(pool: &PgPool, id: i64) -> Result<StorageRecord, StorageError> {
     let sql = format!("{STORAGE_SELECT} where id = $1");
-    sqlx::query_as::<_, StorageRecord>(sqlx::AssertSqlSafe(sql))
+    sqlx::query_as::<_, StorageRecord>(AssertSqlSafe(sql))
         .bind(id)
         .fetch_optional(pool)
         .await?
