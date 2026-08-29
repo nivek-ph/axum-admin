@@ -229,12 +229,11 @@ mod tests {
         let body = response_json(response).await;
         assert_eq!(body["code"], "FILE_TOO_LARGE");
 
-        let stored_count: i64 = sqlx::query_scalar("select count(*) from uploaded_files")
-            .fetch_one(&pool)
+        assert_no_upload_state(&pool, &upload_dir).await;
+
+        tokio::fs::remove_dir_all(upload_dir)
             .await
-            .expect("stored file count should be readable");
-        assert_eq!(stored_count, 0);
-        assert!(!upload_dir.exists());
+            .expect("test upload directory should be removed");
     }
 
     #[sqlx::test(migrations = "../../migrations")]

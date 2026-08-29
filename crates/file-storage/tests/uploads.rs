@@ -124,7 +124,7 @@ async fn file_at_the_limit_is_fully_persisted(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn finalization_failure_removes_the_temporary_file(pool: sqlx::PgPool) {
+async fn aborted_upload_removes_the_partial_object(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
     let service = FileService::new(pool, upload_dir.to_string_lossy());
     let mut upload = service
@@ -136,31 +136,17 @@ async fn finalization_failure_removes_the_temporary_file(pool: sqlx::PgPool) {
         .await
         .expect("upload content should write");
 
+    upload.abort().await.expect("upload should abort cleanly");
     let mut entries = tokio::fs::read_dir(&upload_dir)
         .await
         .expect("upload directory should exist");
-    let temp_path = entries
-        .next_entry()
-        .await
-        .expect("upload directory should be readable")
-        .expect("temporary file should exist")
-        .path();
-    tokio::fs::remove_file(temp_path)
-        .await
-        .expect("test should make finalization fail");
-
-    let error = upload
-        .finish()
-        .await
-        .expect_err("missing temporary file should fail finalization");
-    assert!(matches!(error, FileError::Io(_)));
     assert!(
         entries
             .next_entry()
             .await
             .expect("upload directory should be readable")
             .is_none(),
-        "failed finalization should not leave a file"
+        "aborted upload should not leave a partial object"
     );
 
     tokio::fs::remove_dir_all(upload_dir)
@@ -201,6 +187,63 @@ async fn metadata_failure_removes_the_uploaded_file(pool: sqlx::PgPool) {
             .expect("upload directory should be readable")
             .is_none(),
         "failed upload should not leave a stored file"
+    );
+
+    tokio::fs::remove_dir_all(upload_dir)
+        .await
+        .expect("test upload directory should be removed");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn metadata_delete_failure_keeps_the_managed_object(pool: sqlx::PgPool) {
+    let upload_dir = upload_dir();
+    let service = FileService::new(pool.clone(), upload_dir.to_string_lossy());
+    let mut upload = service
+        .begin_upload("report.pdf", "finance", "report")
+        .await
+        .expect("upload should start");
+    upload
+        .write_chunk(b"report contents")
+        .await
+        .expect("upload content should write");
+    let stored = upload.finish().await.expect("upload should finish");
+    let stored_name = Path::new(&stored.url)
+        .file_name()
+        .expect("stored URL should contain a file name");
+
+    sqlx::query(
+        r#"
+        create function reject_uploaded_file_delete() returns trigger language plpgsql as $$
+        begin
+            raise exception 'test delete failure';
+        end;
+        $$
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("test delete failure function should be created");
+    sqlx::query(
+        r#"
+        create trigger reject_uploaded_file_delete
+        before delete on uploaded_files
+        for each row execute function reject_uploaded_file_delete()
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("test delete failure trigger should be created");
+
+    let error = service
+        .delete(stored.id)
+        .await
+        .expect_err("metadata delete failure should fail the operation");
+    assert!(matches!(error, FileError::Database(_)));
+    assert_eq!(
+        tokio::fs::read(upload_dir.join(stored_name))
+            .await
+            .expect("managed object should remain available"),
+        b"report contents"
     );
 
     tokio::fs::remove_dir_all(upload_dir)

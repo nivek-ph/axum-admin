@@ -18,7 +18,7 @@ axum-admin dashboard
 - Axum REST API with SQLx, PostgreSQL, OpenAPI, and Swagger UI
 - React Admin Console with Vite, TanStack Query, TanStack Table, and shadcn/ui on Base UI
 - Authentication and IAM with users, roles, menus, page access, and concrete permissions
-- Departments, parameters, dictionaries, files, profiles, and structured audit events
+- Departments, parameters, dictionaries, managed OpenDAL storage, files, profiles, and structured audit events
 - Separate API and Admin Console deployment projects on Vercel
 
 
@@ -65,9 +65,22 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and sign in with the
 `ADMIN_USERNAME` / `ADMIN_PASSWORD` values from `.env`. The API defaults to
 `http://127.0.0.1:3000/api`; override it with `VITE_API_BASE_URL` when needed.
 
+### File storage
+
+Migration `0005_storage_management.sql` creates a default local OpenDAL storage rooted at
+`./uploads`. Operators with the corresponding permissions can manage local and S3-compatible
+backends from **System → Storages**, enable or disable a backend, and switch the upload default
+without restarting the API.
+
+Storage settings are stored in PostgreSQL and managed through the Admin Console or
+`/api/storages`. S3 access and secret keys are stored as plain text but are never returned by the
+API. The public base URL must map to the configured root path; uploaded file responses append the
+generated object name to that URL. See [File storage architecture](docs/architecture/file-storage.md).
+
 ## Deployment
 
-The API and Admin Console deploy as separate Vercel projects.
+The API and Admin Console deploy as separate Vercel projects. Configure the backend with the S3
+storage driver because Vercel Functions do not provide durable local upload storage.
 
 - Maintainers: use the [Deploy existing projects workflow](https://github.com/nivek-ph/axum-admin/actions/workflows/vercel.yml).
 - New projects: use the deploy buttons below, then point `VITE_API_BASE_URL` at the deployed API

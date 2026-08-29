@@ -25,6 +25,7 @@ export const coreMenuItems: MenuItem[] = [
   { key: 'params', label: 'Params', path: '/params', children: [] },
   { key: 'dictionaries', label: 'Dictionaries', path: '/dictionaries', children: [] },
   { key: 'files', label: 'Files', path: '/files', children: [] },
+  { key: 'sys-storage', label: 'Storages', path: '/sys-storage', children: [] },
   { key: 'audit-events', label: 'Audit events', path: '/audit-events', children: [] },
   { key: 'profile', label: 'Profile', path: '/profile', children: [] },
 ]

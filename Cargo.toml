@@ -45,7 +45,10 @@ clap = { version = "4", features = ["derive", "env"] }
 dotenv = { package = "dotenvy", version = "0.15" }
 hex = "0.4"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+jiff-sqlx = { version = "0.2", features = ["postgres"] }
 matchit = "=0.8.4"
+mime_guess = "2"
+opendal = { version = "0.58.2", features = ["services-fs", "services-s3"] }
 password-hash = { version = "0.6.1", features = ["getrandom", "phc"] }
 redis = { version = "1", features = ["tokio-rustls-comp"] }
 redis-watcher = "1.0"

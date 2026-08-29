@@ -15,6 +15,7 @@ import { DepartmentsPage } from '@/pages/departments/DepartmentsPage'
 import { DictionariesPage } from '@/pages/dictionaries/DictionariesPage'
 import { ParamsPage } from '@/pages/params/ParamsPage'
 import { FilesPage } from '@/pages/files/FilesPage'
+import { StoragesPage } from '@/pages/storages/StoragesPage'
 import { AuditPage } from '@/pages/audit/AuditPage'
 import { ConfirmProvider } from '@/components/ConfirmProvider'
 import { Toaster } from '@/components/ui/sonner'
@@ -84,6 +85,9 @@ function AppRoutes() {
         </Route>
         <Route element={<AuthorizedRoute name="files" />}>
           <Route path="/files" element={<FilesPage />} />
+        </Route>
+        <Route element={<AuthorizedRoute name="sys-storage" />}>
+          <Route path="/sys-storage" element={<StoragesPage />} />
         </Route>
         <Route element={<AuthorizedRoute name="audit-events" />}>
           <Route path="/audit-events" element={<AuditPage />} />

@@ -6,6 +6,10 @@ pub enum FileError {
     Database(#[from] sqlx::Error),
     #[error("file storage operation failed")]
     Io(#[from] std::io::Error),
+    #[error("file storage operation failed")]
+    Adapter(#[from] opendal::Error),
+    #[error("file storage operation failed")]
+    Storage(#[from] crate::storages::StorageError),
 }
 
 #[cfg(test)]

@@ -93,7 +93,7 @@ impl FileResponse {
             ext: v.ext,
             tag: v.tag,
             category: v.category,
-            updated_at: v.updated_at,
+            updated_at: v.updated_at.to_jiff().to_string(),
         }
     }
 }

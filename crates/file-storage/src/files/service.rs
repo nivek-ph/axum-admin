@@ -1,91 +1,92 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use opendal::{ErrorKind, Writer};
 use sqlx::PgPool;
-use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
-use super::{FileError, FileListQuery, ImportFileUrl, RenameFile, StoredFile};
+use super::{
+    FileError, FileListQuery, FileStorage, FileStorageError, ImportFileUrl, RenameFile, StoredFile,
+    storage::FileObjectStorage,
+};
+use crate::storages::{StorageError, StorageRegistry, StorageService};
 
 pub const MAX_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct FileService {
     pool: PgPool,
-    upload_dir: String,
+    registry: StorageRegistry,
+    service: Option<StorageService>,
 }
 
 pub struct FileUpload {
     pool: PgPool,
+    storage_id: Option<i64>,
+    storage: FileObjectStorage,
     original_name: String,
     ext: String,
     tag: String,
     category: String,
-    temp_path: PathBuf,
-    final_path: PathBuf,
     stored_name: String,
-    file: Option<tokio::fs::File>,
-    cleanup_path: Option<PathBuf>,
+    writer: Option<Writer>,
     size: usize,
 }
 
 impl Drop for FileUpload {
     fn drop(&mut self) {
-        self.file.take();
-        if let Some(path) = self.cleanup_path.take() {
-            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                runtime.spawn(async move {
-                    if let Err(error) = tokio::fs::remove_file(&path).await
-                        && error.kind() != std::io::ErrorKind::NotFound
-                    {
-                        tracing::warn!(?path, %error, "failed to clean up abandoned upload");
-                    }
-                });
-            } else if let Err(error) = std::fs::remove_file(&path)
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                tracing::warn!(?path, %error, "failed to clean up abandoned upload");
-            }
+        let Some(mut writer) = self.writer.take() else {
+            return;
+        };
+        let operator = self.storage.operator.clone();
+        let object = self.stored_name.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                if let Err(error) = writer.abort().await {
+                    tracing::warn!(%object, %error, "failed to abort abandoned upload writer");
+                }
+                if let Err(error) = operator.delete(&object).await {
+                    tracing::warn!(%object, %error, "failed to clean up abandoned upload object");
+                }
+            });
+        } else {
+            tracing::error!(%object, "could not clean up abandoned upload outside a Tokio runtime");
         }
     }
 }
 
 impl FileUpload {
-    // abort the upload and clean up the temporary file
+    // abort the upload and clean up the partial object
     pub async fn abort(mut self) -> Result<(), FileError> {
         self.cleanup().await
     }
 
-    // clean up the temporary file
+    // clean up the partial object
     async fn cleanup(&mut self) -> Result<(), FileError> {
-        self.file.take();
-        if let Some(path) = self.cleanup_path.take() {
-            match tokio::fs::remove_file(path).await {
-                Ok(()) => self.cleanup_path = None,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    self.cleanup_path = None;
-                }
-                Err(error) => return Err(error.into()),
-            }
+        if let Some(mut writer) = self.writer.take()
+            && let Err(error) = writer.abort().await
+        {
+            tracing::warn!(object = %self.stored_name, %error, "failed to abort upload writer");
         }
+        self.storage.operator.delete(&self.stored_name).await?;
         Ok(())
     }
 
-    // clean up the temporary file after a failure
+    // clean up the partial object after a failure
     async fn cleanup_after_failure(&mut self, operation: &'static str) {
         if let Err(error) = self.cleanup().await {
             tracing::error!(%error, operation, "failed to clean up upload");
         }
     }
 
-    // write a chunk of data to the temporary file
+    // stream a chunk of data to the configured object store
     pub async fn write_chunk(&mut self, bytes: &[u8]) -> Result<(), FileError> {
         let size = self
             .size
             .checked_add(bytes.len())
             .filter(|size| *size <= MAX_UPLOAD_BYTES)
             .ok_or(FileError::TooLarge)?;
-        if let Some(file) = self.file.as_mut() {
-            file.write_all(bytes).await?;
+        if let Some(writer) = self.writer.as_mut() {
+            writer.write(bytes.to_vec()).await?;
         }
         self.size = size;
         Ok(())
@@ -93,34 +94,31 @@ impl FileUpload {
 
     // finish the upload and store the file in the database
     pub async fn finish(mut self) -> Result<StoredFile, FileError> {
-        if let Some(mut file) = self.file.take()
-            && let Err(error) = file.flush().await
+        if let Some(mut writer) = self.writer.take()
+            && let Err(error) = writer.close().await
         {
-            drop(file);
-            self.cleanup_after_failure("file flush failed").await;
+            self.cleanup_after_failure("object finalization failed")
+                .await;
             return Err(error.into());
         }
-        if let Err(error) = tokio::fs::rename(&self.temp_path, &self.final_path).await {
-            self.cleanup_after_failure("file finalization failed").await;
-            return Err(error.into());
-        }
-        self.cleanup_path = Some(self.final_path.clone());
 
-        let url = format!("/uploads/{}", self.stored_name);
+        let url = self.storage.public_url(&self.stored_name);
         let result = sqlx::query_as::<_, StoredFile>(
             r#"
-            insert into uploaded_files (name, url, ext, tag, category)
-            values ($1, $2, $3, $4, $5)
+            insert into uploaded_files (storage_id, name, url, ext, tag, category)
+            values ($1, $2, $3, $4, $5, $6)
             returning
                 id,
+                storage_id,
                 name,
                 url,
                 ext,
                 tag,
                 category,
-                to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at
+                updated_at
             "#,
         )
+        .bind(self.storage_id)
         .bind(&self.original_name)
         .bind(&url)
         .bind(&self.ext)
@@ -130,10 +128,7 @@ impl FileUpload {
         .await;
 
         match result {
-            Ok(stored) => {
-                self.cleanup_path = None;
-                Ok(stored)
-            }
+            Ok(stored) => Ok(stored),
             Err(error) => {
                 self.cleanup_after_failure("metadata persistence failed")
                     .await;
@@ -145,10 +140,34 @@ impl FileUpload {
 
 impl FileService {
     pub fn new(pool: PgPool, upload_dir: impl Into<String>) -> Self {
+        let upload_dir = upload_dir.into();
+        let storage = FileObjectStorage::local(&upload_dir)
+            .expect("local file storage should initialize from a valid upload directory");
         Self {
             pool,
-            upload_dir: upload_dir.into(),
+            registry: StorageRegistry::fallback(storage),
+            service: None,
         }
+    }
+    pub fn from_config(pool: PgPool, config: &FileStorage) -> Result<Self, FileStorageError> {
+        let storage = FileObjectStorage::from_config(config)?;
+        Ok(Self {
+            pool,
+            registry: StorageRegistry::fallback(storage),
+            service: None,
+        })
+    }
+
+    pub async fn managed(pool: PgPool) -> Result<(Self, StorageService), StorageError> {
+        let service = StorageService::load(pool.clone()).await?;
+        Ok((
+            Self {
+                pool,
+                registry: service.registry(),
+                service: Some(service.clone()),
+            },
+            service,
+        ))
     }
     pub async fn list(
         &self,
@@ -168,7 +187,6 @@ impl FileService {
         tag: &str,
         category: &str,
     ) -> Result<FileUpload, FileError> {
-        tokio::fs::create_dir_all(&self.upload_dir).await?;
         let ext = safe_extension(name);
         let id = Uuid::new_v4();
         let stored_name = if ext.is_empty() {
@@ -176,59 +194,115 @@ impl FileService {
         } else {
             format!("{id}.{ext}")
         };
-        let upload_dir = Path::new(&self.upload_dir);
-        let temp_path = upload_dir.join(format!(".{id}.uploading"));
-        let final_path = upload_dir.join(&stored_name);
-        let file = tokio::fs::File::create(&temp_path).await?;
+        let active = self.default_storage().await?;
+        let writer = active.storage.operator.writer(&stored_name).await?;
 
         Ok(FileUpload {
             pool: self.pool.clone(),
+            storage_id: active.id,
+            storage: active.storage,
             original_name: name.to_string(),
             ext,
             tag: tag.to_string(),
             category: category.to_string(),
-            temp_path: temp_path.clone(),
-            final_path,
             stored_name,
-            file: Some(file),
-            cleanup_path: Some(temp_path),
+            writer: Some(writer),
             size: 0,
         })
     }
     pub async fn delete(&self, id: i64) -> Result<(), FileError> {
-        let Some(file) = find_file(&self.pool, id).await? else {
+        let mut transaction = self.pool.begin().await?;
+        let Some(file) = sqlx::query_as::<_, StoredFile>(
+            r#"
+            delete from uploaded_files
+            where id = $1
+            returning
+                id,
+                storage_id,
+                name,
+                url,
+                ext,
+                tag,
+                category,
+                updated_at
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        else {
             return Ok(());
         };
-        let staged = self.stage_local_file(&file.url).await?;
-        if let Err(error) = delete_file(&self.pool, id).await {
-            if let Some((original, staged)) = staged {
-                tokio::fs::rename(staged, original).await?;
-            }
-            return Err(error);
-        }
-        if let Some((_, staged)) = staged {
-            match tokio::fs::remove_file(staged).await {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(error.into());
+        let storage = self.storage_for(file.storage_id).await?.storage;
+        let Some(object) = storage.managed_object(&file.url) else {
+            transaction.commit().await?;
+            return Ok(());
+        };
+        let backup = match storage.operator.read(&object).await {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        storage.operator.delete(&object).await?;
+        if let Err(error) = transaction.commit().await {
+            if let Some(bytes) = backup {
+                if let Err(restore_error) = storage.operator.write(&object, bytes).await {
+                    tracing::error!(
+                        %object,
+                        %restore_error,
+                        database_error = %error,
+                        "failed to restore object after metadata commit failure"
+                    );
                 }
-                _ => {}
             }
+            return Err(error.into());
         }
         Ok(())
     }
-    async fn stage_local_file(&self, url: &str) -> Result<Option<(PathBuf, PathBuf)>, FileError> {
-        if !url.starts_with("/uploads/") {
+
+    pub async fn read_local_object(&self, object: &str) -> Result<Option<Vec<u8>>, FileError> {
+        if object.is_empty() || object.contains('/') || object.contains("..") {
             return Ok(None);
         }
-        let Some(name) = Path::new(url).file_name() else {
+        let url = format!("/uploads/{object}");
+        let storage_id = sqlx::query_scalar::<_, Option<i64>>(
+            r#"
+            select storage_id
+            from uploaded_files
+            where url = $1
+            order by id desc
+            limit 1
+            "#,
+        )
+        .bind(&url)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+        let storage = self.storage_for(storage_id).await?;
+        if !storage.storage.is_local() {
             return Ok(None);
-        };
-        let original = Path::new(&self.upload_dir).join(name);
-        let staged = original.with_extension(format!("deleting-{}", Uuid::new_v4()));
-        match tokio::fs::rename(&original, &staged).await {
-            Ok(()) => Ok(Some((original, staged))),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        }
+        match storage.storage.operator.read(object).await {
+            Ok(bytes) => Ok(Some(bytes.to_vec())),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
+        }
+    }
+
+    async fn default_storage(&self) -> Result<crate::storages::StorageRegistryEntry, FileError> {
+        match &self.service {
+            Some(service) => Ok(service.default_entry().await?),
+            None => Ok(self.registry.default().await),
+        }
+    }
+
+    async fn storage_for(
+        &self,
+        id: Option<i64>,
+    ) -> Result<crate::storages::StorageRegistryEntry, FileError> {
+        match &self.service {
+            Some(service) => Ok(service.entry_for_id(id).await?),
+            None => Ok(self.registry.by_id_or_default(id).await),
         }
     }
 }
@@ -255,12 +329,13 @@ async fn list(
         r#"
         select
             id,
+            storage_id,
             name,
             url,
             ext,
             tag,
             category,
-            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at
+            updated_at
         from uploaded_files
         where ($1::text is null or name ilike '%' || $1 || '%' or url ilike '%' || $1 || '%')
           and ($2::text is null or category = $2)
@@ -282,34 +357,6 @@ async fn edit_name(pool: &sqlx::PgPool, payload: RenameFile) -> Result<(), FileE
     sqlx::query("update uploaded_files set name = $1, updated_at = now() where id = $2")
         .bind(payload.name)
         .bind(payload.id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-async fn find_file(pool: &sqlx::PgPool, id: i64) -> Result<Option<StoredFile>, FileError> {
-    Ok(sqlx::query_as::<_, StoredFile>(
-        r#"
-        select
-            id,
-            name,
-            url,
-            ext,
-            tag,
-            category,
-            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at
-        from uploaded_files
-        where id = $1
-        "#,
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await?)
-}
-
-async fn delete_file(pool: &sqlx::PgPool, id: i64) -> Result<(), FileError> {
-    sqlx::query("delete from uploaded_files where id = $1")
-        .bind(id)
         .execute(pool)
         .await?;
     Ok(())
@@ -365,59 +412,5 @@ mod tests {
             "pdf"
         );
         assert_eq!(normalized_extension("README"), "");
-    }
-
-    #[tokio::test]
-    async fn disk_write_failure_can_be_aborted_without_leaving_upload_state() {
-        use sqlx::postgres::PgPoolOptions;
-        use uuid::Uuid;
-
-        use super::{FileError, FileUpload};
-
-        let upload_dir =
-            std::env::temp_dir().join(format!("ava-file-write-failure-test-{}", Uuid::new_v4()));
-        tokio::fs::create_dir_all(&upload_dir)
-            .await
-            .expect("test upload directory should be created");
-        let temp_path = upload_dir.join("partial.uploading");
-        tokio::fs::write(&temp_path, b"partial")
-            .await
-            .expect("test temporary file should be created");
-        let read_only_file = tokio::fs::OpenOptions::new()
-            .read(true)
-            .open(&temp_path)
-            .await
-            .expect("temporary file should open read-only");
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://localhost/unused")
-            .expect("lazy pool should be created");
-        let mut upload = FileUpload {
-            pool,
-            original_name: "report.pdf".to_string(),
-            ext: "pdf".to_string(),
-            tag: String::new(),
-            category: String::new(),
-            temp_path: temp_path.clone(),
-            final_path: upload_dir.join("report.pdf"),
-            stored_name: "report.pdf".to_string(),
-            file: Some(read_only_file),
-            cleanup_path: Some(temp_path.clone()),
-            size: 0,
-        };
-
-        upload
-            .write_chunk(b"content")
-            .await
-            .expect("buffered write may complete before the disk operation");
-        let error = upload
-            .finish()
-            .await
-            .expect_err("flushing the read-only file should reject the upload");
-        assert!(matches!(error, FileError::Io(_)));
-        assert!(!temp_path.exists());
-
-        tokio::fs::remove_dir_all(upload_dir)
-            .await
-            .expect("test upload directory should be removed");
     }
 }

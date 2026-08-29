@@ -9,6 +9,7 @@ pub mod parameters;
 pub mod protected;
 pub mod public;
 pub mod roles;
+pub mod storages;
 pub mod users;
 
 use axum::Router;
