@@ -323,3 +323,63 @@ async fn s3_credentials_are_stored_but_never_returned(pool: sqlx::PgPool) {
         .await
         .expect("test directory should be removed");
 }
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn s3_credentials_are_required(pool: sqlx::PgPool) {
+    let root = upload_dir("required-credentials");
+    set_default_root(&pool, &root).await;
+    let (_, storages) = FileService::managed(pool.clone())
+        .await
+        .expect("managed storage should load");
+    let input = StorageInput {
+        name: "Object storage".to_string(),
+        code: "object_store_without_credentials".to_string(),
+        backend: StorageBackendInput::S3 {
+            root: None,
+            bucket: "test-bucket".to_string(),
+            region: "us-east-1".to_string(),
+            endpoint: None,
+            public_base_url: "https://cdn.example.com".to_string(),
+            access_key: None,
+            secret_key: None,
+            virtual_host_style: false,
+        },
+        enabled: true,
+        sort: 20,
+        description: String::new(),
+    };
+
+    assert!(matches!(
+        storages.create(input).await,
+        Err(StorageError::InvalidConfiguration(
+            file_storage::files::ObjectStorageError::MissingCredentials
+        ))
+    ));
+
+    tokio::fs::remove_dir_all(root)
+        .await
+        .expect("test directory should be removed");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn managed_storage_rejects_s3_without_database_credentials(pool: sqlx::PgPool) {
+    sqlx::query(
+        r#"
+        insert into sys_storages (
+            name, code, driver, bucket, region, public_base_url, access_key, secret_key
+        )
+        values ('Invalid S3', 'invalid_s3', 's3', 'test-bucket', 'us-east-1',
+                'https://cdn.example.com', null, null)
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("invalid S3 fixture should insert directly");
+
+    assert!(matches!(
+        FileService::managed(pool).await,
+        Err(StorageError::InvalidConfiguration(
+            file_storage::files::ObjectStorageError::MissingCredentials
+        ))
+    ));
+}

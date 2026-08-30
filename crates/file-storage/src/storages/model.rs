@@ -27,7 +27,7 @@ pub(crate) enum StorageBackendConfig {
         region: String,
         endpoint: Option<String>,
         public_base_url: String,
-        credentials: Option<S3Credentials>,
+        credentials: S3Credentials,
         virtual_host_style: bool,
     },
 }
@@ -114,7 +114,7 @@ impl StorageBackendConfig {
     pub(crate) fn credentials(&self) -> Option<&S3Credentials> {
         match self {
             Self::Local { .. } => None,
-            Self::S3 { credentials, .. } => credentials.as_ref(),
+            Self::S3 { credentials, .. } => Some(credentials),
         }
     }
 
@@ -145,7 +145,7 @@ impl FromStr for StorageDriver {
             "local" => Ok(Self::Local),
             "s3" => Ok(Self::S3),
             _ => Err(StorageError::InvalidConfiguration(
-                crate::files::FileStorageError::UnsupportedDriver(value.to_string()),
+                crate::files::ObjectStorageError::UnsupportedDriver(value.to_string()),
             )),
         }
     }

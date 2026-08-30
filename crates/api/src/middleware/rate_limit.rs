@@ -38,8 +38,10 @@ impl ResponseFactory<Body, Body> for ApiRateLimitResponseFactory {
                     "rate-limit request failed",
                 );
                 let spec = match &error {
-                    RateLimitError::Key(..) | RateLimitError::Quota(..) => INTERNAL_SERVER_ERROR,
-                    RateLimitError::Store(..) => RATE_LIMIT_UNAVAILABLE,
+                    RateLimitError::Key(_, _) | RateLimitError::Quota(_, _) => {
+                        INTERNAL_SERVER_ERROR
+                    }
+                    RateLimitError::Store(_, _) => RATE_LIMIT_UNAVAILABLE,
                 };
                 spec.into_error().with_source(error).into_response()
             }

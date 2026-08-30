@@ -1,4 +1,4 @@
-use crate::files::FileStorageError;
+use crate::files::ObjectStorageError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -17,7 +17,7 @@ pub enum StorageError {
     #[error("storage input is invalid: {0}")]
     InvalidInput(&'static str),
     #[error("storage is invalid: {0}")]
-    InvalidConfiguration(#[from] FileStorageError),
+    InvalidConfiguration(#[from] ObjectStorageError),
     #[error("storage operation failed")]
     Database(#[from] sqlx::Error),
 }

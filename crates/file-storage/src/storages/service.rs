@@ -435,14 +435,16 @@ fn merge_secret(replacement: Option<&str>, current: Option<&str>) -> Option<Stri
 fn credentials(
     access_key: Option<String>,
     secret_key: Option<String>,
-) -> Result<Option<S3Credentials>, StorageError> {
+) -> Result<S3Credentials, StorageError> {
+    let access_key = optional_owned(access_key.as_deref());
+    let secret_key = optional_owned(secret_key.as_deref());
     match (access_key, secret_key) {
-        (None, None) => Ok(None),
-        (Some(access_key), Some(secret_key)) => Ok(Some(S3Credentials {
+        (Some(access_key), Some(secret_key)) => Ok(S3Credentials {
             access_key,
             secret_key,
-        })),
-        _ => Err(crate::files::FileStorageError::IncompleteCredentials.into()),
+        }),
+        (None, None) => Err(crate::files::ObjectStorageError::MissingCredentials.into()),
+        _ => Err(crate::files::ObjectStorageError::IncompleteCredentials.into()),
     }
 }
 

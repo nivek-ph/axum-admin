@@ -65,7 +65,10 @@ resumes persisted pending deletions.
 
 S3 access keys and secret keys are stored as plain text in PostgreSQL. API responses expose only
 `hasAccessKey` and `hasSecretKey`; they never return credential values. Sending an empty credential
-while updating a storage preserves the stored value. Temporary session tokens are not supported.
+while updating a storage preserves the stored value. Both credentials are required for S3 storage;
+missing either credential is rejected when the configuration is created, updated, or loaded. The S3
+adapter disables OpenDAL's environment, shared-profile, and EC2 metadata credential sources, so it
+cannot silently fall back to ambient credentials. Temporary session tokens are not supported.
 
 ## Authorization
 

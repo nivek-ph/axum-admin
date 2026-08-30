@@ -79,7 +79,7 @@ pub async fn analyze_audit_events(
     State(state): State<AppState>,
     Json(request): Json<AuditAnalysisRequest>,
 ) -> AppResult<Json<ApiResponse<AuditAnalysisResponse>>> {
-    let (events, ..) = state.audits.list(request.into()).await?;
+    let (events, _, _, _) = state.audits.list(request.into()).await?;
     let analysis = state.audit_analyzer.analyze(&events).await?;
 
     Ok(Json(ApiResponse::ok(analysis.into())))

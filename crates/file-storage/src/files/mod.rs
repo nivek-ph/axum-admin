@@ -7,4 +7,4 @@ pub use error::FileError;
 pub use model::*;
 pub use request::*;
 pub use service::{FileService, LocalFileStream, MAX_UPLOAD_BYTES, UPLOAD_CHUNK_BYTES};
-pub use storage::FileStorageError;
+pub use storage::ObjectStorageError;
