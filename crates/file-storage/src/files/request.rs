@@ -24,3 +24,11 @@ pub struct ImportFileUrl {
     pub tag: String,
     pub category: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct StartUpload {
+    pub name: String,
+    pub size: i64,
+    pub tag: String,
+    pub category: String,
+}

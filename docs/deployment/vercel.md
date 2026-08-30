@@ -2,6 +2,25 @@
 
 The backend and Admin Console deploy as two independent Vercel projects from this monorepo.
 
+## Durable file storage
+
+Vercel Functions must use an S3 storage because their local filesystem is not durable. Migration
+creates a local default for development; replace it with an S3 storage through the Admin Console
+or `/api/storages` before accepting production uploads. Loading that unused local record does not
+create its root directory, so the API can boot on Vercel before the default is switched to S3.
+
+The public base URL must already include any path that exposes the configured root; upload responses
+append only the generated object name. Ensure the bucket or CDN makes that URL readable.
+The backend accepts resumable 4 MiB chunks through `/api/files/uploads`, with a 1 GiB application
+limit. The Admin Console waits for `Retry-After` and resumes when a chunk reaches the API rate
+limit. Each request remains subject to Vercel's current request-body limit. Direct presigned browser
+uploads are not part of this deployment mode.
+
+The backend validates every stored driver before serving requests. An unknown driver, an empty
+local root, a missing S3 bucket/region/public URL, or an incomplete access-key pair stops startup with
+a storage error. The S3 public base must use an `http://` or `https://` URL. Each upload resolves the
+current default from PostgreSQL, so warm function instances do not retain a stale default.
+
 ## Existing projects
 
 Repository maintainers can deploy the configured projects through the manual

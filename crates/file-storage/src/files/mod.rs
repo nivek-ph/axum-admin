@@ -5,4 +5,4 @@ mod service;
 pub use error::FileError;
 pub use model::*;
 pub use request::*;
-pub use service::{FileService, FileUpload, MAX_UPLOAD_BYTES};
+pub use service::{FileService, LocalFileReader, MAX_UPLOAD_BYTES, UPLOAD_CHUNK_BYTES};

@@ -1,6 +1,15 @@
 import type { ApiResponse } from './core'
 import { withAuthHeaders } from './core'
-import { http } from './http'
+import { ApiHttpError, http } from './http'
+
+export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
+
+interface UploadSessionData {
+  id: string
+  offset: number
+  totalSize: number
+  chunkSize: number
+}
 
 export interface FileRecord {
   id: number
@@ -47,18 +56,75 @@ export function renameFile(payload: { id: number; name: string }) {
 export function deleteFile(id: number) {
   return http.delete<never, ApiResponse>(`/files/${id}`, withAuthHeaders())
 }
-export function uploadFile(
+export async function uploadFile(
   file: File,
   metadata: { tag?: string; category?: string } = {},
   onProgress?: (progress: number) => void,
 ) {
-  const formData = new FormData()
-  formData.append('file', file)
-  return http.post<never, ApiResponse>('/files/upload', formData, {
-    ...withAuthHeaders(),
-    params: { tag: metadata.tag || undefined, category: metadata.category || undefined },
-    onUploadProgress: (event) => {
-      if (onProgress && event.total) onProgress(Math.round((event.loaded / event.total) * 100))
-    },
-  })
+  const resumeKey = `file-upload:${JSON.stringify([
+    file.name,
+    file.size,
+    file.lastModified,
+    metadata.tag ?? '',
+    metadata.category ?? '',
+  ])}`
+  let session: UploadSessionData | undefined
+  const savedId = localStorage.getItem(resumeKey)
+  if (savedId) {
+    try {
+      const response = await http.get<never, ApiResponse<UploadSessionData>>(
+        `/files/uploads/${savedId}`,
+        withAuthHeaders(),
+      )
+      if (response.data?.totalSize === file.size) session = response.data
+    } catch (error) {
+      if (error instanceof ApiHttpError && error.body?.code === 'UPLOAD_NOT_FOUND') {
+        localStorage.removeItem(resumeKey)
+      } else {
+        throw error
+      }
+    }
+  }
+  if (!session) {
+    const response = await http.post<never, ApiResponse<UploadSessionData>>(
+      '/files/uploads',
+      { name: file.name, size: file.size, ...metadata },
+      withAuthHeaders(),
+    )
+    session = response.data
+    if (session) localStorage.setItem(resumeKey, session.id)
+  }
+  if (!session) throw new Error('Upload session was not created')
+  let current = session
+  onProgress?.(Math.round((current.offset / file.size) * 100) || 0)
+  while (current.offset < file.size) {
+    const chunk = file.slice(current.offset, current.offset + current.chunkSize)
+    let response: ApiResponse<UploadSessionData>
+    try {
+      response = await http.patch<never, ApiResponse<UploadSessionData>>(`/files/uploads/${current.id}`, chunk, {
+        ...withAuthHeaders(),
+        headers: {
+          ...withAuthHeaders().headers,
+          'Content-Type': 'application/octet-stream',
+          'Upload-Offset': current.offset,
+        },
+      })
+    } catch (error) {
+      if (error instanceof ApiHttpError && error.status === 429 && error.retryAfterMs !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, error.retryAfterMs))
+        continue
+      }
+      throw error
+    }
+    if (!response.data) throw new Error('Upload offset was not returned')
+    current = response.data
+    onProgress?.(Math.round((current.offset / file.size) * 100))
+  }
+  const response = await http.post<never, ApiResponse>(
+    `/files/uploads/${current.id}/complete`,
+    undefined,
+    withAuthHeaders(),
+  )
+  localStorage.removeItem(resumeKey)
+  return response
 }

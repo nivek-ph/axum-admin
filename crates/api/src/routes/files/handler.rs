@@ -1,16 +1,15 @@
 use axum::{
     Json,
-    extract::{Multipart, Path, Query, State},
+    body::Bytes,
+    extract::{Path, Query, State},
+    http::HeaderMap,
 };
-use file_storage::files::FileUpload;
 
 use super::dto::{
     FileListData, FileListRequest, FileResponse, ImportFileUrlRequest, RenameFileRequest,
-    UploadFileData, UploadFileRequest, UploadMetadataRequest,
+    StartUploadRequest, UploadFileData, UploadSessionData,
 };
-use crate::{
-    ApiResponse, AppResult, EmptyData, mappings::MULTIPLE_FILES_NOT_SUPPORTED, state::AppState,
-};
+use crate::{ApiResponse, AppResult, EmptyData, state::AppState};
 
 #[utoipa::path(
     get,
@@ -89,80 +88,84 @@ pub async fn import_url(
 
 #[utoipa::path(
     post,
-    path = "/files/upload",
+    path = "/files/uploads",
     tag = "file",
     security(("bearer_auth" = [])),
-    params(UploadMetadataRequest),
-    request_body(content = inline(UploadFileRequest), content_type = "multipart/form-data"),
-    responses((status = 200, description = "File uploaded", body = ApiResponse<UploadFileData>))
+    request_body = StartUploadRequest,
+    responses((status = 200, description = "Upload started", body = ApiResponse<UploadSessionData>))
 )]
-pub async fn upload_file(
+pub async fn start_upload(
     State(state): State<AppState>,
-    Query(query): Query<UploadMetadataRequest>,
-    mut multipart: Multipart,
-) -> AppResult<Json<ApiResponse<UploadFileData>>> {
-    let mut pending_upload: Option<FileUpload> = None;
-
-    loop {
-        let Some(mut field) = (match multipart.next_field().await {
-            Ok(field) => field,
-            Err(error) => {
-                if let Some(upload) = pending_upload.take() {
-                    abort_upload(upload, "multipart read failed").await;
-                }
-                return Err(error.into());
-            }
-        }) else {
-            break;
-        };
-        let file_name = field.file_name().map(|v| v.to_string());
-
-        if let Some(file_name) = file_name {
-            if let Some(upload) = pending_upload.take() {
-                abort_upload(upload, "multiple files received").await;
-                return Err(MULTIPLE_FILES_NOT_SUPPORTED.into());
-            }
-            let mut upload = state
-                .files
-                .begin_upload(&file_name, &query.tag, &query.category)
-                .await?;
-            loop {
-                let chunk = match field.chunk().await {
-                    Ok(chunk) => chunk,
-                    Err(error) => {
-                        abort_upload(upload, "file chunk read failed").await;
-                        return Err(error.into());
-                    }
-                };
-                let Some(chunk) = chunk else {
-                    break;
-                };
-                if let Err(error) = upload.write_chunk(&chunk).await {
-                    abort_upload(upload, "file chunk write failed").await;
-                    return Err(error.into());
-                }
-            }
-            pending_upload = Some(upload);
-        }
-    }
-
-    let uploaded = match pending_upload {
-        Some(upload) => Some(FileResponse::from_stored(
-            &state.public_base_url,
-            upload.finish().await?,
-        )),
-        None => None,
-    };
-    let file_url = uploaded.as_ref().map(|file| file.url.clone());
-
-    Ok(Json(ApiResponse::ok(UploadFileData {
-        file: uploaded,
-        url: file_url,
-    })))
+    Json(payload): Json<StartUploadRequest>,
+) -> AppResult<Json<ApiResponse<UploadSessionData>>> {
+    let session = state.files.start_upload(payload.into()).await?;
+    Ok(Json(ApiResponse::ok(UploadSessionData::from_session(
+        session,
+    ))))
 }
 
-async fn abort_upload(upload: FileUpload, reason: &'static str) {
-    if let Err(error) = upload.abort().await {
-        tracing::error!(%error, reason, "failed to clean up upload");
-    }
+#[utoipa::path(
+    get,
+    path = "/files/uploads/{id}",
+    tag = "file",
+    security(("bearer_auth" = [])),
+    params(("id" = String, Path, description = "Upload session ID")),
+    responses((status = 200, description = "Upload status", body = ApiResponse<UploadSessionData>))
+)]
+pub async fn upload_status(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<ApiResponse<UploadSessionData>>> {
+    let session = state.files.upload_status(&id).await?;
+    Ok(Json(ApiResponse::ok(UploadSessionData::from_session(
+        session,
+    ))))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/files/uploads/{id}",
+    tag = "file",
+    security(("bearer_auth" = [])),
+    params(("id" = String, Path, description = "Upload session ID")),
+    request_body(content = Vec<u8>, content_type = "application/octet-stream"),
+    responses((status = 200, description = "Chunk accepted", body = ApiResponse<UploadSessionData>))
+)]
+pub async fn upload_chunk(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> AppResult<Json<ApiResponse<UploadSessionData>>> {
+    let offset = headers
+        .get("upload-offset")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+        .ok_or(file_storage::files::FileError::OffsetMismatch)?;
+    let session = state.files.write_upload_chunk(&id, offset, &body).await?;
+    Ok(Json(ApiResponse::ok(UploadSessionData::from_session(
+        session,
+    ))))
+}
+
+#[utoipa::path(
+    post,
+    path = "/files/uploads/{id}/complete",
+    tag = "file",
+    security(("bearer_auth" = [])),
+    params(("id" = String, Path, description = "Upload session ID")),
+    responses((status = 200, description = "Upload completed", body = ApiResponse<UploadFileData>))
+)]
+pub async fn complete_upload(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<ApiResponse<UploadFileData>>> {
+    let file = FileResponse::from_stored(
+        &state.public_base_url,
+        state.files.complete_upload(&id).await?,
+    );
+    Ok(Json(ApiResponse::ok(UploadFileData {
+        url: Some(file.url.clone()),
+        file: Some(file),
+    })))
 }

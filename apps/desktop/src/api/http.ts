@@ -21,12 +21,17 @@ export function isApiResponse(value: unknown): value is ApiResponse {
 export class ApiHttpError extends Error {
   readonly status?: number
   readonly body?: ApiResponse
+  readonly retryAfterMs?: number
 
-  constructor(message: string, options?: { status?: number; body?: ApiResponse; cause?: unknown }) {
+  constructor(
+    message: string,
+    options?: { status?: number; body?: ApiResponse; retryAfterMs?: number; cause?: unknown },
+  ) {
     super(message, options?.cause !== undefined ? { cause: options.cause } : undefined)
     this.name = 'ApiHttpError'
     this.status = options?.status
     this.body = options?.body
+    this.retryAfterMs = options?.retryAfterMs
   }
 }
 
@@ -80,8 +85,23 @@ async function refreshTokenPair() {
 function rejectedError(error: AxiosError) {
   const body = error.response?.data
   if (isApiResponse(body))
-    return new ApiHttpError(body.message || 'Request failed', { status: error.response?.status, body, cause: error })
+    return new ApiHttpError(body.message || 'Request failed', {
+      status: error.response?.status,
+      body,
+      retryAfterMs: retryAfterMilliseconds(error),
+      cause: error,
+    })
   return error
+}
+
+function retryAfterMilliseconds(error: AxiosError) {
+  const value = error.response?.headers?.['retry-after']
+  if (value === undefined) return undefined
+  const seconds = Number(value)
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+  const date = Date.parse(String(value))
+  if (Number.isNaN(date)) return undefined
+  return Math.max(0, date - Date.now())
 }
 
 export function getApiErrorMessage(error: unknown, fallback: string) {

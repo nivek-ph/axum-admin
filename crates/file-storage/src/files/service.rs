@@ -1,423 +1,462 @@
-use std::path::{Path, PathBuf};
-
-use sqlx::PgPool;
-use tokio::io::AsyncWriteExt;
+use opendal::ErrorKind;
+use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 
-use super::{FileError, FileListQuery, ImportFileUrl, RenameFile, StoredFile};
+use super::{FileError, StartUpload, StoredFile, UploadSession};
+use crate::storages::{StorageBackend, StorageError, StorageService};
 
-pub const MAX_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
+mod catalog;
+mod claim;
+mod completion;
+mod objects;
+
+use catalog::safe_extension;
+use claim::{ClaimConflict, UploadObjectIoGuard, UploadOperationClaim};
+pub use objects::LocalFileReader;
+
+pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024;
+pub const UPLOAD_CHUNK_BYTES: usize = 4 * 1024 * 1024;
+const UPLOAD_SESSION_TTL_SECONDS: i64 = 60 * 60;
 
 #[derive(Clone)]
 pub struct FileService {
     pool: PgPool,
-    upload_dir: String,
+    storages: StorageService,
 }
 
-pub struct FileUpload {
-    pool: PgPool,
-    original_name: String,
-    ext: String,
-    tag: String,
-    category: String,
-    temp_path: PathBuf,
-    final_path: PathBuf,
-    stored_name: String,
-    file: Option<tokio::fs::File>,
-    cleanup_path: Option<PathBuf>,
-    size: usize,
-}
-
-impl Drop for FileUpload {
-    fn drop(&mut self) {
-        self.file.take();
-        if let Some(path) = self.cleanup_path.take() {
-            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                runtime.spawn(async move {
-                    if let Err(error) = tokio::fs::remove_file(&path).await
-                        && error.kind() != std::io::ErrorKind::NotFound
-                    {
-                        tracing::warn!(?path, %error, "failed to clean up abandoned upload");
-                    }
-                });
-            } else if let Err(error) = std::fs::remove_file(&path)
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                tracing::warn!(?path, %error, "failed to clean up abandoned upload");
-            }
-        }
-    }
-}
-
-impl FileUpload {
-    // abort the upload and clean up the temporary file
-    pub async fn abort(mut self) -> Result<(), FileError> {
-        self.cleanup().await
-    }
-
-    // clean up the temporary file
-    async fn cleanup(&mut self) -> Result<(), FileError> {
-        self.file.take();
-        if let Some(path) = self.cleanup_path.take() {
-            match tokio::fs::remove_file(path).await {
-                Ok(()) => self.cleanup_path = None,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    self.cleanup_path = None;
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Ok(())
-    }
-
-    // clean up the temporary file after a failure
-    async fn cleanup_after_failure(&mut self, operation: &'static str) {
-        if let Err(error) = self.cleanup().await {
-            tracing::error!(%error, operation, "failed to clean up upload");
-        }
-    }
-
-    // write a chunk of data to the temporary file
-    pub async fn write_chunk(&mut self, bytes: &[u8]) -> Result<(), FileError> {
-        let size = self
-            .size
-            .checked_add(bytes.len())
-            .filter(|size| *size <= MAX_UPLOAD_BYTES)
-            .ok_or(FileError::TooLarge)?;
-        if let Some(file) = self.file.as_mut() {
-            file.write_all(bytes).await?;
-        }
-        self.size = size;
-        Ok(())
-    }
-
-    // finish the upload and store the file in the database
-    pub async fn finish(mut self) -> Result<StoredFile, FileError> {
-        if let Some(mut file) = self.file.take()
-            && let Err(error) = file.flush().await
-        {
-            drop(file);
-            self.cleanup_after_failure("file flush failed").await;
-            return Err(error.into());
-        }
-        if let Err(error) = tokio::fs::rename(&self.temp_path, &self.final_path).await {
-            self.cleanup_after_failure("file finalization failed").await;
-            return Err(error.into());
-        }
-        self.cleanup_path = Some(self.final_path.clone());
-
-        let url = format!("/uploads/{}", self.stored_name);
-        let result = sqlx::query_as::<_, StoredFile>(
-            r#"
-            insert into uploaded_files (name, url, ext, tag, category)
-            values ($1, $2, $3, $4, $5)
-            returning
-                id,
-                name,
-                url,
-                ext,
-                tag,
-                category,
-                to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at
-            "#,
-        )
-        .bind(&self.original_name)
-        .bind(&url)
-        .bind(&self.ext)
-        .bind(&self.tag)
-        .bind(&self.category)
-        .fetch_one(&self.pool)
-        .await;
-
-        match result {
-            Ok(stored) => {
-                self.cleanup_path = None;
-                Ok(stored)
-            }
-            Err(error) => {
-                self.cleanup_after_failure("metadata persistence failed")
-                    .await;
-                Err(error.into())
-            }
-        }
-    }
+#[derive(sqlx::FromRow)]
+struct StaleUpload {
+    id: String,
+    storage_id: i64,
+    object_name: String,
 }
 
 impl FileService {
-    pub fn new(pool: PgPool, upload_dir: impl Into<String>) -> Self {
-        Self {
+    pub async fn managed(pool: PgPool) -> Result<(Self, StorageService), StorageError> {
+        let storages = StorageService::load(pool.clone()).await?;
+        let service = Self {
             pool,
-            upload_dir: upload_dir.into(),
-        }
-    }
-    pub async fn list(
-        &self,
-        query: FileListQuery,
-    ) -> Result<(Vec<StoredFile>, i64, i64, i64), FileError> {
-        list(&self.pool, query).await
-    }
-    pub async fn edit_name(&self, payload: RenameFile) -> Result<(), FileError> {
-        edit_name(&self.pool, payload).await
-    }
-    pub async fn import_url(&self, payload: ImportFileUrl) -> Result<(), FileError> {
-        import_url(&self.pool, payload).await
-    }
-    pub async fn begin_upload(
-        &self,
-        name: &str,
-        tag: &str,
-        category: &str,
-    ) -> Result<FileUpload, FileError> {
-        tokio::fs::create_dir_all(&self.upload_dir).await?;
-        let ext = safe_extension(name);
-        let id = Uuid::new_v4();
-        let stored_name = if ext.is_empty() {
-            id.to_string()
-        } else {
-            format!("{id}.{ext}")
+            storages: storages.clone(),
         };
-        let upload_dir = Path::new(&self.upload_dir);
-        let temp_path = upload_dir.join(format!(".{id}.uploading"));
-        let final_path = upload_dir.join(&stored_name);
-        let file = tokio::fs::File::create(&temp_path).await?;
+        service.recover_pending_work().await;
+        Ok((service, storages))
+    }
 
-        Ok(FileUpload {
-            pool: self.pool.clone(),
-            original_name: name.to_string(),
-            ext,
-            tag: tag.to_string(),
-            category: category.to_string(),
-            temp_path: temp_path.clone(),
-            final_path,
-            stored_name,
-            file: Some(file),
-            cleanup_path: Some(temp_path),
-            size: 0,
-        })
-    }
-    pub async fn delete(&self, id: i64) -> Result<(), FileError> {
-        let Some(file) = find_file(&self.pool, id).await? else {
-            return Ok(());
-        };
-        let staged = self.stage_local_file(&file.url).await?;
-        if let Err(error) = delete_file(&self.pool, id).await {
-            if let Some((original, staged)) = staged {
-                tokio::fs::rename(staged, original).await?;
-            }
-            return Err(error);
+    pub async fn start_upload(&self, payload: StartUpload) -> Result<UploadSession, FileError> {
+        if payload.size < 0 || payload.size > MAX_UPLOAD_BYTES as i64 {
+            return Err(FileError::TooLarge);
         }
-        if let Some((_, staged)) = staged {
-            match tokio::fs::remove_file(staged).await {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(error.into());
-                }
-                _ => {}
+        let mut transaction = self.pool.begin().await?;
+        let storage_id = self.storages.default_id_locked(&mut transaction).await?;
+        let id = Uuid::new_v4().to_string();
+        let ext = safe_extension(&payload.name);
+        let object_name = if ext.is_empty() {
+            Uuid::new_v4().to_string()
+        } else {
+            format!("{}.{ext}", Uuid::new_v4())
+        };
+        let session = sqlx::query_as::<_, UploadSession>(
+            r#"
+            insert into uploaded_file_sessions (
+                id, storage_id, name, object_name, ext, tag, category, total_size
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
+            returning id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
+            "#,
+        )
+        .bind(id)
+        .bind(storage_id)
+        .bind(payload.name)
+        .bind(object_name)
+        .bind(ext)
+        .bind(payload.tag)
+        .bind(payload.category)
+        .bind(payload.size)
+        .fetch_one(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(session)
+    }
+
+    pub async fn upload_status(&self, id: &str) -> Result<UploadSession, FileError> {
+        if let Some(session) = sqlx::query_as::<_, UploadSession>(
+            r#"
+            select id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
+            from uploaded_file_sessions
+            where id = $1
+              and (
+                  (operation_state = 'uploading'
+                      and updated_at >= now() - make_interval(secs => $2))
+                  or (operation_state <> 'uploading'
+                      and operation_started_at >= now() - make_interval(secs => $2))
+              )
+            "#,
+        )
+        .bind(id)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+        .fetch_optional(&self.pool)
+        .await?
+        {
+            return Ok(session);
+        }
+        sqlx::query_as::<_, UploadSession>(
+            r#"
+            select
+                upload_id as id,
+                storage_id,
+                name,
+                object_name,
+                ext,
+                tag,
+                category,
+                size as total_size,
+                size as uploaded_size
+            from uploaded_files
+            where upload_id = $1 and not deletion_pending
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(FileError::UploadNotFound)
+    }
+
+    pub async fn write_upload_chunk(
+        &self,
+        id: &str,
+        offset: i64,
+        bytes: &[u8],
+    ) -> Result<UploadSession, FileError> {
+        if bytes.is_empty() || bytes.len() > UPLOAD_CHUNK_BYTES {
+            return Err(FileError::OffsetMismatch);
+        }
+        let token = Uuid::new_v4().to_string();
+        let Some(session) = sqlx::query_as::<_, UploadSession>(
+            r#"
+            update uploaded_file_sessions
+            set
+                operation_state = 'writing',
+                operation_token = $3,
+                operation_started_at = now()
+            where id = $1
+              and uploaded_size = $2
+              and operation_state = 'uploading'
+              and updated_at >= now() - make_interval(secs => $5)
+              and $2 + $4 <= total_size
+            returning id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
+            "#,
+        )
+        .bind(id)
+        .bind(offset)
+        .bind(&token)
+        .bind(bytes.len() as i64)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            if completed_upload(&self.pool, id).await?.is_some() {
+                return Err(FileError::OffsetMismatch);
+            }
+            return match upload_operation_state(&self.pool, id).await? {
+                Some(_) => Err(FileError::OffsetMismatch),
+                None => Err(FileError::UploadNotFound),
+            };
+        };
+        let storage = match self.storage_for(session.storage_id).await {
+            Ok(storage) => storage,
+            Err(error) => {
+                self.release_upload_operation(id, &token).await;
+                return Err(error);
+            }
+        };
+        let mut claim =
+            UploadOperationClaim::acquire(self, id, token, ClaimConflict::OffsetMismatch).await?;
+        let part = upload_part(&session.id, offset, claim.token());
+        if let Err(error) = storage.operator.write(&part, bytes.to_vec()).await {
+            if let Err(cleanup_error) = storage.operator.delete(&part).await
+                && cleanup_error.kind() != ErrorKind::NotFound
+            {
+                tracing::warn!(%part, %cleanup_error, "failed to clean up rejected upload part");
+            }
+            claim.abandon().await;
+            return Err(error.into());
+        }
+
+        let token = claim.token().to_string();
+        let result = self
+            .persist_upload_part(
+                claim.connection(),
+                &session,
+                &token,
+                &part,
+                bytes.len() as i64,
+            )
+            .await;
+        if result.is_ok() {
+            claim.release_object_io().await;
+        } else {
+            claim.abandon().await;
+        }
+        result
+    }
+
+    async fn persist_upload_part(
+        &self,
+        connection: &mut PgConnection,
+        session: &UploadSession,
+        token: &str,
+        object_name: &str,
+        size: i64,
+    ) -> Result<UploadSession, FileError> {
+        let mut transaction = connection.begin().await?;
+        sqlx::query(
+            r#"
+            insert into uploaded_file_parts (upload_id, part_offset, size, object_name)
+            values ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(&session.id)
+        .bind(session.uploaded_size)
+        .bind(size)
+        .bind(object_name)
+        .execute(&mut *transaction)
+        .await?;
+        let uploaded_size = session.uploaded_size + size;
+        let Some(session) = sqlx::query_as::<_, UploadSession>(
+            r#"
+            update uploaded_file_sessions
+            set
+                uploaded_size = $1,
+                operation_state = 'uploading',
+                operation_token = null,
+                operation_started_at = null,
+                updated_at = now()
+            where id = $2
+              and operation_state = 'writing'
+              and operation_token = $3
+              and operation_started_at >= now() - make_interval(secs => $4)
+            returning id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
+            "#,
+        )
+        .bind(uploaded_size)
+        .bind(&session.id)
+        .bind(token)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+        .fetch_optional(&mut *transaction)
+        .await?
+        else {
+            return Err(FileError::UploadInProgress);
+        };
+        transaction.commit().await?;
+        Ok(session)
+    }
+
+    async fn refresh_upload_operation(
+        connection: &mut PgConnection,
+        id: &str,
+        token: &str,
+    ) -> Result<(), FileError> {
+        let updated = sqlx::query(
+            r#"
+            update uploaded_file_sessions
+            set operation_started_at = now()
+            where id = $1
+              and operation_token = $2
+              and operation_started_at >= now() - make_interval(secs => $3)
+            "#,
+        )
+        .bind(id)
+        .bind(token)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+        .execute(connection)
+        .await?;
+        if updated.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(FileError::UploadInProgress)
+        }
+    }
+
+    async fn release_upload_operation(&self, id: &str, token: &str) {
+        let mut connection = match self.pool.acquire().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                tracing::error!(upload_id = id, %error, "failed to acquire a connection to release upload operation claim");
+                return;
+            }
+        };
+        Self::release_upload_operation_on(&mut connection, id, token).await;
+    }
+
+    async fn release_upload_operation_on(connection: &mut PgConnection, id: &str, token: &str) {
+        if let Err(error) = sqlx::query(
+            r#"
+            update uploaded_file_sessions
+            set
+                operation_state = 'uploading',
+                operation_token = null,
+                operation_started_at = null
+            where id = $1 and operation_token = $2
+            "#,
+        )
+        .bind(id)
+        .bind(token)
+        .execute(connection)
+        .await
+        {
+            tracing::error!(upload_id = id, %error, "failed to release upload operation claim");
+        }
+    }
+
+    async fn cleanup_upload_parts(
+        &self,
+        file_id: i64,
+        storage_id: i64,
+        id: &str,
+    ) -> Result<(), FileError> {
+        let storage = self.storage_for(storage_id).await?;
+        let prefix = format!(".uploads/{id}/");
+        storage
+            .operator
+            .delete_with(&prefix)
+            .recursive(true)
+            .await?;
+        sqlx::query("update uploaded_files set upload_parts_pending = false where id = $1")
+            .bind(file_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn reap_stale_uploads(&self) -> Result<(), FileError> {
+        let uploads = sqlx::query_as::<_, StaleUpload>(
+            r#"
+            select id, storage_id, object_name
+            from uploaded_file_sessions
+            where updated_at < now() - make_interval(secs => $1)
+              and (
+                  operation_state = 'uploading'
+                  or operation_started_at < now() - make_interval(secs => $1)
+              )
+            order by updated_at, id
+            "#,
+        )
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+        .fetch_all(&self.pool)
+        .await?;
+        for upload in uploads {
+            if let Err(error) = self.reap_stale_upload(&upload).await {
+                tracing::warn!(upload_id = %upload.id, %error, "failed to reap stale upload");
             }
         }
         Ok(())
     }
-    async fn stage_local_file(&self, url: &str) -> Result<Option<(PathBuf, PathBuf)>, FileError> {
-        if !url.starts_with("/uploads/") {
-            return Ok(None);
-        }
-        let Some(name) = Path::new(url).file_name() else {
-            return Ok(None);
+
+    async fn reap_stale_upload(&self, upload: &StaleUpload) -> Result<(), FileError> {
+        let storage = self.storage_for(upload.storage_id).await?;
+        let Some(mut object_io) = UploadObjectIoGuard::try_acquire(&self.pool, &upload.id).await?
+        else {
+            return Ok(());
         };
-        let original = Path::new(&self.upload_dir).join(name);
-        let staged = original.with_extension(format!("deleting-{}", Uuid::new_v4()));
-        match tokio::fs::rename(&original, &staged).await {
-            Ok(()) => Ok(Some((original, staged))),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error.into()),
+        let token = Uuid::new_v4().to_string();
+        let claimed = sqlx::query(
+            r#"
+            update uploaded_file_sessions
+            set
+                operation_state = 'cleaning',
+                operation_token = $2,
+                operation_started_at = now()
+            where id = $1
+              and storage_id = $3
+              and updated_at < now() - make_interval(secs => $4)
+              and (
+                  operation_state = 'uploading'
+                  or operation_started_at < now() - make_interval(secs => $4)
+              )
+            "#,
+        )
+        .bind(&upload.id)
+        .bind(&token)
+        .bind(upload.storage_id)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+        .execute(object_io.connection())
+        .await?;
+        if claimed.rows_affected() == 0 {
+            object_io.release().await;
+            return Ok(());
         }
+
+        match storage.operator.delete(&upload.object_name).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                object_io.release().await;
+                self.release_upload_operation(&upload.id, &token).await;
+                return Err(error.into());
+            }
+        }
+        let prefix = format!(".uploads/{}/", upload.id);
+        if let Err(error) = storage.operator.delete_with(&prefix).recursive(true).await {
+            object_io.release().await;
+            self.release_upload_operation(&upload.id, &token).await;
+            return Err(error.into());
+        }
+        let deleted = sqlx::query(
+            "delete from uploaded_file_sessions where id = $1 and operation_token = $2",
+        )
+        .bind(&upload.id)
+        .bind(&token)
+        .execute(object_io.connection())
+        .await?;
+        object_io.release().await;
+        if deleted.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(FileError::UploadInProgress)
+        }
+    }
+
+    async fn storage_for(&self, id: i64) -> Result<StorageBackend, FileError> {
+        Ok(self.storages.backend_for_id(id).await?)
     }
 }
 
-async fn list(
-    pool: &sqlx::PgPool,
-    query: FileListQuery,
-) -> Result<(Vec<StoredFile>, i64, i64, i64), FileError> {
-    let page = query.page.max(1);
-    let page_size = query.page_size.max(1);
-    let offset = (page - 1) * page_size;
-    let total: i64 = sqlx::query_scalar(
+async fn completed_upload(pool: &PgPool, id: &str) -> Result<Option<StoredFile>, sqlx::Error> {
+    sqlx::query_as::<_, StoredFile>(
         r#"
-        select count(*) from uploaded_files
-        where ($1::text is null or name ilike '%' || $1 || '%' or url ilike '%' || $1 || '%')
-          and ($2::text is null or category = $2)
-        "#,
-    )
-    .bind(query.keyword.as_deref())
-    .bind(query.category.as_deref())
-    .fetch_one(pool)
-    .await?;
-    let list = sqlx::query_as::<_, StoredFile>(
-        r#"
-        select
-            id,
-            name,
-            url,
-            ext,
-            tag,
-            category,
-            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at
+        select id, storage_id, name, url, ext, tag, category, updated_at
         from uploaded_files
-        where ($1::text is null or name ilike '%' || $1 || '%' or url ilike '%' || $1 || '%')
-          and ($2::text is null or category = $2)
-        order by id desc
-        limit $3 offset $4
-        "#,
-    )
-    .bind(query.keyword.as_deref())
-    .bind(query.category.as_deref())
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(pool)
-    .await?;
-
-    Ok((list, total, page, page_size))
-}
-
-async fn edit_name(pool: &sqlx::PgPool, payload: RenameFile) -> Result<(), FileError> {
-    sqlx::query("update uploaded_files set name = $1, updated_at = now() where id = $2")
-        .bind(payload.name)
-        .bind(payload.id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-async fn find_file(pool: &sqlx::PgPool, id: i64) -> Result<Option<StoredFile>, FileError> {
-    Ok(sqlx::query_as::<_, StoredFile>(
-        r#"
-        select
-            id,
-            name,
-            url,
-            ext,
-            tag,
-            category,
-            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS') as updated_at
-        from uploaded_files
-        where id = $1
+        where upload_id = $1 and not deletion_pending
         "#,
     )
     .bind(id)
     .fetch_optional(pool)
+    .await
+}
+
+async fn upload_operation_state(
+    pool: &PgPool,
+    id: &str,
+) -> Result<Option<(i64, i64, String)>, FileError> {
+    Ok(sqlx::query_as(
+        r#"
+        select uploaded_size, total_size, operation_state
+        from uploaded_file_sessions
+        where id = $1
+          and (
+              (operation_state = 'uploading'
+                  and updated_at >= now() - make_interval(secs => $2))
+              or (operation_state <> 'uploading'
+                  and operation_started_at >= now() - make_interval(secs => $2))
+          )
+        "#,
+    )
+    .bind(id)
+    .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+    .fetch_optional(pool)
     .await?)
 }
 
-async fn delete_file(pool: &sqlx::PgPool, id: i64) -> Result<(), FileError> {
-    sqlx::query("delete from uploaded_files where id = $1")
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-async fn import_url(pool: &sqlx::PgPool, payload: ImportFileUrl) -> Result<(), FileError> {
-    let ext = normalized_extension(&payload.url);
-    sqlx::query(
-        "insert into uploaded_files (name, url, ext, tag, category) values ($1, $2, $3, $4, $5)",
-    )
-    .bind(payload.name)
-    .bind(payload.url)
-    .bind(ext)
-    .bind(payload.tag)
-    .bind(payload.category)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-fn normalized_extension(value: &str) -> String {
-    value
-        .split(['?', '#'])
-        .next()
-        .and_then(|path| Path::new(path).extension())
-        .and_then(|ext| ext.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-}
-
-fn safe_extension(value: &str) -> String {
-    let ext = normalized_extension(value);
-    if ext.len() <= 16
-        && ext
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric())
-    {
-        ext
-    } else {
-        String::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalized_extension;
-
-    #[test]
-    fn extension_is_normalized_without_query_or_fragment() {
-        assert_eq!(normalized_extension("photo.PNG"), "png");
-        assert_eq!(
-            normalized_extension("https://example.test/report.PDF?download=1"),
-            "pdf"
-        );
-        assert_eq!(normalized_extension("README"), "");
-    }
-
-    #[tokio::test]
-    async fn disk_write_failure_can_be_aborted_without_leaving_upload_state() {
-        use sqlx::postgres::PgPoolOptions;
-        use uuid::Uuid;
-
-        use super::{FileError, FileUpload};
-
-        let upload_dir =
-            std::env::temp_dir().join(format!("ava-file-write-failure-test-{}", Uuid::new_v4()));
-        tokio::fs::create_dir_all(&upload_dir)
-            .await
-            .expect("test upload directory should be created");
-        let temp_path = upload_dir.join("partial.uploading");
-        tokio::fs::write(&temp_path, b"partial")
-            .await
-            .expect("test temporary file should be created");
-        let read_only_file = tokio::fs::OpenOptions::new()
-            .read(true)
-            .open(&temp_path)
-            .await
-            .expect("temporary file should open read-only");
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://localhost/unused")
-            .expect("lazy pool should be created");
-        let mut upload = FileUpload {
-            pool,
-            original_name: "report.pdf".to_string(),
-            ext: "pdf".to_string(),
-            tag: String::new(),
-            category: String::new(),
-            temp_path: temp_path.clone(),
-            final_path: upload_dir.join("report.pdf"),
-            stored_name: "report.pdf".to_string(),
-            file: Some(read_only_file),
-            cleanup_path: Some(temp_path.clone()),
-            size: 0,
-        };
-
-        upload
-            .write_chunk(b"content")
-            .await
-            .expect("buffered write may complete before the disk operation");
-        let error = upload
-            .finish()
-            .await
-            .expect_err("flushing the read-only file should reject the upload");
-        assert!(matches!(error, FileError::Io(_)));
-        assert!(!temp_path.exists());
-
-        tokio::fs::remove_dir_all(upload_dir)
-            .await
-            .expect("test upload directory should be removed");
-    }
+fn upload_part(id: &str, offset: i64, token: &str) -> String {
+    format!(".uploads/{id}/{offset:020}-{token}")
 }

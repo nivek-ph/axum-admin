@@ -1,6 +1,6 @@
 use audit::{AuditAnalyzer, AuditService};
 use auth::{captcha::CaptchaService, password::PasswordService, token::TokenService};
-use file_storage::files::FileService;
+use file_storage::{files::FileService, storages::StorageService};
 use iam::{
     access::AccessService, accounts::Accounts, departments::DepartmentService, menus::MenuService,
     roles::RoleService,
@@ -25,6 +25,7 @@ pub struct AppState {
     pub audits: AuditService,
     pub audit_analyzer: AuditAnalyzer,
     pub files: FileService,
+    pub storages: StorageService,
 }
 
 #[cfg(test)]
@@ -47,7 +48,9 @@ pub(crate) mod tests {
         let departments = DepartmentService::new(pool.clone());
         let dictionaries = DictionaryService::new(pool.clone());
         let parameters = ParameterService::new(pool.clone());
-        let files = FileService::new(pool, "./uploads");
+        let (files, storages) = FileService::managed(pool)
+            .await
+            .expect("test storage should load");
         AppState {
             redis,
             public_base_url: "http://127.0.0.1:3000".to_string(),
@@ -64,6 +67,7 @@ pub(crate) mod tests {
             audits,
             audit_analyzer: AuditAnalyzer::new("http://127.0.0.1:9/v1", "test"),
             files,
+            storages,
         }
     }
 }

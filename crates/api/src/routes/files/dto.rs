@@ -1,6 +1,6 @@
-use file_storage::files::{FileListQuery, ImportFileUrl, RenameFile};
+use file_storage::files::{FileListQuery, ImportFileUrl, RenameFile, StartUpload, UploadSession};
 use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 
 pub type FileListRequest = FileListQuery;
 
@@ -39,21 +39,26 @@ impl RenameFileRequest {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct UploadMetadataRequest {
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StartUploadRequest {
+    pub name: String,
+    pub size: i64,
     #[serde(default)]
     pub tag: String,
     #[serde(default)]
     pub category: String,
 }
 
-#[derive(Debug, ToSchema)]
-pub struct UploadFileRequest {
-    #[schema(value_type = String, format = Binary)]
-    #[schema(example = "example.png")]
-    #[allow(dead_code)]
-    pub file: Vec<u8>,
+impl From<StartUploadRequest> for StartUpload {
+    fn from(value: StartUploadRequest) -> Self {
+        Self {
+            name: value.name,
+            size: value.size,
+            tag: value.tag,
+            category: value.category,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -84,6 +89,26 @@ pub struct UploadFileData {
     pub url: Option<String>,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadSessionData {
+    pub id: String,
+    pub offset: i64,
+    pub total_size: i64,
+    pub chunk_size: usize,
+}
+
+impl UploadSessionData {
+    pub fn from_session(session: UploadSession) -> Self {
+        Self {
+            id: session.id,
+            offset: session.uploaded_size,
+            total_size: session.total_size,
+            chunk_size: file_storage::files::UPLOAD_CHUNK_BYTES,
+        }
+    }
+}
+
 impl FileResponse {
     pub fn from_stored(public_base_url: &str, v: file_storage::files::StoredFile) -> Self {
         Self {
@@ -93,7 +118,7 @@ impl FileResponse {
             ext: v.ext,
             tag: v.tag,
             category: v.category,
-            updated_at: v.updated_at,
+            updated_at: v.updated_at.to_jiff().to_string(),
         }
     }
 }

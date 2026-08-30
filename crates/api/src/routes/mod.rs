@@ -9,12 +9,17 @@ pub mod parameters;
 pub mod protected;
 pub mod public;
 pub mod roles;
+pub mod storages;
 pub mod users;
 
 use axum::Router;
 
 pub fn public_routes() -> Router<crate::state::AppState> {
     public::router()
+}
+
+pub fn public_root_routes() -> Router<crate::state::AppState> {
+    public::root_router()
 }
 
 pub fn captcha_routes() -> Router<crate::state::AppState> {

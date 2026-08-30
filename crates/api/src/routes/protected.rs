@@ -1,6 +1,8 @@
 use axum::Router;
 
-use super::{audit, auth, departments, dictionaries, files, menus, parameters, roles, users};
+use super::{
+    audit, auth, departments, dictionaries, files, menus, parameters, roles, storages, users,
+};
 
 pub fn router() -> Router<crate::state::AppState> {
     Router::new()
@@ -10,6 +12,7 @@ pub fn router() -> Router<crate::state::AppState> {
         .nest("/menus", menus::routes())
         .nest("/params", parameters::routes())
         .nest("/roles", roles::routes())
+        .nest("/storages", storages::routes())
         .nest("/users", users::routes())
         .merge(auth::protected_routes())
         .merge(audit::routes())

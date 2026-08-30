@@ -64,27 +64,21 @@ const AI_RESPONSE_INVALID: ErrorSpec = ErrorSpec::new(
     "AI_RESPONSE_INVALID",
     "local AI provider returned an invalid response",
 );
-const MULTIPART_FIELD_FAILED: ErrorSpec =
-    ErrorSpec::bad_request("MULTIPART_FIELD_FAILED", "failed to read upload content");
-pub(crate) const MULTIPLE_FILES_NOT_SUPPORTED: ErrorSpec = ErrorSpec::bad_request(
-    "MULTIPLE_FILES_NOT_SUPPORTED",
-    "only one file can be uploaded at a time",
-);
 const FILE_TOO_LARGE: ErrorSpec = ErrorSpec::new(
     StatusCode::PAYLOAD_TOO_LARGE,
     "FILE_TOO_LARGE",
     "uploaded file is too large",
 );
-
-impl From<axum::extract::multipart::MultipartError> for AppError {
-    fn from(error: axum::extract::multipart::MultipartError) -> Self {
-        if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
-            FILE_TOO_LARGE.into_error().with_source(error)
-        } else {
-            MULTIPART_FIELD_FAILED.into_error().with_source(error)
-        }
-    }
-}
+const UPLOAD_NOT_FOUND: ErrorSpec =
+    ErrorSpec::not_found("UPLOAD_NOT_FOUND", "upload session not found");
+const UPLOAD_OFFSET_MISMATCH: ErrorSpec =
+    ErrorSpec::conflict("UPLOAD_OFFSET_MISMATCH", "upload offset does not match");
+const UPLOAD_INCOMPLETE: ErrorSpec =
+    ErrorSpec::conflict("UPLOAD_INCOMPLETE", "upload is incomplete");
+const UPLOAD_IN_PROGRESS: ErrorSpec = ErrorSpec::conflict(
+    "UPLOAD_IN_PROGRESS",
+    "upload operation is already in progress",
+);
 
 impl From<iam::access::AccessEvaluationError> for AppError {
     fn from(error: iam::access::AccessEvaluationError) -> Self {
@@ -289,7 +283,58 @@ impl From<file_storage::files::FileError> for AppError {
 
         match error {
             FileError::TooLarge => FILE_TOO_LARGE.into(),
-            source @ (FileError::Database(_) | FileError::Io(_)) => {
+            FileError::UploadNotFound => UPLOAD_NOT_FOUND.into(),
+            FileError::OffsetMismatch => UPLOAD_OFFSET_MISMATCH.into(),
+            FileError::UploadIncomplete => UPLOAD_INCOMPLETE.into(),
+            FileError::UploadInProgress => UPLOAD_IN_PROGRESS.into(),
+            source @ FileError::UploadCorrupt => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+            }
+            FileError::Storage(source) => source.into(),
+            source @ (FileError::Database(_) | FileError::Io(_) | FileError::Adapter(_)) => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+            }
+        }
+    }
+}
+
+impl From<file_storage::storages::StorageError> for AppError {
+    fn from(error: file_storage::storages::StorageError) -> Self {
+        use file_storage::storages::StorageError;
+
+        match error {
+            StorageError::NotFound => {
+                ErrorSpec::not_found("STORAGE_NOT_FOUND", "storage not found").into()
+            }
+            StorageError::CodeConflict => {
+                ErrorSpec::conflict("STORAGE_CODE_CONFLICT", "storage code already exists").into()
+            }
+            StorageError::ImmutableIdentity => ErrorSpec::failed_precondition(
+                "STORAGE_IDENTITY_IMMUTABLE",
+                "storage code, driver, and object location cannot be changed",
+            )
+            .into(),
+            StorageError::DefaultProtected => ErrorSpec::failed_precondition(
+                "DEFAULT_STORAGE_PROTECTED",
+                "default storage cannot be disabled or deleted",
+            )
+            .into(),
+            StorageError::DisabledDefault => ErrorSpec::failed_precondition(
+                "STORAGE_DISABLED",
+                "disabled storage cannot become the default",
+            )
+            .into(),
+            StorageError::InUse => ErrorSpec::failed_precondition(
+                "STORAGE_IN_USE",
+                "storage is referenced by uploaded files or active upload sessions",
+            )
+            .into(),
+            source @ (StorageError::InvalidInput(_) | StorageError::InvalidConfiguration(_)) => {
+                ErrorSpec::validation("INVALID_STORAGE", "storage is invalid")
+                    .into_error()
+                    .with_source(source)
+            }
+            source @ StorageError::Database(_) => {
                 INTERNAL_SERVER_ERROR.into_error().with_source(source)
             }
         }
@@ -434,6 +479,20 @@ mod tests {
         assert_eq!(error.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(error.code(), "FILE_TOO_LARGE");
         assert_eq!(error.message(), "uploaded file is too large");
+    }
+
+    #[test]
+    fn storage_errors_keep_their_domain_contract_through_file_operations() {
+        let error = AppError::from(file_storage::files::FileError::Storage(
+            file_storage::storages::StorageError::DefaultProtected,
+        ));
+
+        assert_eq!(error.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(error.code(), "DEFAULT_STORAGE_PROTECTED");
+        assert_eq!(
+            error.message(),
+            "default storage cannot be disabled or deleted"
+        );
     }
 
     #[test]

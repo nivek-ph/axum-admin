@@ -94,12 +94,6 @@ CREATE TABLE sys_menu_apis (
 
 CREATE INDEX idx_sys_menu_apis_menu ON sys_menu_apis(menu_id);
 
-CREATE TABLE sys_role_menus (
-    role_id BIGINT NOT NULL REFERENCES sys_roles(id) ON DELETE CASCADE,
-    menu_id BIGINT NOT NULL REFERENCES sys_menus(id) ON DELETE RESTRICT,
-    PRIMARY KEY (role_id, menu_id)
-);
-
 CREATE TABLE sys_audit_events (
     id BIGSERIAL PRIMARY KEY,
     req_id TEXT NOT NULL,
@@ -152,12 +146,90 @@ CREATE TABLE sys_dictionary_details (
     path TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE uploaded_files (
+CREATE TABLE sys_storages (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    driver TEXT NOT NULL,
+    root TEXT,
+    bucket TEXT,
+    region TEXT,
+    endpoint TEXT,
+    public_base_url TEXT,
+    access_key TEXT,
+    secret_key TEXT,
+    virtual_host_style BOOLEAN NOT NULL DEFAULT false,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    sort INTEGER NOT NULL DEFAULT 999,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (NOT is_default OR enabled)
+);
+
+CREATE UNIQUE INDEX idx_sys_storages_default
+ON sys_storages (is_default)
+WHERE is_default;
+
+CREATE INDEX idx_sys_storages_list
+ON sys_storages (driver, enabled, sort, id);
+
+CREATE TABLE uploaded_files (
+    id BIGSERIAL PRIMARY KEY,
+    storage_id BIGINT REFERENCES sys_storages(id) ON DELETE RESTRICT,
+    upload_id TEXT UNIQUE,
+    name TEXT NOT NULL,
+    object_name TEXT,
     url TEXT NOT NULL,
     ext TEXT NOT NULL DEFAULT '',
     tag TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT '',
+    size BIGINT NOT NULL DEFAULT 0 CHECK (size BETWEEN 0 AND 1073741824),
+    upload_parts_pending BOOLEAN NOT NULL DEFAULT false,
+    deletion_pending BOOLEAN NOT NULL DEFAULT false,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_uploaded_files_storage
+ON uploaded_files (storage_id);
+
+CREATE TABLE uploaded_file_sessions (
+    id TEXT PRIMARY KEY,
+    storage_id BIGINT NOT NULL REFERENCES sys_storages(id) ON DELETE RESTRICT,
+    name TEXT NOT NULL,
+    object_name TEXT NOT NULL,
+    ext TEXT NOT NULL DEFAULT '',
+    tag TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    total_size BIGINT NOT NULL,
+    uploaded_size BIGINT NOT NULL DEFAULT 0,
+    operation_state TEXT NOT NULL DEFAULT 'uploading',
+    operation_token TEXT,
+    operation_started_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (
+        total_size BETWEEN 0 AND 1073741824
+        AND uploaded_size BETWEEN 0 AND total_size
+    ),
+    CHECK (
+        (operation_state = 'uploading' AND operation_token IS NULL AND operation_started_at IS NULL)
+        OR
+        (operation_state IN ('writing', 'completing', 'cleaning')
+            AND operation_token IS NOT NULL
+            AND operation_started_at IS NOT NULL)
+    )
+);
+
+CREATE INDEX idx_uploaded_file_sessions_updated_at
+ON uploaded_file_sessions (updated_at);
+
+CREATE TABLE uploaded_file_parts (
+    upload_id TEXT NOT NULL REFERENCES uploaded_file_sessions(id) ON DELETE CASCADE,
+    part_offset BIGINT NOT NULL CHECK (part_offset >= 0),
+    size BIGINT NOT NULL CHECK (size BETWEEN 1 AND 8388608),
+    object_name TEXT NOT NULL,
+    PRIMARY KEY (upload_id, part_offset),
+    UNIQUE (object_name)
 );
