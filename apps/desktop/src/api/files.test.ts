@@ -110,7 +110,7 @@ describe('file upload adapter', () => {
 
   it('keeps the resumable session when its status lookup fails transiently', async () => {
     const file = new File(['data'], 'resume.txt', { lastModified: 123 })
-    const resumeKey = `file-upload:${file.name}:${file.size}:${file.lastModified}`
+    const resumeKey = `file-upload:${JSON.stringify([file.name, file.size, file.lastModified, '', ''])}`
     localStorage.setItem(resumeKey, 'saved-session')
     const requests: string[] = []
     http.defaults.adapter = (async (config: InternalAxiosRequestConfig) => {
@@ -127,5 +127,37 @@ describe('file upload adapter', () => {
     await expect(uploadFile(file)).rejects.toThrow('temporary failure')
     expect(localStorage.getItem(resumeKey)).toBe('saved-session')
     expect(requests).toEqual(['get /files/uploads/saved-session'])
+  })
+
+  it('does not resume a session created with different metadata', async () => {
+    const file = new File(['data'], 'resume.txt', { lastModified: 123 })
+    const previousKey = `file-upload:${JSON.stringify([
+      file.name,
+      file.size,
+      file.lastModified,
+      'old-tag',
+      'old-category',
+    ])}`
+    localStorage.setItem(previousKey, 'old-session')
+    const requests: string[] = []
+    http.defaults.adapter = (async (config: InternalAxiosRequestConfig) => {
+      requests.push(`${config.method} ${config.url}`)
+      const data =
+        config.url === '/files/uploads'
+          ? { id: 'new-session', offset: 0, totalSize: 4, chunkSize: 4 }
+          : config.url === '/files/uploads/new-session'
+            ? { id: 'new-session', offset: 4, totalSize: 4, chunkSize: 4 }
+            : {}
+      return { data: { code: 'OK', message: 'ok', data }, status: 200, statusText: 'OK', headers: {}, config }
+    }) as AxiosAdapter
+
+    await uploadFile(file, { tag: 'new-tag', category: 'new-category' })
+
+    expect(requests).toEqual([
+      'post /files/uploads',
+      'patch /files/uploads/new-session',
+      'post /files/uploads/new-session/complete',
+    ])
+    expect(localStorage.getItem(previousKey)).toBe('old-session')
   })
 })

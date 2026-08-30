@@ -208,6 +208,7 @@ CREATE TABLE uploaded_file_sessions (
     operation_token TEXT,
     operation_started_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (
         total_size BETWEEN 0 AND 1073741824
         AND uploaded_size BETWEEN 0 AND total_size
@@ -215,14 +216,14 @@ CREATE TABLE uploaded_file_sessions (
     CHECK (
         (operation_state = 'uploading' AND operation_token IS NULL AND operation_started_at IS NULL)
         OR
-        (operation_state IN ('writing', 'completing')
+        (operation_state IN ('writing', 'completing', 'cleaning')
             AND operation_token IS NOT NULL
             AND operation_started_at IS NOT NULL)
     )
 );
 
-CREATE INDEX idx_uploaded_file_sessions_created_at
-ON uploaded_file_sessions (created_at);
+CREATE INDEX idx_uploaded_file_sessions_updated_at
+ON uploaded_file_sessions (updated_at);
 
 CREATE TABLE uploaded_file_parts (
     upload_id TEXT NOT NULL REFERENCES uploaded_file_sessions(id) ON DELETE CASCADE,

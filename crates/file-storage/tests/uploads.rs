@@ -392,3 +392,110 @@ async fn deleting_an_imported_local_url_keeps_the_object(pool: sqlx::PgPool) {
         .await
         .expect("test upload directory should be removed");
 }
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn expired_upload_session_cannot_be_resumed_before_startup_cleanup(pool: sqlx::PgPool) {
+    let upload_dir = upload_dir();
+    let service = managed_service(&pool, &upload_dir).await;
+    let session = service
+        .start_upload(StartUpload {
+            name: "expired.txt".to_string(),
+            size: 8,
+            tag: String::new(),
+            category: String::new(),
+        })
+        .await
+        .expect("upload session should start");
+    sqlx::query(
+        "update uploaded_file_sessions set updated_at = now() - interval '61 minutes' where id = $1",
+    )
+    .bind(&session.id)
+    .execute(&pool)
+    .await
+    .expect("upload session should expire");
+
+    assert!(matches!(
+        service.upload_status(&session.id).await,
+        Err(FileError::UploadNotFound)
+    ));
+    assert!(matches!(
+        service.write_upload_chunk(&session.id, 0, b"expired").await,
+        Err(FileError::UploadNotFound)
+    ));
+    assert!(matches!(
+        service.complete_upload(&session.id).await,
+        Err(FileError::UploadNotFound)
+    ));
+
+    let session_count: i64 =
+        sqlx::query_scalar("select count(*) from uploaded_file_sessions where id = $1")
+            .bind(&session.id)
+            .fetch_one(&pool)
+            .await
+            .expect("upload session count should be readable");
+    assert_eq!(session_count, 1);
+
+    tokio::fs::remove_dir_all(upload_dir)
+        .await
+        .expect("test upload directory should be removed");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn startup_reaps_abandoned_upload_sessions_and_parts(pool: sqlx::PgPool) {
+    let upload_dir = upload_dir();
+    let service = managed_service(&pool, &upload_dir).await;
+    let session = service
+        .start_upload(StartUpload {
+            name: "abandoned.txt".to_string(),
+            size: 8,
+            tag: String::new(),
+            category: String::new(),
+        })
+        .await
+        .expect("upload session should start");
+    service
+        .write_upload_chunk(&session.id, 0, b"partial")
+        .await
+        .expect("partial upload should write");
+    let prefix = upload_dir.join(format!(".uploads/{}/", session.id));
+    assert!(prefix.exists());
+    sqlx::query(
+        r#"
+        update uploaded_file_sessions
+        set
+            updated_at = now() - interval '61 minutes',
+            operation_state = 'writing',
+            operation_token = 'abandoned-operation',
+            operation_started_at = now() - interval '61 minutes'
+        where id = $1
+        "#,
+    )
+    .bind(&session.id)
+    .execute(&pool)
+    .await
+    .expect("upload session should become stale");
+
+    FileService::managed(pool.clone())
+        .await
+        .expect("service startup should reap stale uploads");
+
+    let session_count: i64 =
+        sqlx::query_scalar("select count(*) from uploaded_file_sessions where id = $1")
+            .bind(&session.id)
+            .fetch_one(&pool)
+            .await
+            .expect("upload session count should be readable");
+    let part_count: i64 =
+        sqlx::query_scalar("select count(*) from uploaded_file_parts where upload_id = $1")
+            .bind(&session.id)
+            .fetch_one(&pool)
+            .await
+            .expect("upload part count should be readable");
+    assert_eq!(session_count, 0);
+    assert_eq!(part_count, 0);
+    assert!(!prefix.exists());
+
+    tokio::fs::remove_dir_all(upload_dir)
+        .await
+        .expect("test upload directory should be removed");
+}

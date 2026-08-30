@@ -49,10 +49,12 @@ Completion uses the upload session ID as an idempotency key. A short database up
 session as `completing`; object assembly runs outside a transaction into an operation-specific final
 object; and a final short transaction inserts the file row and removes the session. Explicit failure
 paths abort and delete the in-progress final object before releasing the claim. Operation tokens fence
-concurrent or stale workers, while an expired claim can be retried without letting an earlier worker
-overwrite the replacement object. A retry after a committed response loss returns the already-created
-file. Completed chunk prefixes are removed on the successful path and retried when completion is
-called again or the service restarts.
+concurrent workers. A retry after a committed response loss returns the already-created file.
+Completed chunk prefixes are removed on the successful path and retried when completion is called
+again or the service restarts. Upload sessions and in-progress operations expire one hour after their
+last successful activity. An expired session cannot be resumed; the client starts a new upload.
+Service startup claims each stale session before deleting its temporary object prefix and session row.
+The operation claim prevents cleanup from racing an active chunk or completion.
 
 Managed deletion first persists `deletion_pending`, which hides the file from listings and local
 serving, then deletes the object without buffering it in application memory. A retry can finish a

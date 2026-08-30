@@ -157,7 +157,7 @@ export function FileUploadDialog({ category, onOpenChange, onUploaded, open }: F
             <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
               <span>{t('Maximum file size: 1 GiB')}</span>
               <span>{t('Chunk size: 8 MiB')}</span>
-              <span>{t('Interrupted uploads can be resumed')}</span>
+              <span>{t('Interrupted uploads can be resumed within one hour')}</span>
             </div>
           </div>
 

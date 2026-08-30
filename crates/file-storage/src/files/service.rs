@@ -10,8 +10,9 @@ use super::{
 };
 use crate::storages::{StorageEntry, StorageError, StorageService};
 
-pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024;
-pub const UPLOAD_CHUNK_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024; // 1GB
+pub const UPLOAD_CHUNK_BYTES: usize = 8 * 1024 * 1024; // 8MB
+const UPLOAD_SESSION_TTL_SECONDS: i64 = 60 * 60; // 1h
 
 #[derive(Clone)]
 pub struct FileService {
@@ -39,6 +40,12 @@ struct UploadPart {
     part_offset: i64,
     size: i64,
     object_name: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct StaleUpload {
+    id: String,
+    storage_id: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -181,9 +188,16 @@ impl FileService {
             select id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
             from uploaded_file_sessions
             where id = $1
+              and (
+                  (operation_state = 'uploading'
+                      and updated_at >= now() - make_interval(secs => $2))
+                  or (operation_state <> 'uploading'
+                      and operation_started_at >= now() - make_interval(secs => $2))
+              )
             "#,
         )
         .bind(id)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
         .fetch_optional(&self.pool)
         .await?
         {
@@ -231,13 +245,8 @@ impl FileService {
                 operation_started_at = now()
             where id = $1
               and uploaded_size = $2
-              and (
-                  operation_state = 'uploading'
-                  or (
-                      operation_state = 'writing'
-                      and operation_started_at < now() - interval '5 minutes'
-                  )
-              )
+              and operation_state = 'uploading'
+              and updated_at >= now() - make_interval(secs => $5)
               and $2 + $4 <= total_size
             returning id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
             "#,
@@ -246,6 +255,7 @@ impl FileService {
         .bind(offset)
         .bind(&token)
         .bind(bytes.len() as i64)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
         .fetch_optional(&self.pool)
         .await?
         else {
@@ -312,16 +322,19 @@ impl FileService {
                 uploaded_size = $1,
                 operation_state = 'uploading',
                 operation_token = null,
-                operation_started_at = null
+                operation_started_at = null,
+                updated_at = now()
             where id = $2
               and operation_state = 'writing'
               and operation_token = $3
+              and operation_started_at >= now() - make_interval(secs => $4)
             returning id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
             "#,
         )
         .bind(uploaded_size)
         .bind(&session.id)
         .bind(token)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
         .fetch_optional(&mut *transaction)
         .await?
         else {
@@ -341,11 +354,23 @@ impl FileService {
             return Ok(stored);
         }
         let token = Uuid::new_v4().to_string();
-        let Some(ext) =
-            sqlx::query_scalar::<_, String>("select ext from uploaded_file_sessions where id = $1")
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?
+        let Some(ext) = sqlx::query_scalar::<_, String>(
+            r#"
+                select ext
+                from uploaded_file_sessions
+                where id = $1
+                  and (
+                      (operation_state = 'uploading'
+                          and updated_at >= now() - make_interval(secs => $2))
+                      or (operation_state <> 'uploading'
+                          and operation_started_at >= now() - make_interval(secs => $2))
+                  )
+                "#,
+        )
+        .bind(id)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+        .fetch_optional(&self.pool)
+        .await?
         else {
             return completed_upload(&self.pool, id)
                 .await?
@@ -359,13 +384,8 @@ impl FileService {
                 from uploaded_file_sessions
                 where id = $1
                   and uploaded_size = total_size
-                  and (
-                      operation_state = 'uploading'
-                      or (
-                          operation_state = 'completing'
-                          and operation_started_at < now() - interval '5 minutes'
-                      )
-                  )
+                  and operation_state = 'uploading'
+                  and updated_at >= now() - make_interval(secs => $4)
                 for update
             ), updated as (
                 update uploaded_file_sessions as session
@@ -394,6 +414,7 @@ impl FileService {
         .bind(id)
         .bind(&object_name)
         .bind(&token)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
         .fetch_optional(&self.pool)
         .await?
         else {
@@ -455,11 +476,13 @@ impl FileService {
             where id = $1
               and operation_state = 'completing'
               and operation_token = $2
+              and operation_started_at >= now() - make_interval(secs => $3)
             for update
             "#,
         )
         .bind(id)
         .bind(&token)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
         .fetch_optional(&mut *transaction)
         .await
         {
@@ -621,11 +644,14 @@ impl FileService {
             r#"
             update uploaded_file_sessions
             set operation_started_at = now()
-            where id = $1 and operation_token = $2
+            where id = $1
+              and operation_token = $2
+              and operation_started_at >= now() - make_interval(secs => $3)
             "#,
         )
         .bind(id)
         .bind(token)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
         .execute(&self.pool)
         .await?;
         if updated.rows_affected() == 1 {
@@ -753,7 +779,94 @@ impl FileService {
         Ok(())
     }
 
+    async fn reap_stale_uploads(&self) -> Result<(), FileError> {
+        let uploads = sqlx::query_as::<_, StaleUpload>(
+            r#"
+            select id, storage_id
+            from uploaded_file_sessions
+            where updated_at < now() - make_interval(secs => $1)
+              and (
+                  operation_state = 'uploading'
+                  or operation_started_at < now() - make_interval(secs => $1)
+              )
+            order by updated_at, id
+            "#,
+        )
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+        .fetch_all(&self.pool)
+        .await?;
+        for upload in uploads {
+            if let Err(error) = self.reap_stale_upload(&upload).await {
+                tracing::warn!(upload_id = %upload.id, %error, "failed to reap stale upload");
+            }
+        }
+        Ok(())
+    }
+
+    async fn reap_stale_upload(&self, upload: &StaleUpload) -> Result<(), FileError> {
+        let token = Uuid::new_v4().to_string();
+        let claimed = sqlx::query(
+            r#"
+            update uploaded_file_sessions
+            set
+                operation_state = 'cleaning',
+                operation_token = $2,
+                operation_started_at = now()
+            where id = $1
+              and storage_id = $3
+              and updated_at < now() - make_interval(secs => $4)
+              and (
+                  operation_state = 'uploading'
+                  or operation_started_at < now() - make_interval(secs => $4)
+              )
+            "#,
+        )
+        .bind(&upload.id)
+        .bind(&token)
+        .bind(upload.storage_id)
+        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+        .execute(&self.pool)
+        .await?;
+        if claimed.rows_affected() == 0 {
+            return Ok(());
+        }
+
+        let storage = match self.storage_for(upload.storage_id).await {
+            Ok(storage) => storage,
+            Err(error) => {
+                self.release_upload_operation(&upload.id, &token).await;
+                return Err(error);
+            }
+        };
+        let prefix = format!(".uploads/{}/", upload.id);
+        if let Err(error) = storage
+            .storage
+            .operator
+            .delete_with(&prefix)
+            .recursive(true)
+            .await
+        {
+            self.release_upload_operation(&upload.id, &token).await;
+            return Err(error.into());
+        }
+        let deleted = sqlx::query(
+            "delete from uploaded_file_sessions where id = $1 and operation_token = $2",
+        )
+        .bind(&upload.id)
+        .bind(&token)
+        .execute(&self.pool)
+        .await?;
+        if deleted.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(FileError::UploadInProgress)
+        }
+    }
+
     async fn recover_pending_work(&self) {
+        if let Err(error) = self.reap_stale_uploads().await {
+            tracing::error!(%error, "failed to load stale uploads");
+        }
         let pending_deletions = match sqlx::query_scalar::<_, i64>(
             "select id from uploaded_files where deletion_pending order by id",
         )
@@ -967,9 +1080,16 @@ async fn upload_operation_state(
         select uploaded_size, total_size, operation_state
         from uploaded_file_sessions
         where id = $1
+          and (
+              (operation_state = 'uploading'
+                  and updated_at >= now() - make_interval(secs => $2))
+              or (operation_state <> 'uploading'
+                  and operation_started_at >= now() - make_interval(secs => $2))
+          )
         "#,
     )
     .bind(id)
+    .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
     .fetch_optional(pool)
     .await?)
 }

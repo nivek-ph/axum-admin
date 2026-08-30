@@ -61,7 +61,13 @@ export async function uploadFile(
   metadata: { tag?: string; category?: string } = {},
   onProgress?: (progress: number) => void,
 ) {
-  const resumeKey = `file-upload:${file.name}:${file.size}:${file.lastModified}`
+  const resumeKey = `file-upload:${JSON.stringify([
+    file.name,
+    file.size,
+    file.lastModified,
+    metadata.tag ?? '',
+    metadata.category ?? '',
+  ])}`
   let session: UploadSessionData | undefined
   const savedId = localStorage.getItem(resumeKey)
   if (savedId) {
