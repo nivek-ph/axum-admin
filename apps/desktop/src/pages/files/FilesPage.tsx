@@ -1,7 +1,7 @@
 import { getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconCopy, IconLink, IconPencil, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -9,9 +9,7 @@ import {
   deleteFile,
   fetchFiles,
   importFileUrl,
-  MAX_UPLOAD_BYTES,
   renameFile,
-  uploadFile,
   type FileRecord,
 } from '@/api/files'
 import { DataTable } from '@/components/data-table/DataTable'
@@ -23,6 +21,7 @@ import { useConfirm } from '@/components/ConfirmProvider'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { FileUploadDialog } from '@/pages/files/FileUploadDialog'
 
 const PAGE_SIZE = 10
 
@@ -30,12 +29,10 @@ export function FilesPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const confirmAction = useConfirm()
-  const fileInput = useRef<HTMLInputElement>(null)
   const [page, setPage] = useState(1)
   const [draftFilters, setDraftFilters] = useState({ keyword: '', category: '' })
   const [filters, setFilters] = useState(draftFilters)
-  const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importForm, setImportForm] = useState({ name: '', url: '', tag: '', category: '' })
   const [renameTarget, setRenameTarget] = useState<FileRecord | null>(null)
@@ -72,27 +69,6 @@ export function FilesPage() {
     onError: () => toast.error(t('Failed to delete file')),
   })
   const pageCount = Math.max(1, Math.ceil((query.data?.total ?? 0) / PAGE_SIZE))
-
-  async function selectFile(file?: File) {
-    if (!file) return
-    if (file.size > MAX_UPLOAD_BYTES) {
-      toast.error(t('File is too large (maximum 1 GiB)'))
-      if (fileInput.current) fileInput.current.value = ''
-      return
-    }
-    setUploading(true)
-    setUploadProgress(0)
-    try {
-      await uploadFile(file, { category: filters.category }, setUploadProgress)
-      toast.success(t('File uploaded'))
-      await invalidate()
-    } catch {
-      toast.error(t('Failed to upload file'))
-    } finally {
-      setUploading(false)
-      if (fileInput.current) fileInput.current.value = ''
-    }
-  }
 
   async function copyUrl(url: string) {
     try {
@@ -208,15 +184,9 @@ export function FilesPage() {
         }
         actions={
           <>
-            <input
-              className="hidden"
-              onChange={(event) => void selectFile(event.target.files?.[0])}
-              ref={fileInput}
-              type="file"
-            />
-            <Button disabled={uploading} onClick={() => fileInput.current?.click()} variant="outline">
+            <Button onClick={() => setUploadOpen(true)} variant="outline">
               <IconUpload size={16} />
-              {uploading ? t('Uploading {{progress}}%', { progress: uploadProgress }) : t('Upload')}
+              {t('Upload')}
             </Button>
             <Button
               onClick={() => {
@@ -289,6 +259,12 @@ export function FilesPage() {
           />
         </CardContent>
       </Card>
+      <FileUploadDialog
+        category={filters.category}
+        onOpenChange={setUploadOpen}
+        onUploaded={invalidate}
+        open={uploadOpen}
+      />
       <Dialog onOpenChange={setImportOpen} open={importOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

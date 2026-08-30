@@ -356,6 +356,8 @@ impl FileService {
             size: 0,
         })
     }
+
+    // delete a file from the database and the object store
     pub async fn delete(&self, id: i64) -> Result<(), FileError> {
         let mut transaction = self.pool.begin().await?;
         let Some(file) = sqlx::query_as::<_, StoredFile>(
@@ -388,28 +390,29 @@ impl FileService {
             transaction.commit().await?;
             return Ok(());
         };
-        let backup = match storage.operator.read(&object).await {
+        let restore_bytes = match storage.operator.read(&object).await {
             Ok(bytes) => Some(bytes),
             Err(error) if error.kind() == ErrorKind::NotFound => None,
             Err(error) => return Err(error.into()),
         };
         storage.operator.delete(&object).await?;
         if let Err(error) = transaction.commit().await {
-            if let Some(bytes) = backup {
-                if let Err(restore_error) = storage.operator.write(&object, bytes).await {
-                    tracing::error!(
-                        %object,
-                        %restore_error,
-                        database_error = %error,
-                        "failed to restore object after metadata commit failure"
-                    );
-                }
+            if let Some(bytes) = restore_bytes
+                && let Err(restore_error) = storage.operator.write(&object, bytes).await
+            {
+                tracing::error!(
+                    %object,
+                    %restore_error,
+                    database_error = %error,
+                    "failed to restore object after metadata commit failure"
+                );
             }
             return Err(error.into());
         }
         Ok(())
     }
 
+    // read a local object from the object store
     pub async fn read_local_object(&self, object: &str) -> Result<Option<Vec<u8>>, FileError> {
         if object.is_empty() || object.contains('/') || object.contains("..") {
             return Ok(None);

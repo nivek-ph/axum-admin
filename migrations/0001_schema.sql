@@ -152,8 +152,37 @@ CREATE TABLE sys_dictionary_details (
     path TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE sys_storages (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    driver TEXT NOT NULL,
+    root TEXT,
+    bucket TEXT,
+    region TEXT,
+    endpoint TEXT,
+    public_base_url TEXT,
+    access_key TEXT,
+    secret_key TEXT,
+    virtual_host_style BOOLEAN NOT NULL DEFAULT false,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    sort INTEGER NOT NULL DEFAULT 999,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX idx_sys_storages_default
+ON sys_storages (is_default)
+WHERE is_default;
+
+CREATE INDEX idx_sys_storages_list
+ON sys_storages (driver, enabled, sort, id);
+
 CREATE TABLE uploaded_files (
     id BIGSERIAL PRIMARY KEY,
+    storage_id BIGINT REFERENCES sys_storages(id) ON DELETE RESTRICT,
     name TEXT NOT NULL,
     url TEXT NOT NULL,
     ext TEXT NOT NULL DEFAULT '',
@@ -161,3 +190,22 @@ CREATE TABLE uploaded_files (
     category TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_uploaded_files_storage
+ON uploaded_files (storage_id);
+
+CREATE TABLE uploaded_file_sessions (
+    id TEXT PRIMARY KEY,
+    storage_id BIGINT NOT NULL REFERENCES sys_storages(id) ON DELETE RESTRICT,
+    name TEXT NOT NULL,
+    object_name TEXT NOT NULL,
+    ext TEXT NOT NULL DEFAULT '',
+    tag TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    total_size BIGINT NOT NULL,
+    uploaded_size BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_uploaded_file_sessions_created_at
+ON uploaded_file_sessions (created_at);

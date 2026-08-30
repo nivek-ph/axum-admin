@@ -7,6 +7,14 @@ VALUES (1, 'super_admin', 'Super Admin', 'enabled', 0);
 SELECT setval(pg_get_serial_sequence('sys_depts', 'id'), 1);
 SELECT setval(pg_get_serial_sequence('sys_roles', 'id'), 1);
 
+INSERT INTO sys_storages (
+    name, code, driver, root, enabled, is_default, sort, description
+)
+VALUES (
+    'Local storage', 'local', 'local', './uploads', true, true, 0,
+    'Local file storage'
+);
+
 INSERT INTO sys_menus (
     id, parent_id, path, name, hidden, component, sort, title, icon, menu_type, status, permission
 )
@@ -60,6 +68,12 @@ VALUES
     (3302, 33, '', 'files:upload', true, '', 20, 'Upload file', '', 'action', 'enabled', 'system:file:upload'),
     (3303, 33, '', 'files:delete', true, '', 30, 'Delete file', '', 'action', 'enabled', 'system:file:delete'),
     (3304, 33, '', 'files:rename', true, '', 40, 'Rename file', '', 'action', 'enabled', 'system:file:rename'),
+    (34, 30, '/sys-storage', 'sys-storage', false, '', 40, 'Storages', 'database', 'page', 'enabled', 'system:storage:list'),
+    (3401, 34, '', 'sys-storage:create', true, '', 10, 'Create storage', '', 'action', 'enabled', 'system:storage:create'),
+    (3402, 34, '', 'sys-storage:update', true, '', 20, 'Update storage', '', 'action', 'enabled', 'system:storage:update'),
+    (3403, 34, '', 'sys-storage:delete', true, '', 30, 'Delete storage', '', 'action', 'enabled', 'system:storage:delete'),
+    (3404, 34, '', 'sys-storage:update-status', true, '', 40, 'Enable or disable storage', '', 'action', 'enabled', 'system:storage:update-status'),
+    (3405, 34, '', 'sys-storage:set-default', true, '', 50, 'Set default storage', '', 'action', 'enabled', 'system:storage:set-default'),
 
     (40, NULL, '/audit', 'audit', false, '', 50, 'Audit', 'history', 'directory', 'enabled', NULL),
     (41, 40, '/audit-events', 'audit-events', false, '', 10, 'Audit Events', 'history', 'page', 'enabled', 'system:audit-event:list');
@@ -117,9 +131,20 @@ VALUES
 
     (33, 'GET', '/api/files'),
     (3301, 'POST', '/api/files/import-url'),
-    (3302, 'POST', '/api/files/upload'),
+    (3302, 'POST', '/api/files/uploads'),
+    (3302, 'GET', '/api/files/uploads/{id}'),
+    (3302, 'PATCH', '/api/files/uploads/{id}'),
+    (3302, 'POST', '/api/files/uploads/{id}/complete'),
     (3303, 'DELETE', '/api/files/{id}'),
     (3304, 'PATCH', '/api/files/{id}/name'),
+
+    (34, 'GET', '/api/storages'),
+    (34, 'GET', '/api/storages/{id}'),
+    (3401, 'POST', '/api/storages'),
+    (3402, 'PUT', '/api/storages/{id}'),
+    (3403, 'DELETE', '/api/storages/{id}'),
+    (3404, 'PATCH', '/api/storages/{id}/status'),
+    (3405, 'PUT', '/api/storages/{id}/default'),
 
     (41, 'GET', '/api/audit/events'),
     (41, 'GET', '/api/audit/events/{id}'),

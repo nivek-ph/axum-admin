@@ -47,7 +47,7 @@ impl ErrorKind {
 
     pub fn status(&self) -> StatusCode {
         match self {
-            Self::Http(status, _, _) => *status,
+            Self::Http(status, ..) => *status,
             Self::JsonRejection(_) | Self::InvalidJson(_) => StatusCode::BAD_REQUEST,
             Self::Any(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -221,7 +221,7 @@ const INTERNAL_SERVER_ERROR: &str = "internal server error";
 fn public_response_message(kind: &ErrorKind, diagnostic: &str) -> String {
     match kind {
         ErrorKind::Any(_) => INTERNAL_SERVER_ERROR.to_string(),
-        ErrorKind::Http(status, _, _) => {
+        ErrorKind::Http(status, ..) => {
             if *status == StatusCode::REQUEST_TIMEOUT {
                 return "request timed out".to_string();
             }

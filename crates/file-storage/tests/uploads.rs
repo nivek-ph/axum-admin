@@ -318,7 +318,7 @@ async fn deleting_an_imported_local_url_keeps_the_object(pool: sqlx::PgPool) {
         "category": null
     }))
     .expect("file list query should deserialize");
-    let (files, _, _, _) = service.list(query).await.expect("imported URL should list");
+    let (files, ..) = service.list(query).await.expect("imported URL should list");
 
     service
         .delete(files[0].id)

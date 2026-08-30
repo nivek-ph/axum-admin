@@ -67,17 +67,33 @@ describe('Files workflow', () => {
       return { data, status: 200, statusText: 'OK', headers: {}, config }
     }) as AxiosAdapter
     window.history.replaceState({}, '', '/files')
-    const { container } = render(<Application />)
+    render(<Application />)
 
     await screen.findByRole('heading', { name: 'Manage uploads and external file URLs with flat metadata.' })
     await user.type(screen.getByLabelText('Filter by category'), 'documents')
     await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.click(screen.getByRole('button', { name: 'Upload' }))
+    expect(await screen.findByRole('heading', { name: 'Upload files' })).toBeVisible()
+    const fileInput = screen.getByLabelText('Select files')
+    expect(fileInput).toHaveAttribute('multiple')
     await user.upload(
-      container.querySelector('input[type="file"]') as HTMLInputElement,
-      new File(['report'], 'report.txt', { type: 'text/plain' }),
+      fileInput,
+      [
+        new File(['report'], 'report.txt', { type: 'text/plain' }),
+        new File(['notes'], 'notes.txt', { type: 'text/plain' }),
+      ],
     )
+    expect(screen.getByText('report.txt')).toBeVisible()
+    expect(screen.getByText('notes.txt')).toBeVisible()
+    expect(screen.getAllByText('Pending')).toHaveLength(2)
+    await user.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(screen.getByText('No files selected')).toBeVisible()
+    await user.upload(fileInput, new File(['report'], 'report.txt', { type: 'text/plain' }))
+    await user.click(screen.getByRole('button', { name: 'Start upload' }))
 
-    expect(await screen.findByRole('button', { name: 'Uploading 50%' })).toBeDisabled()
+    await waitFor(() =>
+      expect(screen.getByRole('progressbar', { name: 'report.txt' })).toHaveAttribute('aria-valuenow', '50'),
+    )
     finishUpload?.()
     await waitFor(() => expect(uploadedName).toBe('report.txt'))
     expect(uploadCategory).toBe('documents')
@@ -85,7 +101,7 @@ describe('Files workflow', () => {
     const file = new File(['large'], 'large.bin')
     Object.defineProperty(file, 'size', { value: MAX_UPLOAD_BYTES + 1 })
 
-    await user.upload(container.querySelector('input[type="file"]') as HTMLInputElement, file)
+    await user.upload(fileInput, file)
 
     expect(await screen.findByText('File is too large (maximum 1 GiB)')).toBeVisible()
     expect(uploads).toBe(1)

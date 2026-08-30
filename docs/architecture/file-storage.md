@@ -14,9 +14,9 @@ file metadata references its owning storage through `uploaded_files.storage_id`.
 
 ## Storage lifecycle
 
-Migration `0005_storage_management.sql` creates an enabled local default rooted at `./uploads` and
-links each newly uploaded file to the backend that accepted it. PostgreSQL is the only runtime
-source for storage settings; API startup does not read file-storage environment variables.
+The base schema and seed data create an enabled local default rooted at `./uploads` and link each
+newly uploaded file to the backend that accepted it. PostgreSQL is the only runtime source for
+storage settings; API startup does not read file-storage environment variables.
 
 Supported drivers are:
 

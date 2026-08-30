@@ -67,10 +67,10 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and sign in with the
 
 ### File storage
 
-Migration `0005_storage_management.sql` creates a default local OpenDAL storage rooted at
-`./uploads`. Operators with the corresponding permissions can manage local and S3-compatible
-backends from **System → Storages**, enable or disable a backend, and switch the upload default
-without restarting the API.
+The base schema and seed data create a default local OpenDAL storage rooted at `./uploads`.
+Operators with the corresponding permissions can manage local and S3-compatible backends from
+**System → Storages**, enable or disable a backend, and switch the upload default without restarting
+the API.
 
 Storage settings are stored in PostgreSQL and managed through the Admin Console or
 `/api/storages`. S3 access and secret keys are stored as plain text but are never returned by the

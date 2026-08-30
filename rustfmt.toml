@@ -1,11 +1,34 @@
-unstable_features = true
+# Edition
+edition = "2024"
 style_edition = "2024"
-max_width = 100
-hard_tabs = false
-tab_spaces = 4
-newline_style = "Unix"
-reorder_imports = true
+
+# Import Organization
 group_imports = "StdExternalCrate"
 imports_granularity = "Crate"
+imports_indent = "Block"
+reorder_imports = true
+
+# Width & Length
+max_width = 100
+
+# Indentation
+hard_tabs = false
+tab_spaces = 4
+
+# Formatting Behavior
+condense_wildcard_suffixes = true
+merge_derives = true
+overflow_delimited_expr = false
+remove_nested_parens = true
 use_field_init_shorthand = true
-use_try_shorthand = true
+use_small_heuristics = "Default"
+
+# Blank Lines
+blank_lines_lower_bound = 0
+blank_lines_upper_bound = 1
+
+# Miscellaneous
+newline_style = "Unix"
+
+# Unstable Features
+unstable_features = true
