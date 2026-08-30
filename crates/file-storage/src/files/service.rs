@@ -5,23 +5,23 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::{
-    FileError, FileListQuery, FileStorage, FileStorageError, ImportFileUrl, RenameFile, StoredFile,
+    FileError, FileListQuery, ImportFileUrl, RenameFile, StartUpload, StoredFile, UploadSession,
     storage::FileObjectStorage,
 };
-use crate::storages::{StorageError, StorageRegistry, StorageService};
+use crate::storages::{StorageEntry, StorageError, StorageService};
 
-pub const MAX_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
+pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024;
+pub const UPLOAD_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct FileService {
     pool: PgPool,
-    registry: StorageRegistry,
-    service: Option<StorageService>,
+    storages: StorageService,
 }
 
 pub struct FileUpload {
     pool: PgPool,
-    storage_id: Option<i64>,
+    storage_id: i64,
     storage: FileObjectStorage,
     original_name: String,
     ext: String,
@@ -139,34 +139,14 @@ impl FileUpload {
 }
 
 impl FileService {
-    pub fn new(pool: PgPool, upload_dir: impl Into<String>) -> Self {
-        let upload_dir = upload_dir.into();
-        let storage = FileObjectStorage::local(&upload_dir)
-            .expect("local file storage should initialize from a valid upload directory");
-        Self {
-            pool,
-            registry: StorageRegistry::fallback(storage),
-            service: None,
-        }
-    }
-    pub fn from_config(pool: PgPool, config: &FileStorage) -> Result<Self, FileStorageError> {
-        let storage = FileObjectStorage::from_config(config)?;
-        Ok(Self {
-            pool,
-            registry: StorageRegistry::fallback(storage),
-            service: None,
-        })
-    }
-
     pub async fn managed(pool: PgPool) -> Result<(Self, StorageService), StorageError> {
-        let service = StorageService::load(pool.clone()).await?;
+        let storages = StorageService::load(pool.clone()).await?;
         Ok((
             Self {
                 pool,
-                registry: service.registry(),
-                service: Some(service.clone()),
+                storages: storages.clone(),
             },
-            service,
+            storages,
         ))
     }
     pub async fn list(
@@ -180,6 +160,172 @@ impl FileService {
     }
     pub async fn import_url(&self, payload: ImportFileUrl) -> Result<(), FileError> {
         import_url(&self.pool, payload).await
+    }
+    pub async fn start_upload(&self, payload: StartUpload) -> Result<UploadSession, FileError> {
+        if payload.size < 0 || payload.size > MAX_UPLOAD_BYTES as i64 {
+            return Err(FileError::TooLarge);
+        }
+        let storage = self.default_storage().await?;
+        let id = Uuid::new_v4().to_string();
+        let ext = safe_extension(&payload.name);
+        let object_name = if ext.is_empty() {
+            Uuid::new_v4().to_string()
+        } else {
+            format!("{}.{ext}", Uuid::new_v4())
+        };
+        Ok(sqlx::query_as::<_, UploadSession>(
+            r#"
+            insert into uploaded_file_sessions (
+                id, storage_id, name, object_name, ext, tag, category, total_size
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
+            returning id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
+            "#,
+        )
+        .bind(id)
+        .bind(storage.id)
+        .bind(payload.name)
+        .bind(object_name)
+        .bind(ext)
+        .bind(payload.tag)
+        .bind(payload.category)
+        .bind(payload.size)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+    pub async fn upload_status(&self, id: &str) -> Result<UploadSession, FileError> {
+        sqlx::query_as::<_, UploadSession>(
+            r#"
+            select id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
+            from uploaded_file_sessions
+            where id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(FileError::UploadNotFound)
+    }
+
+    // write a chunk of data to the upload session
+    pub async fn write_upload_chunk(
+        &self,
+        id: &str,
+        offset: i64,
+        bytes: &[u8],
+    ) -> Result<UploadSession, FileError> {
+        let mut transaction = self.pool.begin().await?;
+        // check if the upload session exists
+        let session = sqlx::query_as::<_, UploadSession>(
+            r#"
+            select id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
+            from uploaded_file_sessions
+            where id = $1
+            for update
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(FileError::UploadNotFound)?;
+        // check if the offset is correct
+        if offset != session.uploaded_size {
+            return Err(FileError::OffsetMismatch);
+        }
+        let remaining = session.total_size - session.uploaded_size;
+        if bytes.is_empty() || bytes.len() > UPLOAD_CHUNK_BYTES || bytes.len() as i64 > remaining {
+            return Err(FileError::OffsetMismatch);
+        }
+        let storage = self.storage_for(session.storage_id).await?;
+        storage
+            .storage
+            .operator
+            .write(&upload_part(&session.id, offset), bytes.to_vec())
+            .await?;
+        let uploaded_size = offset + bytes.len() as i64;
+        let session = sqlx::query_as::<_, UploadSession>(
+            r#"
+            update uploaded_file_sessions
+            set uploaded_size = $1
+            where id = $2
+            returning id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
+            "#,
+        )
+        .bind(uploaded_size)
+        .bind(id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(session)
+    }
+    pub async fn complete_upload(&self, id: &str) -> Result<StoredFile, FileError> {
+        let mut transaction = self.pool.begin().await?;
+        let session = sqlx::query_as::<_, UploadSession>(
+            r#"
+            select id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
+            from uploaded_file_sessions
+            where id = $1
+            for update
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(FileError::UploadNotFound)?;
+        if session.uploaded_size != session.total_size {
+            return Err(FileError::UploadIncomplete);
+        }
+        let storage = self.storage_for(session.storage_id).await?;
+        let writer = storage
+            .storage
+            .operator
+            .writer(&session.object_name)
+            .await?;
+        let mut upload = FileUpload {
+            pool: self.pool.clone(),
+            storage_id: session.storage_id,
+            storage: storage.storage.clone(),
+            original_name: session.name,
+            ext: session.ext,
+            tag: session.tag,
+            category: session.category,
+            stored_name: session.object_name,
+            writer: Some(writer),
+            size: 0,
+        };
+        let mut offset = 0_i64;
+        while offset < session.total_size {
+            let bytes = storage
+                .storage
+                .operator
+                .read(&upload_part(id, offset))
+                .await?
+                .to_vec();
+            upload.write_chunk(&bytes).await?;
+            offset += bytes.len() as i64;
+        }
+        let stored = upload.finish().await?;
+        offset = 0;
+        while offset < session.total_size {
+            let part = upload_part(id, offset);
+            let size = match storage.storage.operator.stat(&part).await {
+                Ok(metadata) => metadata.content_length() as i64,
+                Err(error) => {
+                    tracing::warn!(%error, %part, "failed to inspect completed upload part");
+                    break;
+                }
+            };
+            if let Err(error) = storage.storage.operator.delete(&part).await {
+                tracing::warn!(%error, %part, "failed to clean up completed upload part");
+            }
+            offset += size;
+        }
+        sqlx::query("delete from uploaded_file_sessions where id = $1")
+            .bind(id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Ok(stored)
     }
     pub async fn begin_upload(
         &self,
@@ -233,7 +379,11 @@ impl FileService {
         else {
             return Ok(());
         };
-        let storage = self.storage_for(file.storage_id).await?.storage;
+        let Some(storage_id) = file.storage_id else {
+            transaction.commit().await?;
+            return Ok(());
+        };
+        let storage = self.storage_for(storage_id).await?.storage;
         let Some(object) = storage.managed_object(&file.url) else {
             transaction.commit().await?;
             return Ok(());
@@ -269,15 +419,17 @@ impl FileService {
             r#"
             select storage_id
             from uploaded_files
-            where url = $1
+            where url = $1 and storage_id is not null
             order by id desc
             limit 1
             "#,
         )
         .bind(&url)
         .fetch_optional(&self.pool)
-        .await?
-        .flatten();
+        .await?;
+        let Some(Some(storage_id)) = storage_id else {
+            return Ok(None);
+        };
         let storage = self.storage_for(storage_id).await?;
         if !storage.storage.is_local() {
             return Ok(None);
@@ -289,21 +441,12 @@ impl FileService {
         }
     }
 
-    async fn default_storage(&self) -> Result<crate::storages::StorageRegistryEntry, FileError> {
-        match &self.service {
-            Some(service) => Ok(service.default_entry().await?),
-            None => Ok(self.registry.default().await),
-        }
+    async fn default_storage(&self) -> Result<StorageEntry, FileError> {
+        Ok(self.storages.default_entry().await?)
     }
 
-    async fn storage_for(
-        &self,
-        id: Option<i64>,
-    ) -> Result<crate::storages::StorageRegistryEntry, FileError> {
-        match &self.service {
-            Some(service) => Ok(service.entry_for_id(id).await?),
-            None => Ok(self.registry.by_id_or_default(id).await),
-        }
+    async fn storage_for(&self, id: i64) -> Result<StorageEntry, FileError> {
+        Ok(self.storages.entry_for_id(id).await?)
     }
 }
 
@@ -398,6 +541,10 @@ fn safe_extension(value: &str) -> String {
     } else {
         String::new()
     }
+}
+
+fn upload_part(id: &str, offset: i64) -> String {
+    format!(".uploads/{id}/{offset:020}")
 }
 
 #[cfg(test)]

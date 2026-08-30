@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { http } from '@/api/http'
+import { MAX_UPLOAD_BYTES } from '@/api/files'
 import { Application } from '@/app/Application'
 import { useAuthStore } from '@/stores/auth'
 import { useMenuStore } from '@/stores/menu'
@@ -13,6 +14,7 @@ describe('Files workflow', () => {
   beforeEach(() => {
     useAuthStore.getState().clearSession()
     useMenuStore.getState().resetAccess()
+    localStorage.clear()
   })
   afterEach(() => {
     http.defaults.adapter = originalAdapter
@@ -28,8 +30,11 @@ describe('Files workflow', () => {
     }
     useAuthStore.getState().setSession({ accessToken: 'token', refreshToken: 'refresh', userInfo: currentUser })
     let listReads = 0
+    let uploads = 0
     let uploadCategory: unknown
     let uploadedName = ''
+    let uploadedOffset = 0
+    let finishUpload: (() => void) | undefined
     http.defaults.adapter = (async (config) => {
       let data: unknown
       if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
@@ -38,12 +43,25 @@ describe('Files workflow', () => {
       else if (config.url === '/files' && config.method === 'get') {
         listReads += 1
         data = { code: 'OK', message: 'ok', data: { list: [], total: 0, page: 1, pageSize: 10 } }
-      } else if (config.url === '/files/upload') {
-        uploadCategory = config.params?.category
-        uploadedName =
-          (config.data as FormData).get('file') instanceof File
-            ? ((config.data as FormData).get('file') as File).name
-            : ''
+      } else if (config.url === '/files/uploads' && config.method === 'post') {
+        uploads += 1
+        const payload = JSON.parse(config.data as string) as { name: string; category: string; size: number }
+        uploadCategory = payload.category
+        uploadedName = payload.name
+        data = { code: 'OK', message: 'ok', data: { id: 'upload-1', offset: 0, totalSize: payload.size, chunkSize: 3 } }
+      } else if (config.url === '/files/uploads/upload-1' && config.method === 'patch') {
+        uploadedOffset += (config.data as Blob).size
+        if (uploadedOffset > 3) {
+          await new Promise<void>((resolve) => {
+            finishUpload = resolve
+          })
+        }
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: { id: 'upload-1', offset: uploadedOffset, totalSize: 6, chunkSize: 3 },
+        }
+      } else if (config.url === '/files/uploads/upload-1/complete' && config.method === 'post') {
         data = { code: 'OK', message: 'ok', data: {} }
       } else throw new Error(`Unexpected request: ${config.method} ${config.url}`)
       return { data, status: 200, statusText: 'OK', headers: {}, config }
@@ -59,8 +77,17 @@ describe('Files workflow', () => {
       new File(['report'], 'report.txt', { type: 'text/plain' }),
     )
 
+    expect(await screen.findByRole('button', { name: 'Uploading 50%' })).toBeDisabled()
+    finishUpload?.()
     await waitFor(() => expect(uploadedName).toBe('report.txt'))
     expect(uploadCategory).toBe('documents')
     await waitFor(() => expect(listReads).toBeGreaterThan(2))
+    const file = new File(['large'], 'large.bin')
+    Object.defineProperty(file, 'size', { value: MAX_UPLOAD_BYTES + 1 })
+
+    await user.upload(container.querySelector('input[type="file"]') as HTMLInputElement, file)
+
+    expect(await screen.findByText('File is too large (maximum 1 GiB)')).toBeVisible()
+    expect(uploads).toBe(1)
   })
 })

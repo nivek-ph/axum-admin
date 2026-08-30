@@ -6,5 +6,6 @@ pub(crate) mod storage;
 pub use error::FileError;
 pub use model::*;
 pub use request::*;
-pub use service::{FileService, FileUpload, MAX_UPLOAD_BYTES};
-pub use storage::{FileStorage, FileStorageError};
+pub use service::{FileService, FileUpload, MAX_UPLOAD_BYTES, UPLOAD_CHUNK_BYTES};
+pub(crate) use storage::FileStorage;
+pub use storage::FileStorageError;

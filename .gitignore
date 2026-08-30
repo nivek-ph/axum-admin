@@ -36,3 +36,4 @@ output/playwright/
 .vercel
 .env*
 *.tsbuildinfo
+**/*.tsbuildinfo

@@ -64,27 +64,17 @@ const AI_RESPONSE_INVALID: ErrorSpec = ErrorSpec::new(
     "AI_RESPONSE_INVALID",
     "local AI provider returned an invalid response",
 );
-const MULTIPART_FIELD_FAILED: ErrorSpec =
-    ErrorSpec::bad_request("MULTIPART_FIELD_FAILED", "failed to read upload content");
-pub(crate) const MULTIPLE_FILES_NOT_SUPPORTED: ErrorSpec = ErrorSpec::bad_request(
-    "MULTIPLE_FILES_NOT_SUPPORTED",
-    "only one file can be uploaded at a time",
-);
 const FILE_TOO_LARGE: ErrorSpec = ErrorSpec::new(
     StatusCode::PAYLOAD_TOO_LARGE,
     "FILE_TOO_LARGE",
     "uploaded file is too large",
 );
-
-impl From<axum::extract::multipart::MultipartError> for AppError {
-    fn from(error: axum::extract::multipart::MultipartError) -> Self {
-        if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
-            FILE_TOO_LARGE.into_error().with_source(error)
-        } else {
-            MULTIPART_FIELD_FAILED.into_error().with_source(error)
-        }
-    }
-}
+const UPLOAD_NOT_FOUND: ErrorSpec =
+    ErrorSpec::not_found("UPLOAD_NOT_FOUND", "upload session not found");
+const UPLOAD_OFFSET_MISMATCH: ErrorSpec =
+    ErrorSpec::conflict("UPLOAD_OFFSET_MISMATCH", "upload offset does not match");
+const UPLOAD_INCOMPLETE: ErrorSpec =
+    ErrorSpec::conflict("UPLOAD_INCOMPLETE", "upload is incomplete");
 
 impl From<iam::access::AccessEvaluationError> for AppError {
     fn from(error: iam::access::AccessEvaluationError) -> Self {
@@ -289,6 +279,9 @@ impl From<file_storage::files::FileError> for AppError {
 
         match error {
             FileError::TooLarge => FILE_TOO_LARGE.into(),
+            FileError::UploadNotFound => UPLOAD_NOT_FOUND.into(),
+            FileError::OffsetMismatch => UPLOAD_OFFSET_MISMATCH.into(),
+            FileError::UploadIncomplete => UPLOAD_INCOMPLETE.into(),
             FileError::Storage(source) => source.into(),
             source @ (FileError::Database(_) | FileError::Io(_) | FileError::Adapter(_)) => {
                 INTERNAL_SERVER_ERROR.into_error().with_source(source)

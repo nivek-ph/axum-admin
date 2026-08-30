@@ -5,7 +5,15 @@ import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { deleteFile, fetchFiles, importFileUrl, renameFile, uploadFile, type FileRecord } from '@/api/files'
+import {
+  deleteFile,
+  fetchFiles,
+  importFileUrl,
+  MAX_UPLOAD_BYTES,
+  renameFile,
+  uploadFile,
+  type FileRecord,
+} from '@/api/files'
 import { DataTable } from '@/components/data-table/DataTable'
 import { DataTablePagination } from '@/components/data-table/DataTablePagination'
 import { PageHeader } from '@/components/PageHeader'
@@ -27,6 +35,7 @@ export function FilesPage() {
   const [draftFilters, setDraftFilters] = useState({ keyword: '', category: '' })
   const [filters, setFilters] = useState(draftFilters)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [importOpen, setImportOpen] = useState(false)
   const [importForm, setImportForm] = useState({ name: '', url: '', tag: '', category: '' })
   const [renameTarget, setRenameTarget] = useState<FileRecord | null>(null)
@@ -66,9 +75,15 @@ export function FilesPage() {
 
   async function selectFile(file?: File) {
     if (!file) return
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error(t('File is too large (maximum 1 GiB)'))
+      if (fileInput.current) fileInput.current.value = ''
+      return
+    }
     setUploading(true)
+    setUploadProgress(0)
     try {
-      await uploadFile(file, { category: filters.category })
+      await uploadFile(file, { category: filters.category }, setUploadProgress)
       toast.success(t('File uploaded'))
       await invalidate()
     } catch {
@@ -201,7 +216,7 @@ export function FilesPage() {
             />
             <Button disabled={uploading} onClick={() => fileInput.current?.click()} variant="outline">
               <IconUpload size={16} />
-              {t(uploading ? 'Uploading…' : 'Upload')}
+              {uploading ? t('Uploading {{progress}}%', { progress: uploadProgress }) : t('Upload')}
             </Button>
             <Button
               onClick={() => {

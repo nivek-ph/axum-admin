@@ -25,14 +25,17 @@ Supported drivers are:
 
 An enabled storage can become the default. The current default cannot be disabled or deleted,
 and a storage referenced by uploaded files cannot be deleted. Storage code and driver
-are immutable after creation because they identify the backend contract; connection details remain
-editable.
+are immutable after creation because they identify the backend contract. Other configuration
+changes take effect immediately, so operators must move existing objects when changing location fields.
 
-Every managed upload resolves the database default before opening its writer. Reads and deletes
-resolve the file's persisted `storage_id`. The in-process registry caches constructed OpenDAL
-operators, but database resolution prevents another process's default change from remaining stale.
+Managed uploads use 8 MiB chunks and persist their current offset in `uploaded_file_sessions`.
+The Admin Console resumes the same file from that offset after an interrupted request. Files are
+limited to 1 GiB. Every upload resolves the database default when its session starts. Reads and deletes
+require and resolve the file's persisted `storage_id`. Storage resolution reads PostgreSQL directly,
+so another process's default or credential change does not remain stale.
 
-Imported external URLs have no storage association and remain outside managed object deletion.
+Imported external URLs have no storage association. They are not served through the local upload
+route, and deleting them removes metadata only without touching an object store.
 During migration, existing `/uploads/...` records are backfilled to the seeded local storage.
 Disabled storage is excluded from new default selection but remains readable for associated files.
 

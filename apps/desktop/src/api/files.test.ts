@@ -1,4 +1,4 @@
-import { AxiosError, type AxiosAdapter, type AxiosProgressEvent, type InternalAxiosRequestConfig } from 'axios'
+import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from 'axios'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { uploadFile } from './files'
@@ -10,23 +10,37 @@ describe('file upload adapter', () => {
   afterEach(() => {
     http.defaults.adapter = originalAdapter
     useAuthStore.getState().clearSession()
+    localStorage.clear()
   })
 
-  it('uses form data, current bearer token, metadata, and reports callback progress', async () => {
+  it('uploads chunks with metadata, authorization, and offset progress', async () => {
     useAuthStore.getState().setSession({ accessToken: 'latest-token', refreshToken: 'refresh', userInfo: null })
-    let progress = 0
+    const progress: number[] = []
+    let offset = 0
     http.defaults.adapter = (async (config) => {
       expect(config.headers.get('Authorization')).toBe('Bearer latest-token')
-      expect(config.params).toMatchObject({ tag: 'evidence', category: 'documents' })
-      expect((config.data as FormData).get('file')).toBeInstanceOf(File)
-      config.onUploadProgress?.({ loaded: 3, total: 4 } as AxiosProgressEvent)
-      return { data: { code: 'OK', message: 'ok', data: {} }, status: 200, statusText: 'OK', headers: {}, config }
+      let data: unknown
+      if (config.url === '/files/uploads' && config.method === 'post') {
+        expect(JSON.parse(config.data as string)).toMatchObject({
+          name: 'evidence.txt',
+          size: 4,
+          tag: 'evidence',
+          category: 'documents',
+        })
+        data = { id: 'session', offset: 0, totalSize: 4, chunkSize: 2 }
+      } else if (config.url === '/files/uploads/session' && config.method === 'patch') {
+        expect(Number(config.headers.get('Upload-Offset'))).toBe(offset)
+        offset += (config.data as Blob).size
+        data = { id: 'session', offset, totalSize: 4, chunkSize: 2 }
+      } else if (config.url === '/files/uploads/session/complete' && config.method === 'post') data = {}
+      else throw new Error(`Unexpected request: ${config.method} ${config.url}`)
+      return { data: { code: 'OK', message: 'ok', data }, status: 200, statusText: 'OK', headers: {}, config }
     }) as AxiosAdapter
 
     await uploadFile(new File(['data'], 'evidence.txt'), { tag: 'evidence', category: 'documents' }, (value) => {
-      progress = value
+      progress.push(value)
     })
-    expect(progress).toBe(75)
+    expect(progress).toEqual([0, 50, 100])
   })
 
   it('refreshes once and retries an expired upload with the rotated bearer token', async () => {
@@ -35,7 +49,7 @@ describe('file upload adapter', () => {
       refreshToken: 'old-refresh',
       userInfo: { id: 1, userName: 'admin', nickName: 'Admin' },
     })
-    let uploads = 0
+    let starts = 0
     let refreshes = 0
     http.defaults.adapter = (async (config) => {
       if (config.url === '/auth/refresh') {
@@ -48,22 +62,29 @@ describe('file upload adapter', () => {
           config,
         }
       }
-      uploads += 1
-      if (uploads === 1)
-        throw new AxiosError('expired', '401', config, undefined, {
-          data: { code: 'ACCESS_TOKEN_EXPIRED', message: 'expired' },
-          status: 401,
-          statusText: 'Unauthorized',
-          headers: {},
-          config,
-        })
+      if (config.url === '/files/uploads' && config.method === 'post') {
+        starts += 1
+        if (starts === 1)
+          throw new AxiosError('expired', '401', config, undefined, {
+            data: { code: 'ACCESS_TOKEN_EXPIRED', message: 'expired' },
+            status: 401,
+            statusText: 'Unauthorized',
+            headers: {},
+            config,
+          })
+      }
       expect(config.headers.get('Authorization')).toBe('Bearer new-token')
-      expect((config.data as FormData).get('file')).toBeInstanceOf(File)
-      return { data: { code: 'OK', message: 'ok', data: {} }, status: 200, statusText: 'OK', headers: {}, config }
+      const data =
+        config.url === '/files/uploads'
+          ? { id: 'session', offset: 0, totalSize: 4, chunkSize: 4 }
+          : config.url === '/files/uploads/session'
+            ? { id: 'session', offset: 4, totalSize: 4, chunkSize: 4 }
+            : {}
+      return { data: { code: 'OK', message: 'ok', data }, status: 200, statusText: 'OK', headers: {}, config }
     }) as AxiosAdapter
 
     await uploadFile(new File(['data'], 'retry.txt'))
-    expect({ uploads, refreshes }).toEqual({ uploads: 2, refreshes: 1 })
+    expect({ starts, refreshes }).toEqual({ starts: 2, refreshes: 1 })
   })
 
   it('does not refresh or retry a non-auth upload failure', async () => {

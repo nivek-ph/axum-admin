@@ -37,7 +37,7 @@ metadata = { path = "crates/metadata" }
 # External crates.
 anyhow = "1"
 argon2 = { version = "0.6.0-rc.8", features = ["getrandom", "password-hash"] }
-axum = { version = "0.8.9", features = ["json", "multipart"] }
+axum = { version = "0.8.9", features = ["json"] }
 axum-otel = "0.33.1"
 captcha-rs = "0.5"
 casbin = { version = "2.20", features = ["watcher"] }

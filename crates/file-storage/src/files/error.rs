@@ -2,6 +2,12 @@
 pub enum FileError {
     #[error("uploaded file is too large")]
     TooLarge,
+    #[error("upload session not found")]
+    UploadNotFound,
+    #[error("upload offset does not match")]
+    OffsetMismatch,
+    #[error("upload is incomplete")]
+    UploadIncomplete,
     #[error("file storage operation failed")]
     Database(#[from] sqlx::Error),
     #[error("file storage operation failed")]

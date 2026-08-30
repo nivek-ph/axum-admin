@@ -1,7 +1,6 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use sqlx::{AssertSqlSafe, PgPool};
-use tokio::sync::RwLock;
 
 use super::{
     StorageDriver, StorageError, StorageInput, StorageQuery, StorageView, model::StorageRecord,
@@ -32,92 +31,14 @@ const STORAGE_SELECT: &str = r#"
 "#;
 
 #[derive(Clone)]
-pub(crate) struct StorageRegistryEntry {
-    pub(crate) id: Option<i64>,
+pub(crate) struct StorageEntry {
+    pub(crate) id: i64,
     pub(crate) storage: FileObjectStorage,
-}
-
-#[derive(Clone)]
-pub(crate) struct StorageRegistry {
-    inner: Arc<RwLock<StorageRegistryState>>,
-}
-
-struct StorageRegistryState {
-    default_id: Option<i64>,
-    fallback: StorageRegistryEntry,
-    by_id: HashMap<i64, StorageRegistryEntry>,
-}
-
-impl StorageRegistry {
-    pub(crate) fn fallback(storage: FileObjectStorage) -> Self {
-        let fallback = StorageRegistryEntry { id: None, storage };
-        Self {
-            inner: Arc::new(RwLock::new(StorageRegistryState {
-                default_id: None,
-                fallback,
-                by_id: HashMap::new(),
-            })),
-        }
-    }
-
-    async fn managed(
-        fallback: FileObjectStorage,
-        default_id: i64,
-        by_id: HashMap<i64, StorageRegistryEntry>,
-    ) -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(StorageRegistryState {
-                default_id: Some(default_id),
-                fallback: StorageRegistryEntry {
-                    id: None,
-                    storage: fallback,
-                },
-                by_id,
-            })),
-        }
-    }
-
-    pub(crate) async fn default(&self) -> StorageRegistryEntry {
-        let state = self.inner.read().await;
-        state
-            .default_id
-            .and_then(|id| state.by_id.get(&id))
-            .cloned()
-            .unwrap_or_else(|| state.fallback.clone())
-    }
-
-    pub(crate) async fn by_id_or_default(&self, id: Option<i64>) -> StorageRegistryEntry {
-        let state = self.inner.read().await;
-        id.and_then(|id| state.by_id.get(&id))
-            .cloned()
-            .or_else(|| {
-                state
-                    .default_id
-                    .and_then(|default_id| state.by_id.get(&default_id))
-                    .cloned()
-            })
-            .unwrap_or_else(|| state.fallback.clone())
-    }
-
-    async fn upsert(&self, entry: StorageRegistryEntry) {
-        if let Some(id) = entry.id {
-            self.inner.write().await.by_id.insert(id, entry);
-        }
-    }
-
-    async fn remove(&self, id: i64) {
-        self.inner.write().await.by_id.remove(&id);
-    }
-
-    async fn set_default(&self, id: i64) {
-        self.inner.write().await.default_id = Some(id);
-    }
 }
 
 #[derive(Clone)]
 pub struct StorageService {
     pool: PgPool,
-    registry: StorageRegistry,
 }
 
 struct PreparedConfig {
@@ -130,45 +51,29 @@ struct PreparedConfig {
     access_key: Option<String>,
     secret_key: Option<String>,
     virtual_host_style: bool,
-    storage: FileObjectStorage,
 }
 
 impl StorageService {
     pub async fn load(pool: PgPool) -> Result<Self, StorageError> {
         let records = fetch_all(&pool).await?;
 
-        let mut by_id = HashMap::new();
-        let mut default_id = None;
+        let mut has_default = false;
         for record in &records {
-            let storage = storage_from_record(record)?;
+            storage_from_record(record)?;
             if record.is_default {
                 if !record.enabled {
                     return Err(StorageError::DisabledDefault);
                 }
-                default_id = Some(record.id);
+                has_default = true;
             }
-            by_id.insert(
-                record.id,
-                StorageRegistryEntry {
-                    id: Some(record.id),
-                    storage,
-                },
-            );
         }
-        let default_id = default_id.ok_or(StorageError::DisabledDefault)?;
-        let fallback = by_id
-            .get(&default_id)
-            .map(|entry| entry.storage.clone())
-            .ok_or(StorageError::DisabledDefault)?;
-        let registry = StorageRegistry::managed(fallback, default_id, by_id).await;
-        Ok(Self { pool, registry })
+        if !has_default {
+            return Err(StorageError::DisabledDefault);
+        }
+        Ok(Self { pool })
     }
 
-    pub(crate) fn registry(&self) -> StorageRegistry {
-        self.registry.clone()
-    }
-
-    pub(crate) async fn default_entry(&self) -> Result<StorageRegistryEntry, StorageError> {
+    pub(crate) async fn default_entry(&self) -> Result<StorageEntry, StorageError> {
         let sql = format!("{STORAGE_SELECT} where is_default = true");
         let record = sqlx::query_as::<_, StorageRecord>(AssertSqlSafe(sql))
             .fetch_optional(&self.pool)
@@ -177,31 +82,17 @@ impl StorageService {
         if !record.enabled {
             return Err(StorageError::DisabledDefault);
         }
-        let entry = self.entry_from_record(&record)?;
-        self.registry.upsert(entry.clone()).await;
-        self.registry.set_default(record.id).await;
-        Ok(entry)
+        self.entry_from_record(&record)
     }
 
-    pub(crate) async fn entry_for_id(
-        &self,
-        id: Option<i64>,
-    ) -> Result<StorageRegistryEntry, StorageError> {
-        let Some(id) = id else {
-            return self.default_entry().await;
-        };
+    pub(crate) async fn entry_for_id(&self, id: i64) -> Result<StorageEntry, StorageError> {
         let record = fetch_one(&self.pool, id).await?;
-        let entry = self.entry_from_record(&record)?;
-        self.registry.upsert(entry.clone()).await;
-        Ok(entry)
+        self.entry_from_record(&record)
     }
 
-    fn entry_from_record(
-        &self,
-        record: &StorageRecord,
-    ) -> Result<StorageRegistryEntry, StorageError> {
-        Ok(StorageRegistryEntry {
-            id: Some(record.id),
+    fn entry_from_record(&self, record: &StorageRecord) -> Result<StorageEntry, StorageError> {
+        Ok(StorageEntry {
+            id: record.id,
             storage: storage_from_record(record)?,
         })
     }
@@ -256,12 +147,6 @@ impl StorageService {
         .fetch_one(&self.pool)
         .await
         .map_err(map_database_error)?;
-        self.registry
-            .upsert(StorageRegistryEntry {
-                id: Some(result),
-                storage: prepared.storage,
-            })
-            .await;
         self.find(result).await
     }
 
@@ -314,12 +199,6 @@ impl StorageService {
         .execute(&self.pool)
         .await
         .map_err(map_database_error)?;
-        self.registry
-            .upsert(StorageRegistryEntry {
-                id: Some(id),
-                storage: prepared.storage,
-            })
-            .await;
         self.find(id).await
     }
 
@@ -359,7 +238,6 @@ impl StorageService {
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
-        self.registry.set_default(id).await;
         Ok(())
     }
 
@@ -380,7 +258,6 @@ impl StorageService {
             .bind(id)
             .execute(&self.pool)
             .await?;
-        self.registry.remove(id).await;
         Ok(())
     }
 }
@@ -453,7 +330,7 @@ fn prepare_input(
         s3_secret_access_key: secret_key.clone().unwrap_or_default(),
         s3_virtual_host_style: payload.virtual_host_style,
     };
-    let storage = FileObjectStorage::from_config(&runtime)?;
+    FileObjectStorage::from_config(&runtime)?;
     Ok(PreparedConfig {
         driver,
         root: match driver {
@@ -501,7 +378,6 @@ fn prepare_input(
             .then_some(secret_key)
             .flatten(),
         virtual_host_style: driver == StorageDriver::S3 && payload.virtual_host_style,
-        storage,
     })
 }
 
