@@ -1,5 +1,5 @@
 use opendal::{ErrorKind, Writer};
-use sqlx::PgPool;
+use sqlx::{Connection, PgConnection, PgPool, Postgres, pool::PoolConnection};
 use uuid::Uuid;
 
 use super::{FileError, StartUpload, StoredFile, UploadSession, storage::FileObjectStorage};
@@ -12,7 +12,7 @@ use catalog::safe_extension;
 pub use objects::LocalFileReader;
 
 pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024; // 1GB
-pub const UPLOAD_CHUNK_BYTES: usize = 8 * 1024 * 1024; // 8MB
+pub const UPLOAD_CHUNK_BYTES: usize = 4 * 1024 * 1024; // 4 MiB
 const UPLOAD_SESSION_TTL_SECONDS: i64 = 60 * 60; // 1h
 
 #[derive(Clone)]
@@ -28,6 +28,11 @@ struct PendingObject {
     size: usize,
 }
 
+struct UploadObjectIoGuard {
+    connection: Option<PoolConnection<Postgres>>,
+    upload_id: String,
+}
+
 #[derive(sqlx::FromRow)]
 struct UploadPart {
     part_offset: i64,
@@ -39,6 +44,7 @@ struct UploadPart {
 struct StaleUpload {
     id: String,
     storage_id: i64,
+    object_name: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -116,6 +122,61 @@ impl PendingObject {
     }
 }
 
+impl UploadObjectIoGuard {
+    async fn try_acquire(pool: &PgPool, upload_id: &str) -> Result<Option<Self>, sqlx::Error> {
+        let mut connection = pool.acquire().await?;
+        let acquired = match sqlx::query_scalar::<_, bool>(
+            "select pg_try_advisory_lock(hashtextextended($1, 0))",
+        )
+        .bind(upload_id)
+        .fetch_one(&mut *connection)
+        .await
+        {
+            Ok(acquired) => acquired,
+            Err(error) => {
+                // The server may have acquired the lock before the response was interrupted.
+                // Never return an ambiguously locked connection to the pool.
+                connection.close_on_drop();
+                return Err(error);
+            }
+        };
+        Ok(acquired.then_some(Self {
+            connection: Some(connection),
+            upload_id: upload_id.to_string(),
+        }))
+    }
+
+    fn connection(&mut self) -> &mut PgConnection {
+        self.connection
+            .as_deref_mut()
+            .expect("upload object I/O guard should own its connection")
+    }
+
+    async fn release(mut self) {
+        let Some(mut connection) = self.connection.take() else {
+            return;
+        };
+        if let Err(error) = sqlx::query("select pg_advisory_unlock(hashtextextended($1, 0))")
+            .bind(&self.upload_id)
+            .execute(&mut *connection)
+            .await
+        {
+            tracing::warn!(upload_id = %self.upload_id, %error, "failed to release upload object I/O lock");
+            connection.close_on_drop();
+        }
+    }
+}
+
+impl Drop for UploadObjectIoGuard {
+    fn drop(&mut self) {
+        if let Some(connection) = self.connection.as_mut() {
+            // A cancelled future cannot unlock asynchronously. Closing the connection guarantees
+            // PostgreSQL releases its session advisory lock instead of returning it to the pool.
+            connection.close_on_drop();
+        }
+    }
+}
+
 impl FileService {
     pub async fn managed(pool: PgPool) -> Result<(Self, StorageService), StorageError> {
         let storages = StorageService::load(pool.clone()).await?;
@@ -131,7 +192,7 @@ impl FileService {
             return Err(FileError::TooLarge);
         }
         let mut transaction = self.pool.begin().await?;
-        let storage = self.storages.default_entry_locked(&mut transaction).await?;
+        let storage_id = self.storages.default_id_locked(&mut transaction).await?;
         let id = Uuid::new_v4().to_string();
         let ext = safe_extension(&payload.name);
         let object_name = if ext.is_empty() {
@@ -149,7 +210,7 @@ impl FileService {
             "#,
         )
         .bind(id)
-        .bind(storage.id)
+        .bind(storage_id)
         .bind(payload.name)
         .bind(object_name)
         .bind(ext)
@@ -253,20 +314,45 @@ impl FileService {
                 return Err(error);
             }
         };
+        let mut object_io = match UploadObjectIoGuard::try_acquire(&self.pool, id).await {
+            Ok(Some(object_io)) => object_io,
+            Ok(None) => {
+                self.release_upload_operation(id, &token).await;
+                return Err(FileError::OffsetMismatch);
+            }
+            Err(error) => {
+                self.release_upload_operation(id, &token).await;
+                return Err(error.into());
+            }
+        };
+        if let Err(error) = Self::refresh_upload_operation(object_io.connection(), id, &token).await
+        {
+            object_io.release().await;
+            self.release_upload_operation(id, &token).await;
+            return Err(error);
+        }
         let part = upload_part(&session.id, offset, &token);
         if let Err(error) = storage.storage.operator.write(&part, bytes.to_vec()).await {
-            self.release_upload_operation(id, &token).await;
             if let Err(cleanup_error) = storage.storage.operator.delete(&part).await
                 && cleanup_error.kind() != ErrorKind::NotFound
             {
                 tracing::warn!(%part, %cleanup_error, "failed to clean up rejected upload part");
             }
+            object_io.release().await;
+            self.release_upload_operation(id, &token).await;
             return Err(error.into());
         }
 
         let result = self
-            .persist_upload_part(&session, &token, &part, bytes.len() as i64)
+            .persist_upload_part(
+                object_io.connection(),
+                &session,
+                &token,
+                &part,
+                bytes.len() as i64,
+            )
             .await;
+        object_io.release().await;
         if result.is_err() {
             self.release_upload_operation(id, &token).await;
         }
@@ -275,12 +361,13 @@ impl FileService {
 
     async fn persist_upload_part(
         &self,
+        connection: &mut PgConnection,
         session: &UploadSession,
         token: &str,
         object_name: &str,
         size: i64,
     ) -> Result<UploadSession, FileError> {
-        let mut transaction = self.pool.begin().await?;
+        let mut transaction = connection.begin().await?;
         sqlx::query(
             r#"
             insert into uploaded_file_parts (upload_id, part_offset, size, object_name)
@@ -421,6 +508,23 @@ impl FileService {
                 return Err(error);
             }
         };
+        let mut object_io = match UploadObjectIoGuard::try_acquire(&self.pool, id).await {
+            Ok(Some(object_io)) => object_io,
+            Ok(None) => {
+                self.release_upload_operation(id, &token).await;
+                return Err(FileError::UploadInProgress);
+            }
+            Err(error) => {
+                self.release_upload_operation(id, &token).await;
+                return Err(error.into());
+            }
+        };
+        if let Err(error) = Self::refresh_upload_operation(object_io.connection(), id, &token).await
+        {
+            object_io.release().await;
+            self.release_upload_operation(id, &token).await;
+            return Err(error);
+        }
         if previous_object_name != session.object_name
             && let Err(error) = storage.storage.operator.delete(&previous_object_name).await
             && error.kind() != ErrorKind::NotFound
@@ -428,15 +532,19 @@ impl FileService {
             tracing::warn!(object = %previous_object_name, %error, "failed to clean up superseded completion object");
         }
         let mut upload = match self
-            .assemble_upload(&storage.storage, &session, &token)
+            .assemble_upload(object_io.connection(), &storage.storage, &session, &token)
             .await
         {
             Ok(upload) => upload,
             Err(error) => {
+                object_io.release().await;
                 self.release_upload_operation(id, &token).await;
                 return Err(error);
             }
         };
+        // The writer is closed and the final heartbeat is persisted. Object I/O no longer races
+        // cleanup, so return the lock connection before opening the final metadata transaction.
+        object_io.release().await;
 
         let mut transaction = match self.pool.begin().await {
             Ok(transaction) => transaction,
@@ -561,6 +669,7 @@ impl FileService {
 
     async fn assemble_upload(
         &self,
+        connection: &mut PgConnection,
         storage: &FileObjectStorage,
         session: &UploadSession,
         token: &str,
@@ -582,7 +691,7 @@ impl FileService {
                 "#,
             )
             .bind(&session.id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *connection)
             .await?;
             let mut offset = 0_i64;
             for part in parts {
@@ -599,12 +708,13 @@ impl FileService {
                 }
                 upload.write_chunk(&bytes).await?;
                 offset += part.size;
-                self.refresh_upload_operation(&session.id, token).await?;
+                Self::refresh_upload_operation(connection, &session.id, token).await?;
             }
             if offset != session.total_size {
                 return Err(FileError::UploadCorrupt);
             }
-            upload.close_object().await
+            upload.close_object().await?;
+            Self::refresh_upload_operation(connection, &session.id, token).await
         }
         .await;
         match result {
@@ -618,7 +728,11 @@ impl FileService {
         }
     }
 
-    async fn refresh_upload_operation(&self, id: &str, token: &str) -> Result<(), FileError> {
+    async fn refresh_upload_operation(
+        connection: &mut PgConnection,
+        id: &str,
+        token: &str,
+    ) -> Result<(), FileError> {
         let updated = sqlx::query(
             r#"
             update uploaded_file_sessions
@@ -631,7 +745,7 @@ impl FileService {
         .bind(id)
         .bind(token)
         .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
-        .execute(&self.pool)
+        .execute(connection)
         .await?;
         if updated.rows_affected() == 1 {
             Ok(())
@@ -641,6 +755,17 @@ impl FileService {
     }
 
     async fn release_upload_operation(&self, id: &str, token: &str) {
+        let mut connection = match self.pool.acquire().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                tracing::error!(upload_id = id, %error, "failed to acquire a connection to release upload operation claim");
+                return;
+            }
+        };
+        Self::release_upload_operation_on(&mut connection, id, token).await;
+    }
+
+    async fn release_upload_operation_on(connection: &mut PgConnection, id: &str, token: &str) {
         if let Err(error) = sqlx::query(
             r#"
             update uploaded_file_sessions
@@ -653,7 +778,7 @@ impl FileService {
         )
         .bind(id)
         .bind(token)
-        .execute(&self.pool)
+        .execute(connection)
         .await
         {
             tracing::error!(upload_id = id, %error, "failed to release upload operation claim");
@@ -684,7 +809,7 @@ impl FileService {
     async fn reap_stale_uploads(&self) -> Result<(), FileError> {
         let uploads = sqlx::query_as::<_, StaleUpload>(
             r#"
-            select id, storage_id
+            select id, storage_id, object_name
             from uploaded_file_sessions
             where updated_at < now() - make_interval(secs => $1)
               and (
@@ -706,6 +831,11 @@ impl FileService {
     }
 
     async fn reap_stale_upload(&self, upload: &StaleUpload) -> Result<(), FileError> {
+        let storage = self.storage_for(upload.storage_id).await?;
+        let Some(mut object_io) = UploadObjectIoGuard::try_acquire(&self.pool, &upload.id).await?
+        else {
+            return Ok(());
+        };
         let token = Uuid::new_v4().to_string();
         let claimed = sqlx::query(
             r#"
@@ -727,19 +857,22 @@ impl FileService {
         .bind(&token)
         .bind(upload.storage_id)
         .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
-        .execute(&self.pool)
+        .execute(object_io.connection())
         .await?;
         if claimed.rows_affected() == 0 {
+            object_io.release().await;
             return Ok(());
         }
 
-        let storage = match self.storage_for(upload.storage_id).await {
-            Ok(storage) => storage,
+        match storage.storage.operator.delete(&upload.object_name).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => {
+                object_io.release().await;
                 self.release_upload_operation(&upload.id, &token).await;
-                return Err(error);
+                return Err(error.into());
             }
-        };
+        }
         let prefix = format!(".uploads/{}/", upload.id);
         if let Err(error) = storage
             .storage
@@ -748,6 +881,7 @@ impl FileService {
             .recursive(true)
             .await
         {
+            object_io.release().await;
             self.release_upload_operation(&upload.id, &token).await;
             return Err(error.into());
         }
@@ -756,8 +890,9 @@ impl FileService {
         )
         .bind(&upload.id)
         .bind(&token)
-        .execute(&self.pool)
+        .execute(object_io.connection())
         .await?;
+        object_io.release().await;
         if deleted.rows_affected() == 1 {
             Ok(())
         } else {

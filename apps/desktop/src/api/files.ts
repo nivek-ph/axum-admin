@@ -99,14 +99,23 @@ export async function uploadFile(
   onProgress?.(Math.round((current.offset / file.size) * 100) || 0)
   while (current.offset < file.size) {
     const chunk = file.slice(current.offset, current.offset + current.chunkSize)
-    const response = await http.patch<never, ApiResponse<UploadSessionData>>(`/files/uploads/${current.id}`, chunk, {
-      ...withAuthHeaders(),
-      headers: {
-        ...withAuthHeaders().headers,
-        'Content-Type': 'application/octet-stream',
-        'Upload-Offset': current.offset,
-      },
-    })
+    let response: ApiResponse<UploadSessionData>
+    try {
+      response = await http.patch<never, ApiResponse<UploadSessionData>>(`/files/uploads/${current.id}`, chunk, {
+        ...withAuthHeaders(),
+        headers: {
+          ...withAuthHeaders().headers,
+          'Content-Type': 'application/octet-stream',
+          'Upload-Offset': current.offset,
+        },
+      })
+    } catch (error) {
+      if (error instanceof ApiHttpError && error.status === 429 && error.retryAfterMs !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, error.retryAfterMs))
+        continue
+      }
+      throw error
+    }
     if (!response.data) throw new Error('Upload offset was not returned')
     current = response.data
     onProgress?.(Math.round((current.offset / file.size) * 100))

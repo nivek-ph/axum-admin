@@ -156,7 +156,7 @@ export function FileUploadDialog({ category, onOpenChange, onUploaded, open }: F
             <div className="font-medium">{t('Upload details')}</div>
             <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
               <span>{t('Maximum file size: 1 GiB')}</span>
-              <span>{t('Chunk size: 8 MiB')}</span>
+              <span>{t('Chunk size: 4 MiB')}</span>
               <span>{t('Interrupted uploads can be resumed within one hour')}</span>
             </div>
           </div>
@@ -208,7 +208,10 @@ export function FileUploadDialog({ category, onOpenChange, onUploaded, open }: F
                             className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
                             role="progressbar"
                           >
-                            <div className="h-full bg-primary transition-[width]" style={{ width: `${item.progress}%` }} />
+                            <div
+                              className="h-full bg-primary transition-[width]"
+                              style={{ width: `${item.progress}%` }}
+                            />
                           </div>
                           <span className="w-9 text-right text-xs text-muted-foreground">{item.progress}%</span>
                         </div>

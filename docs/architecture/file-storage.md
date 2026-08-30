@@ -17,6 +17,9 @@ file metadata references its owning storage through `uploaded_files.storage_id`.
 The base schema and seed data create an enabled local default rooted at `./uploads` and link each
 newly uploaded file to the backend that accepted it. PostgreSQL is the only runtime source for
 storage settings; API startup does not read file-storage environment variables.
+Valid local roots are not created while storage records are loaded or managed. The filesystem
+backend prepares its root only when that storage is used for an object operation, so an unused local
+record does not require a writable deployment filesystem.
 
 Supported drivers are:
 
@@ -30,12 +33,13 @@ upload sessions address that backend directly. For local storage this includes `
 includes `root`, `bucket`, `region`, `endpoint`, `public_base_url`, and virtual-host style.
 Credentials may still be rotated in place.
 
-Managed uploads use chunks of at most 8 MiB and persist their current offset in
+Managed uploads use chunks of at most 4 MiB and persist their current offset in
 `uploaded_file_sessions`. Each chunk is claimed with a short conditional database update, written
 outside a database transaction under an operation-specific object key, then recorded in
 `uploaded_file_parts` by a second short transaction. The Admin Console resumes the same file from
 the persisted offset after an interrupted request and retains that resume ID across transient status
-errors. Files are limited to 1 GiB. Every upload resolves the database default when its session
+errors. A rate-limited chunk waits for the server's `Retry-After` duration and resumes automatically.
+Files are limited to 1 GiB. Every upload resolves the database default when its session
 starts. Default selection and session insertion hold the same transaction-scoped lifecycle lock as
 default changes and storage deletion. Reads and deletes require the file's persisted
 `(storage_id, object_name)` identity rather than reverse-parsing its public URL. Local responses
@@ -56,8 +60,9 @@ concurrent workers. A retry after a committed response loss returns the already-
 Completed chunk prefixes are removed on the successful path and retried when completion is called
 again or the service restarts. Upload sessions and in-progress operations expire one hour after their
 last successful activity. An expired session cannot be resumed; the client starts a new upload.
-Service startup claims each stale session before deleting its temporary object prefix and session row.
-The operation claim prevents cleanup from racing an active chunk or completion.
+Service startup claims each stale session before deleting its current final object, temporary object
+prefix, and session row. A per-session PostgreSQL advisory lock covers object I/O, so startup skips
+a stale-looking session while an old chunk write or completion still owns its object writer.
 
 Managed deletion first persists `deletion_pending`, which hides the file from listings and local
 serving, then deletes the object without buffering it in application memory. A retry can finish a

@@ -103,8 +103,9 @@ mod tests {
             "DEFAULT_STORAGE_PROTECTED"
         );
 
-        tokio::fs::remove_dir_all(root)
-            .await
-            .expect("test directory should be removed");
+        assert!(
+            !root.exists(),
+            "creating a local storage configuration should not prepare its root"
+        );
     }
 }

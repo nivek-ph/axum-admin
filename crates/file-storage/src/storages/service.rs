@@ -35,7 +35,6 @@ const STORAGE_SELECT: &str = r#"
 
 #[derive(Clone)]
 pub(crate) struct StorageEntry {
-    pub(crate) id: i64,
     pub(crate) storage: FileObjectStorage,
 }
 
@@ -50,7 +49,7 @@ impl StorageService {
 
         let mut has_default = false;
         for record in &records {
-            storage_from_record(record)?;
+            validate_record(record)?;
             if record.is_default {
                 if !record.enabled {
                     return Err(StorageError::DisabledDefault);
@@ -64,10 +63,10 @@ impl StorageService {
         Ok(Self { pool })
     }
 
-    pub(crate) async fn default_entry_locked(
+    pub(crate) async fn default_id_locked(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
-    ) -> Result<StorageEntry, StorageError> {
+    ) -> Result<i64, StorageError> {
         lock_storage_lifecycle(transaction).await?;
         let sql = format!("{STORAGE_SELECT} where is_default = true");
         let record = sqlx::query_as::<_, StorageRecord>(AssertSqlSafe(sql))
@@ -77,7 +76,8 @@ impl StorageService {
         if !record.enabled {
             return Err(StorageError::DisabledDefault);
         }
-        self.entry_from_record(&record)
+        validate_record(&record)?;
+        Ok(record.id)
     }
 
     pub(crate) async fn entry_for_id(&self, id: i64) -> Result<StorageEntry, StorageError> {
@@ -87,7 +87,6 @@ impl StorageService {
 
     fn entry_from_record(&self, record: &StorageRecord) -> Result<StorageEntry, StorageError> {
         Ok(StorageEntry {
-            id: record.id,
             storage: storage_from_record(record)?,
         })
     }
@@ -114,7 +113,7 @@ impl StorageService {
     pub async fn create(&self, payload: StorageInput) -> Result<StorageView, StorageError> {
         validate_input(&payload)?;
         let config = config_from_input(&payload, None)?;
-        FileObjectStorage::from_config(&config)?;
+        FileObjectStorage::validate_config(&config)?;
         let credentials = config.credentials();
         let result = sqlx::query_scalar::<_, i64>(
             r#"
@@ -169,7 +168,7 @@ impl StorageService {
         if !current_config.same_location(&config) {
             return Err(StorageError::ImmutableIdentity);
         }
-        FileObjectStorage::from_config(&config)?;
+        FileObjectStorage::validate_config(&config)?;
         let credentials = config.credentials();
         sqlx::query(
             r#"
@@ -221,7 +220,7 @@ impl StorageService {
             return Ok(());
         }
         if enabled {
-            storage_from_record(&current)?;
+            validate_record(&current)?;
         }
         sqlx::query("update sys_storages set enabled = $1, updated_at = now() where id = $2")
             .bind(enabled)
@@ -389,6 +388,11 @@ fn config_from_input(
 fn storage_from_record(record: &StorageRecord) -> Result<FileObjectStorage, StorageError> {
     let config = config_from_record(record)?;
     Ok(FileObjectStorage::from_config(&config)?)
+}
+
+fn validate_record(record: &StorageRecord) -> Result<(), StorageError> {
+    let config = config_from_record(record)?;
+    Ok(FileObjectStorage::validate_config(&config)?)
 }
 
 fn config_from_record(record: &StorageRecord) -> Result<StorageBackendConfig, StorageError> {

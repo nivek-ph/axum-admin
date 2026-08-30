@@ -32,6 +32,33 @@ pub(crate) struct FileObjectStorage {
 }
 
 impl FileObjectStorage {
+    pub(crate) fn validate_config(config: &StorageBackendConfig) -> Result<(), ObjectStorageError> {
+        match config {
+            StorageBackendConfig::Local { root } => {
+                required(root, "root", "local")?;
+                Ok(())
+            }
+            StorageBackendConfig::S3 {
+                root,
+                bucket,
+                region,
+                endpoint,
+                public_base_url,
+                credentials,
+                virtual_host_style,
+            } => Self::s3(
+                root.as_deref(),
+                bucket,
+                region,
+                endpoint.as_deref(),
+                public_base_url,
+                credentials,
+                *virtual_host_style,
+            )
+            .map(drop),
+        }
+    }
+
     pub(crate) fn from_config(config: &StorageBackendConfig) -> Result<Self, ObjectStorageError> {
         match config {
             StorageBackendConfig::Local { root } => Self::local(root),

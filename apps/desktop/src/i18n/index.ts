@@ -233,7 +233,7 @@ const zh = {
   Uploading: '上传中',
   'Upload details': '上传说明',
   'Maximum file size: 1 GiB': '单文件上限 1 GiB',
-  'Chunk size: 8 MiB': '分片大小 8 MiB',
+  'Chunk size: 4 MiB': '分片大小 4 MiB',
   'Interrupted uploads can be resumed within one hour': '一小时内支持断点续传',
   'Drag files here': '拖拽文件到此区域',
   'You can select multiple files at once': '支持一次选择多个文件',

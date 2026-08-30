@@ -46,7 +46,8 @@ pub fn router(state: AppState) -> Router {
             CorsLayer::new()
                 .allow_origin(Any)
                 .allow_headers(Any)
-                .allow_methods(Any),
+                .allow_methods(Any)
+                .expose_headers([header::RETRY_AFTER]),
         )
         .layer(
             ServiceBuilder::new()
@@ -171,6 +172,9 @@ mod tests {
             .await
             .expect("default storage root should update");
         let state = crate::state::tests::test_state(pool).await;
+        tokio::fs::create_dir_all(&upload_dir)
+            .await
+            .expect("untracked object fixture directory should be created");
         tokio::fs::write(upload_dir.join("untracked.txt"), b"untracked")
             .await
             .expect("untracked object should be written");

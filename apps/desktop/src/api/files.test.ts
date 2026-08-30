@@ -1,5 +1,5 @@
 import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from 'axios'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { uploadFile } from './files'
 import { http } from './http'
@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 describe('file upload adapter', () => {
   const originalAdapter = http.defaults.adapter
   afterEach(() => {
+    vi.useRealTimers()
     http.defaults.adapter = originalAdapter
     useAuthStore.getState().clearSession()
     localStorage.clear()
@@ -85,6 +86,59 @@ describe('file upload adapter', () => {
 
     await uploadFile(new File(['data'], 'retry.txt'))
     expect({ starts, refreshes }).toEqual({ starts: 2, refreshes: 1 })
+  })
+
+  it('waits for Retry-After and retries a rate-limited upload chunk', async () => {
+    vi.useFakeTimers()
+    let chunkAttempts = 0
+    let signalRateLimited: (() => void) | undefined
+    const rateLimited = new Promise<void>((resolve) => {
+      signalRateLimited = resolve
+    })
+    http.defaults.adapter = (async (config) => {
+      if (config.url === '/files/uploads' && config.method === 'post') {
+        return {
+          data: { code: 'OK', message: 'ok', data: { id: 'session', offset: 0, totalSize: 4, chunkSize: 4 } },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        }
+      }
+      if (config.url === '/files/uploads/session' && config.method === 'patch') {
+        chunkAttempts += 1
+        if (chunkAttempts === 1) {
+          signalRateLimited?.()
+          throw new AxiosError('rate limited', '429', config, undefined, {
+            data: { code: 'RATE_LIMITED', message: 'too many requests' },
+            status: 429,
+            statusText: 'Too Many Requests',
+            headers: { 'retry-after': '2' },
+            config,
+          })
+        }
+        return {
+          data: { code: 'OK', message: 'ok', data: { id: 'session', offset: 4, totalSize: 4, chunkSize: 4 } },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        }
+      }
+      if (config.url === '/files/uploads/session/complete' && config.method === 'post') {
+        return { data: { code: 'OK', message: 'ok', data: {} }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      throw new Error(`Unexpected request: ${config.method} ${config.url}`)
+    }) as AxiosAdapter
+
+    const upload = uploadFile(new File(['data'], 'rate-limited.txt'))
+    await rateLimited
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(chunkAttempts).toBe(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await upload
+
+    expect(chunkAttempts).toBe(2)
   })
 
   it('does not refresh or retry a non-auth upload failure', async () => {

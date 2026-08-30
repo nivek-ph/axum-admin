@@ -6,11 +6,13 @@ The backend and Admin Console deploy as two independent Vercel projects from thi
 
 Vercel Functions must use an S3 storage because their local filesystem is not durable. Migration
 creates a local default for development; replace it with an S3 storage through the Admin Console
-or `/api/storages` before accepting production uploads.
+or `/api/storages` before accepting production uploads. Loading that unused local record does not
+create its root directory, so the API can boot on Vercel before the default is switched to S3.
 
 The public base URL must already include any path that exposes the configured root; upload responses
 append only the generated object name. Ensure the bucket or CDN makes that URL readable.
-The backend accepts resumable 8 MiB chunks through `/api/files/uploads`, with a 1 GiB application
+The backend accepts resumable 4 MiB chunks through `/api/files/uploads`, with a 1 GiB application
+limit. The Admin Console waits for `Retry-After` and resumes when a chunk reaches the API rate
 limit. Each request remains subject to Vercel's current request-body limit. Direct presigned browser
 uploads are not part of this deployment mode.
 

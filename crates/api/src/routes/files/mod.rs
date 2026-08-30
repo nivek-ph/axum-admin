@@ -76,6 +76,7 @@ mod tests {
             .expect("router should respond");
         assert_eq!(response.status(), StatusCode::OK);
         let body = response_json(response).await;
+        assert_eq!(body["data"]["chunkSize"], 4 * 1024 * 1024);
         let id = body["data"]["id"]
             .as_str()
             .expect("session ID should be returned");

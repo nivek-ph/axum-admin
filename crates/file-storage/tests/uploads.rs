@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use file_storage::{
     files::{
@@ -7,6 +10,7 @@ use file_storage::{
     },
     storages::{StorageBackendInput, StorageInput},
 };
+use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 fn upload_dir() -> PathBuf {
@@ -23,6 +27,14 @@ async fn managed_service(pool: &sqlx::PgPool, root: &Path) -> FileService {
         .await
         .expect("managed file storage should load")
         .0
+}
+
+async fn cleanup_dir(path: &Path) {
+    match tokio::fs::remove_dir_all(path).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => panic!("test upload directory should be removed: {error}"),
+    }
 }
 
 async fn upload_parts(
@@ -83,9 +95,7 @@ async fn file_can_be_uploaded_in_multiple_chunks(pool: sqlx::PgPool) {
         .expect("stored file should be readable");
     assert_eq!(bytes, b"quarterly results");
 
-    tokio::fs::remove_dir_all(upload_dir)
-        .await
-        .expect("test upload directory should be removed");
+    cleanup_dir(&upload_dir).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -108,9 +118,7 @@ async fn oversized_file_is_rejected_before_uploading_chunks(pool: sqlx::PgPool) 
         .expect("upload session count should be readable");
     assert_eq!(session_count, 0);
 
-    tokio::fs::remove_dir_all(upload_dir)
-        .await
-        .expect("test upload directory should be removed");
+    cleanup_dir(&upload_dir).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -128,9 +136,7 @@ async fn file_at_the_limit_can_start_without_buffering_the_payload(pool: sqlx::P
         .expect("file at the limit should start");
     assert_eq!(session.total_size, MAX_UPLOAD_BYTES as i64);
 
-    tokio::fs::remove_dir_all(upload_dir)
-        .await
-        .expect("test upload directory should be removed");
+    cleanup_dir(&upload_dir).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -187,9 +193,60 @@ async fn duplicate_chunk_offset_has_exactly_one_winner(pool: sqlx::PgPool) {
         expected
     );
 
-    tokio::fs::remove_dir_all(upload_dir)
+    cleanup_dir(&upload_dir).await;
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn object_io_lock_reuses_its_single_business_connection(pool: sqlx::PgPool) {
+    let upload_dir = upload_dir();
+    let single_connection_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_millis(200))
+        .connect_with(pool.connect_options().as_ref().clone())
         .await
-        .expect("test upload directory should be removed");
+        .expect("single-connection pool should connect");
+    let service = managed_service(&single_connection_pool, &upload_dir).await;
+    let session = service
+        .start_upload(StartUpload {
+            name: "single-connection.txt".to_string(),
+            size: 4,
+            tag: String::new(),
+            category: String::new(),
+        })
+        .await
+        .expect("upload session should start");
+
+    service
+        .write_upload_chunk(&session.id, 0, b"data")
+        .await
+        .expect("object I/O should leave the business connection available");
+    service
+        .complete_upload(&session.id)
+        .await
+        .expect("completion should leave the business connection available");
+
+    let stale = service
+        .start_upload(StartUpload {
+            name: "single-connection-stale.txt".to_string(),
+            size: 1,
+            tag: String::new(),
+            category: String::new(),
+        })
+        .await
+        .expect("stale upload session should start");
+    sqlx::query(
+        "update uploaded_file_sessions set updated_at = now() - interval '61 minutes' where id = $1",
+    )
+    .bind(&stale.id)
+    .execute(&single_connection_pool)
+    .await
+    .expect("upload session should become stale");
+    FileService::managed(single_connection_pool.clone())
+        .await
+        .expect("startup cleanup should leave the business connection available");
+
+    single_connection_pool.close().await;
+    cleanup_dir(&upload_dir).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -256,9 +313,7 @@ async fn resumable_metadata_failure_keeps_the_session_retryable(pool: sqlx::PgPo
         .expect("completion retry should succeed");
     assert_eq!(stored.name, "retryable.txt");
 
-    tokio::fs::remove_dir_all(upload_dir)
-        .await
-        .expect("test upload directory should be removed");
+    cleanup_dir(&upload_dir).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -328,9 +383,7 @@ async fn metadata_delete_failure_leaves_a_retryable_pending_delete(pool: sqlx::P
         .expect("file count should be readable");
     assert_eq!(remaining, 0);
 
-    tokio::fs::remove_dir_all(upload_dir)
-        .await
-        .expect("test upload directory should be removed");
+    cleanup_dir(&upload_dir).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -387,6 +440,9 @@ async fn object_delete_failure_leaves_a_retryable_pending_delete(pool: sqlx::PgP
 async fn untracked_local_object_is_not_readable(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
     let service = managed_service(&pool, &upload_dir).await;
+    tokio::fs::create_dir_all(&upload_dir)
+        .await
+        .expect("untracked object fixture directory should be created");
     tokio::fs::write(upload_dir.join("untracked.txt"), b"untracked")
         .await
         .expect("untracked object should be written");
@@ -399,15 +455,16 @@ async fn untracked_local_object_is_not_readable(pool: sqlx::PgPool) {
             .is_none()
     );
 
-    tokio::fs::remove_dir_all(upload_dir)
-        .await
-        .expect("test upload directory should be removed");
+    cleanup_dir(&upload_dir).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn deleting_an_imported_local_url_keeps_the_object(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
     let service = managed_service(&pool, &upload_dir).await;
+    tokio::fs::create_dir_all(&upload_dir)
+        .await
+        .expect("external object fixture directory should be created");
     let object = upload_dir.join("external.txt");
     tokio::fs::write(&object, b"external")
         .await
@@ -442,9 +499,7 @@ async fn deleting_an_imported_local_url_keeps_the_object(pool: sqlx::PgPool) {
         b"external"
     );
 
-    tokio::fs::remove_dir_all(upload_dir)
-        .await
-        .expect("test upload directory should be removed");
+    cleanup_dir(&upload_dir).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -489,9 +544,7 @@ async fn expired_upload_session_cannot_be_resumed_before_startup_cleanup(pool: s
             .expect("upload session count should be readable");
     assert_eq!(session_count, 1);
 
-    tokio::fs::remove_dir_all(upload_dir)
-        .await
-        .expect("test upload directory should be removed");
+    cleanup_dir(&upload_dir).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -549,7 +602,132 @@ async fn startup_reaps_abandoned_upload_sessions_and_parts(pool: sqlx::PgPool) {
     assert_eq!(part_count, 0);
     assert!(!prefix.exists());
 
-    tokio::fs::remove_dir_all(upload_dir)
+    cleanup_dir(&upload_dir).await;
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn startup_reaps_the_final_object_from_an_abandoned_completion(pool: sqlx::PgPool) {
+    let upload_dir = upload_dir();
+    let service = managed_service(&pool, &upload_dir).await;
+    let session = service
+        .start_upload(StartUpload {
+            name: "abandoned-completion.txt".to_string(),
+            size: 4,
+            tag: String::new(),
+            category: String::new(),
+        })
         .await
-        .expect("test upload directory should be removed");
+        .expect("upload session should start");
+    service
+        .write_upload_chunk(&session.id, 0, b"data")
+        .await
+        .expect("upload chunk should write");
+    let final_object = "abandoned-final.txt";
+    tokio::fs::write(upload_dir.join(final_object), b"assembled")
+        .await
+        .expect("assembled object fixture should be written");
+    sqlx::query(
+        r#"
+        update uploaded_file_sessions
+        set
+            object_name = $2,
+            updated_at = now() - interval '61 minutes',
+            operation_state = 'completing',
+            operation_token = 'abandoned-completion',
+            operation_started_at = now() - interval '61 minutes'
+        where id = $1
+        "#,
+    )
+    .bind(&session.id)
+    .bind(final_object)
+    .execute(&pool)
+    .await
+    .expect("completion should become stale");
+
+    let restarted = FileService::managed(pool)
+        .await
+        .expect("service startup should reap the stale completion")
+        .0;
+
+    assert!(!upload_dir.join(final_object).exists());
+    assert!(matches!(
+        restarted.upload_status(&session.id).await,
+        Err(FileError::UploadNotFound)
+    ));
+
+    cleanup_dir(&upload_dir).await;
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn startup_does_not_reap_an_upload_with_active_object_io(pool: sqlx::PgPool) {
+    let upload_dir = upload_dir();
+    let service = managed_service(&pool, &upload_dir).await;
+    let session = service
+        .start_upload(StartUpload {
+            name: "active-completion.txt".to_string(),
+            size: 4,
+            tag: String::new(),
+            category: String::new(),
+        })
+        .await
+        .expect("upload session should start");
+    service
+        .write_upload_chunk(&session.id, 0, b"data")
+        .await
+        .expect("upload chunk should write");
+    let final_object = "active-final.txt";
+    tokio::fs::write(upload_dir.join(final_object), b"assembling")
+        .await
+        .expect("assembled object fixture should be written");
+    sqlx::query(
+        r#"
+        update uploaded_file_sessions
+        set
+            object_name = $2,
+            updated_at = now() - interval '61 minutes',
+            operation_state = 'completing',
+            operation_token = 'active-completion',
+            operation_started_at = now() - interval '61 minutes'
+        where id = $1
+        "#,
+    )
+    .bind(&session.id)
+    .bind(final_object)
+    .execute(&pool)
+    .await
+    .expect("completion should become stale");
+
+    let mut active_io = pool
+        .acquire()
+        .await
+        .expect("active object I/O connection should be acquired");
+    sqlx::query_scalar::<_, bool>("select pg_advisory_lock(hashtextextended($1, 0)) is null")
+        .bind(&session.id)
+        .fetch_one(&mut *active_io)
+        .await
+        .expect("active object I/O lock should be held");
+
+    FileService::managed(pool.clone())
+        .await
+        .expect("service startup should skip active object I/O");
+
+    let session_count: i64 =
+        sqlx::query_scalar("select count(*) from uploaded_file_sessions where id = $1")
+            .bind(&session.id)
+            .fetch_one(&pool)
+            .await
+            .expect("upload session count should be readable");
+    assert_eq!(session_count, 1);
+    assert!(upload_dir.join(final_object).exists());
+
+    active_io
+        .close()
+        .await
+        .expect("active object I/O connection should close");
+    FileService::managed(pool)
+        .await
+        .expect("next service startup should reap abandoned object I/O");
+    assert!(!upload_dir.join(final_object).exists());
+
+    cleanup_dir(&upload_dir).await;
 }

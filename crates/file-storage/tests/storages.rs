@@ -34,6 +34,14 @@ async fn set_default_root(pool: &sqlx::PgPool, root: &Path) {
         .expect("default storage root should update");
 }
 
+async fn cleanup_dir(path: &Path) {
+    match tokio::fs::remove_dir_all(path).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => panic!("test directory should be removed: {error}"),
+    }
+}
+
 async fn upload_file(service: &FileService, name: &str, bytes: &[u8]) -> StoredFile {
     let session = service
         .start_upload(StartUpload {
@@ -69,6 +77,19 @@ async fn migration_seeds_the_local_default(pool: sqlx::PgPool) {
     assert!(list[0].enabled);
     assert!(list[0].is_default);
     assert_eq!(list[0].root.as_deref(), Some("./uploads"));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn managed_startup_does_not_create_an_unused_local_root(pool: sqlx::PgPool) {
+    let root = upload_dir("unused-at-startup");
+    set_default_root(&pool, &root).await;
+    assert!(!root.exists());
+
+    FileService::managed(pool)
+        .await
+        .expect("managed storage should load without preparing the local root");
+
+    assert!(!root.exists());
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -124,12 +145,8 @@ async fn default_switch_is_observed_by_an_already_running_file_service(pool: sql
     );
     assert!(!first_root.join(object).exists());
 
-    tokio::fs::remove_dir_all(first_root)
-        .await
-        .expect("first test directory should be removed");
-    tokio::fs::remove_dir_all(second_root)
-        .await
-        .expect("second test directory should be removed");
+    cleanup_dir(&first_root).await;
+    cleanup_dir(&second_root).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -274,12 +291,8 @@ async fn upload_start_is_serialized_with_storage_lifecycle_changes(pool: sqlx::P
         Err(StorageError::InUse)
     ));
 
-    tokio::fs::remove_dir_all(first_root)
-        .await
-        .expect("first test directory should be removed");
-    tokio::fs::remove_dir_all(second_root)
-        .await
-        .expect("second test directory should be removed");
+    cleanup_dir(&first_root).await;
+    cleanup_dir(&second_root).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -346,12 +359,8 @@ async fn protected_and_referenced_configurations_cannot_be_removed(pool: sqlx::P
         Err(StorageError::InUse)
     ));
 
-    tokio::fs::remove_dir_all(default_root)
-        .await
-        .expect("default test directory should be removed");
-    tokio::fs::remove_dir_all(secondary_root)
-        .await
-        .expect("secondary test directory should be removed");
+    cleanup_dir(&default_root).await;
+    cleanup_dir(&secondary_root).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -383,12 +392,8 @@ async fn default_selection_and_disable_preserve_an_enabled_default(pool: sqlx::P
         .expect("one default should remain");
     assert!(default.enabled);
 
-    tokio::fs::remove_dir_all(default_root)
-        .await
-        .expect("default test directory should be removed");
-    tokio::fs::remove_dir_all(secondary_root)
-        .await
-        .expect("secondary test directory should be removed");
+    cleanup_dir(&default_root).await;
+    cleanup_dir(&secondary_root).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -419,9 +424,7 @@ async fn storage_location_is_immutable_but_metadata_can_change(pool: sqlx::PgPoo
         Err(StorageError::ImmutableIdentity)
     ));
 
-    tokio::fs::remove_dir_all(root)
-        .await
-        .expect("test directory should be removed");
+    cleanup_dir(&root).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -472,9 +475,7 @@ async fn s3_credentials_are_stored_but_never_returned(pool: sqlx::PgPool) {
     assert_eq!(credentials.0, "plain-access-key");
     assert_eq!(credentials.1, "plain-secret-key");
 
-    tokio::fs::remove_dir_all(root)
-        .await
-        .expect("test directory should be removed");
+    cleanup_dir(&root).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -509,9 +510,7 @@ async fn s3_credentials_are_required(pool: sqlx::PgPool) {
         ))
     ));
 
-    tokio::fs::remove_dir_all(root)
-        .await
-        .expect("test directory should be removed");
+    cleanup_dir(&root).await;
 }
 
 #[sqlx::test(migrations = "../../migrations")]
