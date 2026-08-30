@@ -36,10 +36,13 @@ outside a database transaction under an operation-specific object key, then reco
 `uploaded_file_parts` by a second short transaction. The Admin Console resumes the same file from
 the persisted offset after an interrupted request and retains that resume ID across transient status
 errors. Files are limited to 1 GiB. Every upload resolves the database default when its session
-starts. Reads and deletes require the file's persisted `(storage_id, object_name)` identity rather
-than reverse-parsing its public URL. Local responses stream from OpenDAL instead of buffering the
-whole object. Storage resolution reads PostgreSQL directly, so another process's default or
-credential change does not remain stale.
+starts. Default selection and session insertion hold the same transaction-scoped lifecycle lock as
+default changes and storage deletion. Reads and deletes require the file's persisted
+`(storage_id, object_name)` identity rather than reverse-parsing its public URL. Local responses
+stream from OpenDAL instead of buffering the whole object and honor single HTTP byte ranges with
+`206 Partial Content`; malformed or unsatisfiable ranges return `416 Range Not Satisfiable`.
+Storage resolution reads PostgreSQL directly, so another process's default or credential change
+does not remain stale.
 
 Imported external URLs have no storage association, including imported `/uploads/...` URLs. They
 are not served through the local upload route, and deleting them removes metadata only without
@@ -58,8 +61,8 @@ The operation claim prevents cleanup from racing an active chunk or completion.
 
 Managed deletion first persists `deletion_pending`, which hides the file from listings and local
 serving, then deletes the object without buffering it in application memory. A retry can finish a
-pending deletion after interruption or an uncertain metadata-delete result; service startup also
-resumes persisted pending deletions.
+pending deletion after interruption or an uncertain object-delete or metadata-delete result;
+service startup also resumes persisted pending deletions.
 
 ## Credentials
 

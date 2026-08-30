@@ -9,7 +9,7 @@ mod catalog;
 mod objects;
 
 use catalog::safe_extension;
-pub use objects::LocalFileStream;
+pub use objects::LocalFileReader;
 
 pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024; // 1GB
 pub const UPLOAD_CHUNK_BYTES: usize = 8 * 1024 * 1024; // 8MB
@@ -130,7 +130,8 @@ impl FileService {
         if payload.size < 0 || payload.size > MAX_UPLOAD_BYTES as i64 {
             return Err(FileError::TooLarge);
         }
-        let storage = self.default_storage().await?;
+        let mut transaction = self.pool.begin().await?;
+        let storage = self.storages.default_entry_locked(&mut transaction).await?;
         let id = Uuid::new_v4().to_string();
         let ext = safe_extension(&payload.name);
         let object_name = if ext.is_empty() {
@@ -138,7 +139,7 @@ impl FileService {
         } else {
             format!("{}.{ext}", Uuid::new_v4())
         };
-        Ok(sqlx::query_as::<_, UploadSession>(
+        let session = sqlx::query_as::<_, UploadSession>(
             r#"
             insert into uploaded_file_sessions (
                 id, storage_id, name, object_name, ext, tag, category, total_size
@@ -155,8 +156,10 @@ impl FileService {
         .bind(payload.tag)
         .bind(payload.category)
         .bind(payload.size)
-        .fetch_one(&self.pool)
-        .await?)
+        .fetch_one(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(session)
     }
     pub async fn upload_status(&self, id: &str) -> Result<UploadSession, FileError> {
         if let Some(session) = sqlx::query_as::<_, UploadSession>(
@@ -760,10 +763,6 @@ impl FileService {
         } else {
             Err(FileError::UploadInProgress)
         }
-    }
-
-    async fn default_storage(&self) -> Result<StorageEntry, FileError> {
-        Ok(self.storages.default_entry().await?)
     }
 
     async fn storage_for(&self, id: i64) -> Result<StorageEntry, FileError> {

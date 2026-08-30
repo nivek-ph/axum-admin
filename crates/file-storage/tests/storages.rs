@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use file_storage::{
     files::{FileService, StartUpload, StoredFile},
@@ -120,6 +123,156 @@ async fn default_switch_is_observed_by_an_already_running_file_service(pool: sql
         b"managed storage"
     );
     assert!(!first_root.join(object).exists());
+
+    tokio::fs::remove_dir_all(first_root)
+        .await
+        .expect("first test directory should be removed");
+    tokio::fs::remove_dir_all(second_root)
+        .await
+        .expect("second test directory should be removed");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn upload_start_is_serialized_with_storage_lifecycle_changes(pool: sqlx::PgPool) {
+    const UPLOAD_INSERT_TEST_LOCK: i64 = 42_424_242;
+
+    let first_root = upload_dir("upload-race-first");
+    let second_root = upload_dir("upload-race-second");
+    set_default_root(&pool, &first_root).await;
+    let (files, storages) = FileService::managed(pool.clone())
+        .await
+        .expect("managed storage should load");
+    let first_id = storages
+        .list(Default::default())
+        .await
+        .expect("storages should list")
+        .into_iter()
+        .find(|storage| storage.is_default)
+        .expect("default storage should exist")
+        .id;
+    let second = storages
+        .create(local_input("upload_race_second", &second_root))
+        .await
+        .expect("second storage should be created");
+
+    sqlx::query(
+        r#"
+        create function block_upload_session_insert() returns trigger language plpgsql as $$
+        begin
+            perform pg_advisory_xact_lock(42424242);
+            return new;
+        end;
+        $$
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("upload blocker function should be created");
+    sqlx::query(
+        r#"
+        create trigger block_upload_session_insert
+        before insert on uploaded_file_sessions
+        for each row execute function block_upload_session_insert()
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("upload blocker trigger should be created");
+    let mut blocker = pool
+        .begin()
+        .await
+        .expect("blocker transaction should start");
+    sqlx::query("select pg_advisory_xact_lock($1)")
+        .bind(UPLOAD_INSERT_TEST_LOCK)
+        .execute(&mut *blocker)
+        .await
+        .expect("upload insert test lock should be acquired");
+
+    let uploading_files = files.clone();
+    let upload = tokio::spawn(async move {
+        uploading_files
+            .start_upload(StartUpload {
+                name: "race.txt".to_string(),
+                size: 4,
+                tag: String::new(),
+                category: String::new(),
+            })
+            .await
+    });
+    let mut upload_is_waiting = false;
+    for _ in 0..200 {
+        upload_is_waiting = sqlx::query_scalar(
+            r#"
+            select exists(
+                select 1 from pg_locks
+                where locktype = 'advisory'
+                  and not granted
+                  and classid::bigint = 0
+                  and objid::bigint = $1
+            )
+            "#,
+        )
+        .bind(UPLOAD_INSERT_TEST_LOCK)
+        .fetch_one(&pool)
+        .await
+        .expect("upload insert waiter should be observable");
+        if upload_is_waiting {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(upload_is_waiting, "upload should reach the blocked insert");
+
+    let lifecycle_storages = storages.clone();
+    let lifecycle = tokio::spawn(async move {
+        lifecycle_storages.set_default(second.id).await?;
+        lifecycle_storages.delete(first_id).await
+    });
+    let mut lifecycle_is_waiting = false;
+    for _ in 0..200 {
+        if lifecycle.is_finished() {
+            break;
+        }
+        lifecycle_is_waiting = sqlx::query_scalar(
+            r#"
+            select exists(
+                select 1 from pg_locks
+                where locktype = 'advisory'
+                  and not granted
+                  and database = (
+                      select oid from pg_database where datname = current_database()
+                  )
+                  and not (classid::bigint = 0 and objid::bigint = $1)
+            )
+            "#,
+        )
+        .bind(UPLOAD_INSERT_TEST_LOCK)
+        .fetch_one(&pool)
+        .await
+        .expect("storage lifecycle waiter should be observable");
+        if lifecycle_is_waiting {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        lifecycle.is_finished() || lifecycle_is_waiting,
+        "storage lifecycle change should finish or wait for the upload"
+    );
+    blocker
+        .rollback()
+        .await
+        .expect("upload insert test lock should be released");
+
+    let session = upload
+        .await
+        .expect("upload task should finish")
+        .expect("upload session should start");
+    assert_eq!(session.storage_id, first_id);
+    assert!(matches!(
+        lifecycle.await.expect("lifecycle task should finish"),
+        Err(StorageError::InUse)
+    ));
 
     tokio::fs::remove_dir_all(first_root)
         .await

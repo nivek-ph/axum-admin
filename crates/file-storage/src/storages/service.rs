@@ -64,10 +64,14 @@ impl StorageService {
         Ok(Self { pool })
     }
 
-    pub(crate) async fn default_entry(&self) -> Result<StorageEntry, StorageError> {
+    pub(crate) async fn default_entry_locked(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+    ) -> Result<StorageEntry, StorageError> {
+        lock_storage_lifecycle(transaction).await?;
         let sql = format!("{STORAGE_SELECT} where is_default = true");
         let record = sqlx::query_as::<_, StorageRecord>(AssertSqlSafe(sql))
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut **transaction)
             .await?
             .ok_or(StorageError::DisabledDefault)?;
         if !record.enabled {

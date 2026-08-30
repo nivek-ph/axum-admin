@@ -1,7 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use file_storage::files::{
-    FileError, FileListQuery, FileService, ImportFileUrl, MAX_UPLOAD_BYTES, StartUpload, StoredFile,
+use file_storage::{
+    files::{
+        FileError, FileListQuery, FileService, ImportFileUrl, MAX_UPLOAD_BYTES, StartUpload,
+        StoredFile,
+    },
+    storages::{StorageBackendInput, StorageInput},
 };
 use uuid::Uuid;
 
@@ -327,6 +331,56 @@ async fn metadata_delete_failure_leaves_a_retryable_pending_delete(pool: sqlx::P
     tokio::fs::remove_dir_all(upload_dir)
         .await
         .expect("test upload directory should be removed");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn object_delete_failure_leaves_a_retryable_pending_delete(pool: sqlx::PgPool) {
+    let (service, storages) = FileService::managed(pool.clone())
+        .await
+        .expect("managed storage should load");
+    let storage = storages
+        .create(StorageInput {
+            name: "Unavailable S3".to_string(),
+            code: "unavailable_s3".to_string(),
+            backend: StorageBackendInput::S3 {
+                root: None,
+                bucket: "test-bucket".to_string(),
+                region: "us-east-1".to_string(),
+                endpoint: Some("http://127.0.0.1:1".to_string()),
+                public_base_url: "https://cdn.example.com".to_string(),
+                access_key: Some("access-key".to_string()),
+                secret_key: Some("secret-key".to_string()),
+                virtual_host_style: false,
+            },
+            enabled: true,
+            sort: 20,
+            description: String::new(),
+        })
+        .await
+        .expect("S3 fixture should be created");
+    let file_id: i64 = sqlx::query_scalar(
+        r#"
+        insert into uploaded_files (storage_id, name, object_name, url, ext)
+        values ($1, 'remote.txt', 'remote.txt', 'https://cdn.example.com/remote.txt', 'txt')
+        returning id
+        "#,
+    )
+    .bind(storage.id)
+    .fetch_one(&pool)
+    .await
+    .expect("managed S3 file fixture should be created");
+
+    assert!(matches!(
+        service.delete(file_id).await,
+        Err(FileError::Adapter(_))
+    ));
+    let pending: bool =
+        sqlx::query_scalar("select deletion_pending from uploaded_files where id = $1")
+            .bind(file_id)
+            .fetch_one(&pool)
+            .await
+            .expect("failed object deletion should remain retryable");
+    assert!(pending);
 }
 
 #[sqlx::test(migrations = "../../migrations")]

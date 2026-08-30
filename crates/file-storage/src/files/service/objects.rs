@@ -1,4 +1,6 @@
-use opendal::{ErrorKind, FuturesBytesStream};
+use std::ops::Range;
+
+use opendal::{ErrorKind, FuturesBytesStream, Reader};
 
 use super::FileService;
 use crate::files::FileError;
@@ -11,9 +13,21 @@ struct FileDeletion {
     upload_parts_pending: bool,
 }
 
-pub struct LocalFileStream {
-    pub stream: FuturesBytesStream,
+pub struct LocalFileReader {
+    reader: Reader,
     pub size: u64,
+}
+
+impl LocalFileReader {
+    pub async fn into_stream(
+        self,
+        range: Option<Range<u64>>,
+    ) -> Result<FuturesBytesStream, FileError> {
+        match range {
+            Some(range) => Ok(self.reader.into_bytes_stream(range).await?),
+            None => Ok(self.reader.into_bytes_stream(..).await?),
+        }
+    }
 }
 
 impl FileService {
@@ -64,10 +78,7 @@ impl FileService {
         match storage.operator.delete(&object).await {
             Ok(()) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => {
-                self.restore_failed_delete(id).await;
-                return Err(error.into());
-            }
+            Err(error) => return Err(error.into()),
         }
         self.finish_metadata_delete(id).await?;
         Ok(())
@@ -79,18 +90,6 @@ impl FileService {
             .execute(&self.pool)
             .await?;
         Ok(())
-    }
-
-    async fn restore_failed_delete(&self, id: i64) {
-        if let Err(error) = sqlx::query(
-            "update uploaded_files set deletion_pending = false, updated_at = now() where id = $1",
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        {
-            tracing::error!(id, %error, "failed to restore file metadata after object deletion failure");
-        }
     }
 
     pub(super) async fn recover_pending_work(&self) {
@@ -145,7 +144,7 @@ impl FileService {
     pub async fn read_local_object(
         &self,
         object: &str,
-    ) -> Result<Option<LocalFileStream>, FileError> {
+    ) -> Result<Option<LocalFileReader>, FileError> {
         if object.is_empty() || object.contains('/') || object.contains("..") {
             return Ok(None);
         }
@@ -174,9 +173,8 @@ impl FileService {
             Err(error) => return Err(error.into()),
         };
         let reader = storage.storage.operator.reader(object).await?;
-        let stream = reader.into_bytes_stream(..).await?;
-        Ok(Some(LocalFileStream {
-            stream,
+        Ok(Some(LocalFileReader {
+            reader,
             size: metadata.content_length(),
         }))
     }
