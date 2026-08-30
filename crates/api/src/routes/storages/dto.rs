@@ -1,4 +1,6 @@
-use file_storage::storages::{StorageInput, StorageQuery, StorageView};
+use file_storage::storages::{
+    StorageBackendInput, StorageError, StorageInput, StorageQuery, StorageView,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -46,24 +48,57 @@ fn enabled_by_default() -> bool {
     true
 }
 
-impl From<StorageRequest> for StorageInput {
-    fn from(value: StorageRequest) -> Self {
-        Self {
+impl TryFrom<StorageRequest> for StorageInput {
+    type Error = StorageError;
+
+    fn try_from(value: StorageRequest) -> Result<Self, Self::Error> {
+        let backend = match value.driver.trim().to_ascii_lowercase().as_str() {
+            "local" => {
+                if [
+                    value.bucket.as_deref(),
+                    value.region.as_deref(),
+                    value.endpoint.as_deref(),
+                    value.public_base_url.as_deref(),
+                    value.access_key.as_deref(),
+                    value.secret_key.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|field| !field.trim().is_empty())
+                    || value.virtual_host_style
+                {
+                    return Err(StorageError::InvalidInput(
+                        "local storage cannot include S3 settings",
+                    ));
+                }
+                StorageBackendInput::Local {
+                    root: value.root.unwrap_or_default(),
+                }
+            }
+            "s3" => StorageBackendInput::S3 {
+                root: value.root,
+                bucket: value.bucket.unwrap_or_default(),
+                region: value.region.unwrap_or_default(),
+                endpoint: value.endpoint,
+                public_base_url: value.public_base_url.unwrap_or_default(),
+                access_key: value.access_key,
+                secret_key: value.secret_key,
+                virtual_host_style: value.virtual_host_style,
+            },
+            _ => {
+                return Err(StorageError::InvalidInput(
+                    "driver must be either local or s3",
+                ));
+            }
+        };
+        Ok(Self {
             name: value.name,
             code: value.code,
-            driver: value.driver,
-            root: value.root,
-            bucket: value.bucket,
-            region: value.region,
-            endpoint: value.endpoint,
-            public_base_url: value.public_base_url,
-            access_key: value.access_key,
-            secret_key: value.secret_key,
-            virtual_host_style: value.virtual_host_style,
+            backend,
             enabled: value.enabled,
             sort: value.sort,
             description: value.description,
-        }
+        })
     }
 }
 

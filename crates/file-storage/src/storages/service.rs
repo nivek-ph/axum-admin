@@ -1,11 +1,14 @@
 use std::str::FromStr;
 
-use sqlx::{AssertSqlSafe, PgPool};
+use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
 
 use super::{
-    StorageDriver, StorageError, StorageInput, StorageQuery, StorageView, model::StorageRecord,
+    S3Credentials, StorageBackendConfig, StorageBackendInput, StorageDriver, StorageError,
+    StorageInput, StorageQuery, StorageView, model::StorageRecord,
 };
-use crate::files::{FileStorage, storage::FileObjectStorage};
+use crate::files::storage::FileObjectStorage;
+
+const STORAGE_LIFECYCLE_LOCK: i64 = 0x4156_415f_5354_4f52;
 
 const STORAGE_SELECT: &str = r#"
     select
@@ -39,18 +42,6 @@ pub(crate) struct StorageEntry {
 #[derive(Clone)]
 pub struct StorageService {
     pool: PgPool,
-}
-
-struct PreparedConfig {
-    driver: StorageDriver,
-    root: Option<String>,
-    bucket: Option<String>,
-    region: Option<String>,
-    endpoint: Option<String>,
-    public_base_url: Option<String>,
-    access_key: Option<String>,
-    secret_key: Option<String>,
-    virtual_host_style: bool,
 }
 
 impl StorageService {
@@ -118,7 +109,9 @@ impl StorageService {
 
     pub async fn create(&self, payload: StorageInput) -> Result<StorageView, StorageError> {
         validate_input(&payload)?;
-        let prepared = prepare_input(&payload, None)?;
+        let config = config_from_input(&payload, None)?;
+        FileObjectStorage::from_config(&config)?;
+        let credentials = config.credentials();
         let result = sqlx::query_scalar::<_, i64>(
             r#"
             insert into sys_storages (
@@ -132,15 +125,15 @@ impl StorageService {
         )
         .bind(payload.name.trim())
         .bind(payload.code.trim())
-        .bind(prepared.driver.as_str())
-        .bind(&prepared.root)
-        .bind(&prepared.bucket)
-        .bind(&prepared.region)
-        .bind(&prepared.endpoint)
-        .bind(&prepared.public_base_url)
-        .bind(&prepared.access_key)
-        .bind(&prepared.secret_key)
-        .bind(prepared.virtual_host_style)
+        .bind(config.driver().as_str())
+        .bind(config.root())
+        .bind(config.bucket())
+        .bind(config.region())
+        .bind(config.endpoint())
+        .bind(config.public_base_url())
+        .bind(credentials.map(|value| value.access_key.as_str()))
+        .bind(credentials.map(|value| value.secret_key.as_str()))
+        .bind(config.virtual_host_style())
         .bind(payload.enabled)
         .bind(payload.sort)
         .bind(payload.description.trim())
@@ -156,14 +149,24 @@ impl StorageService {
         payload: StorageInput,
     ) -> Result<StorageView, StorageError> {
         validate_input(&payload)?;
-        let current = fetch_one(&self.pool, id).await?;
-        if current.code != payload.code.trim() || current.driver != payload.driver.trim() {
+        let mut transaction = self.pool.begin().await?;
+        lock_storage_lifecycle(&mut transaction).await?;
+        let current = fetch_one_locked(&mut transaction, id).await?;
+        if current.code != payload.code.trim()
+            || current.driver != payload.backend.driver().as_str()
+        {
             return Err(StorageError::ImmutableIdentity);
         }
         if current.is_default && !payload.enabled {
             return Err(StorageError::DefaultProtected);
         }
-        let prepared = prepare_input(&payload, Some(&current))?;
+        let current_config = config_from_record(&current)?;
+        let config = config_from_input(&payload, Some(&current))?;
+        if !current_config.same_location(&config) {
+            return Err(StorageError::ImmutableIdentity);
+        }
+        FileObjectStorage::from_config(&config)?;
+        let credentials = config.credentials();
         sqlx::query(
             r#"
             update sys_storages
@@ -184,26 +187,29 @@ impl StorageService {
             "#,
         )
         .bind(payload.name.trim())
-        .bind(&prepared.root)
-        .bind(&prepared.bucket)
-        .bind(&prepared.region)
-        .bind(&prepared.endpoint)
-        .bind(&prepared.public_base_url)
-        .bind(&prepared.access_key)
-        .bind(&prepared.secret_key)
-        .bind(prepared.virtual_host_style)
+        .bind(config.root())
+        .bind(config.bucket())
+        .bind(config.region())
+        .bind(config.endpoint())
+        .bind(config.public_base_url())
+        .bind(credentials.map(|value| value.access_key.as_str()))
+        .bind(credentials.map(|value| value.secret_key.as_str()))
+        .bind(config.virtual_host_style())
         .bind(payload.enabled)
         .bind(payload.sort)
         .bind(payload.description.trim())
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await
         .map_err(map_database_error)?;
+        transaction.commit().await?;
         self.find(id).await
     }
 
     pub async fn set_enabled(&self, id: i64, enabled: bool) -> Result<(), StorageError> {
-        let current = fetch_one(&self.pool, id).await?;
+        let mut transaction = self.pool.begin().await?;
+        lock_storage_lifecycle(&mut transaction).await?;
+        let current = fetch_one_locked(&mut transaction, id).await?;
         if current.is_default && !enabled {
             return Err(StorageError::DefaultProtected);
         }
@@ -216,20 +222,22 @@ impl StorageService {
         sqlx::query("update sys_storages set enabled = $1, updated_at = now() where id = $2")
             .bind(enabled)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await?;
+        transaction.commit().await?;
         Ok(())
     }
 
     pub async fn set_default(&self, id: i64) -> Result<(), StorageError> {
-        let current = fetch_one(&self.pool, id).await?;
+        let mut transaction = self.pool.begin().await?;
+        lock_storage_lifecycle(&mut transaction).await?;
+        let current = fetch_one_locked(&mut transaction, id).await?;
         if !current.enabled {
             return Err(StorageError::DisabledDefault);
         }
         if current.is_default {
             return Ok(());
         }
-        let mut transaction = self.pool.begin().await?;
         sqlx::query("update sys_storages set is_default = false where is_default")
             .execute(&mut *transaction)
             .await?;
@@ -242,22 +250,30 @@ impl StorageService {
     }
 
     pub async fn delete(&self, id: i64) -> Result<(), StorageError> {
-        let current = fetch_one(&self.pool, id).await?;
+        let mut transaction = self.pool.begin().await?;
+        lock_storage_lifecycle(&mut transaction).await?;
+        let current = fetch_one_locked(&mut transaction, id).await?;
         if current.is_default {
             return Err(StorageError::DefaultProtected);
         }
-        let references: i64 =
-            sqlx::query_scalar("select count(*) from uploaded_files where storage_id = $1")
-                .bind(id)
-                .fetch_one(&self.pool)
-                .await?;
+        let references: i64 = sqlx::query_scalar(
+            r#"
+            select
+                (select count(*) from uploaded_files where storage_id = $1)
+                + (select count(*) from uploaded_file_sessions where storage_id = $1)
+            "#,
+        )
+        .bind(id)
+        .fetch_one(&mut *transaction)
+        .await?;
         if references > 0 {
             return Err(StorageError::InUse);
         }
         sqlx::query("delete from sys_storages where id = $1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await?;
+        transaction.commit().await?;
         Ok(())
     }
 }
@@ -305,96 +321,106 @@ async fn fetch_one(pool: &PgPool, id: i64) -> Result<StorageRecord, StorageError
         .ok_or(StorageError::NotFound)
 }
 
-fn prepare_input(
+async fn fetch_one_locked(
+    transaction: &mut Transaction<'_, Postgres>,
+    id: i64,
+) -> Result<StorageRecord, StorageError> {
+    let sql = format!("{STORAGE_SELECT} where id = $1 for update");
+    sqlx::query_as::<_, StorageRecord>(AssertSqlSafe(sql))
+        .bind(id)
+        .fetch_optional(&mut **transaction)
+        .await?
+        .ok_or(StorageError::NotFound)
+}
+
+async fn lock_storage_lifecycle(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("select pg_advisory_xact_lock($1)")
+        .bind(STORAGE_LIFECYCLE_LOCK)
+        .execute(&mut **transaction)
+        .await?;
+    Ok(())
+}
+
+fn config_from_input(
     payload: &StorageInput,
     current: Option<&StorageRecord>,
-) -> Result<PreparedConfig, StorageError> {
-    let driver = StorageDriver::from_str(&payload.driver)?;
-    let access_key = merge_secret(
-        payload.access_key.as_deref(),
-        current.and_then(|value| value.access_key.as_deref()),
-    );
-    let secret_key = merge_secret(
-        payload.secret_key.as_deref(),
-        current.and_then(|value| value.secret_key.as_deref()),
-    );
-    let runtime = FileStorage {
-        driver: driver.as_str().to_string(),
-        local_root: payload.root.clone().unwrap_or_default(),
-        s3_bucket: payload.bucket.clone().unwrap_or_default(),
-        s3_region: payload.region.clone().unwrap_or_default(),
-        s3_endpoint: payload.endpoint.clone().unwrap_or_default(),
-        s3_prefix: payload.root.clone().unwrap_or_default(),
-        s3_public_base_url: payload.public_base_url.clone().unwrap_or_default(),
-        s3_access_key_id: access_key.clone().unwrap_or_default(),
-        s3_secret_access_key: secret_key.clone().unwrap_or_default(),
-        s3_virtual_host_style: payload.virtual_host_style,
-    };
-    FileObjectStorage::from_config(&runtime)?;
-    Ok(PreparedConfig {
-        driver,
-        root: match driver {
-            StorageDriver::Local => Some(
-                payload
-                    .root
-                    .as_deref()
-                    .unwrap_or_default()
+) -> Result<StorageBackendConfig, StorageError> {
+    match &payload.backend {
+        StorageBackendInput::Local { root } => Ok(StorageBackendConfig::Local {
+            root: root.trim().to_string(),
+        }),
+        StorageBackendInput::S3 {
+            root,
+            bucket,
+            region,
+            endpoint,
+            public_base_url,
+            access_key,
+            secret_key,
+            virtual_host_style,
+        } => {
+            let access_key = merge_secret(
+                access_key.as_deref(),
+                current.and_then(|value| value.access_key.as_deref()),
+            );
+            let secret_key = merge_secret(
+                secret_key.as_deref(),
+                current.and_then(|value| value.secret_key.as_deref()),
+            );
+            Ok(StorageBackendConfig::S3 {
+                root: optional_owned(root.as_deref()),
+                bucket: bucket.trim().to_string(),
+                region: region.trim().to_string(),
+                endpoint: optional_owned(endpoint.as_deref()),
+                public_base_url: public_base_url
                     .trim()
+                    .trim_end_matches('/')
                     .to_string(),
-            ),
-            StorageDriver::S3 => optional_owned(payload.root.as_deref().unwrap_or_default()),
-        },
-        bucket: (driver == StorageDriver::S3).then(|| {
-            payload
+                credentials: credentials(access_key, secret_key)?,
+                virtual_host_style: *virtual_host_style,
+            })
+        }
+    }
+}
+
+fn storage_from_record(record: &StorageRecord) -> Result<FileObjectStorage, StorageError> {
+    let config = config_from_record(record)?;
+    Ok(FileObjectStorage::from_config(&config)?)
+}
+
+fn config_from_record(record: &StorageRecord) -> Result<StorageBackendConfig, StorageError> {
+    match StorageDriver::from_str(&record.driver)? {
+        StorageDriver::Local => Ok(StorageBackendConfig::Local {
+            root: record.root.as_deref().unwrap_or_default().trim().to_string(),
+        }),
+        StorageDriver::S3 => Ok(StorageBackendConfig::S3 {
+            root: optional_owned(record.root.as_deref()),
+            bucket: record
                 .bucket
                 .as_deref()
                 .unwrap_or_default()
                 .trim()
-                .to_string()
-        }),
-        region: (driver == StorageDriver::S3).then(|| {
-            payload
+                .to_string(),
+            region: record
                 .region
                 .as_deref()
                 .unwrap_or_default()
                 .trim()
-                .to_string()
-        }),
-        endpoint: (driver == StorageDriver::S3)
-            .then(|| optional_owned(payload.endpoint.as_deref().unwrap_or_default()))
-            .flatten(),
-        public_base_url: (driver == StorageDriver::S3).then(|| {
-            payload
+                .to_string(),
+            endpoint: optional_owned(record.endpoint.as_deref()),
+            public_base_url: record
                 .public_base_url
                 .as_deref()
                 .unwrap_or_default()
                 .trim()
-                .to_string()
+                .trim_end_matches('/')
+                .to_string(),
+            credentials: credentials(record.access_key.clone(), record.secret_key.clone())?,
+            virtual_host_style: record.virtual_host_style,
         }),
-        access_key: (driver == StorageDriver::S3)
-            .then_some(access_key)
-            .flatten(),
-        secret_key: (driver == StorageDriver::S3)
-            .then_some(secret_key)
-            .flatten(),
-        virtual_host_style: driver == StorageDriver::S3 && payload.virtual_host_style,
-    })
-}
-
-fn storage_from_record(record: &StorageRecord) -> Result<FileObjectStorage, StorageError> {
-    let config = FileStorage {
-        driver: record.driver.clone(),
-        local_root: record.root.clone().unwrap_or_default(),
-        s3_bucket: record.bucket.clone().unwrap_or_default(),
-        s3_region: record.region.clone().unwrap_or_default(),
-        s3_endpoint: record.endpoint.clone().unwrap_or_default(),
-        s3_prefix: record.root.clone().unwrap_or_default(),
-        s3_public_base_url: record.public_base_url.clone().unwrap_or_default(),
-        s3_access_key_id: record.access_key.clone().unwrap_or_default(),
-        s3_secret_access_key: record.secret_key.clone().unwrap_or_default(),
-        s3_virtual_host_style: record.virtual_host_style,
-    };
-    Ok(FileObjectStorage::from_config(&config)?)
+    }
 }
 
 fn merge_secret(replacement: Option<&str>, current: Option<&str>) -> Option<String> {
@@ -404,8 +430,22 @@ fn merge_secret(replacement: Option<&str>, current: Option<&str>) -> Option<Stri
     }
 }
 
-fn optional_owned(value: &str) -> Option<String> {
-    let value = value.trim();
+fn credentials(
+    access_key: Option<String>,
+    secret_key: Option<String>,
+) -> Result<Option<S3Credentials>, StorageError> {
+    match (access_key, secret_key) {
+        (None, None) => Ok(None),
+        (Some(access_key), Some(secret_key)) => Ok(Some(S3Credentials {
+            access_key,
+            secret_key,
+        })),
+        _ => Err(crate::files::FileStorageError::IncompleteCredentials.into()),
+    }
+}
+
+fn optional_owned(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
     (!value.is_empty()).then(|| value.to_string())
 }
 

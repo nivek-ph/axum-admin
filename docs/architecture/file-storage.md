@@ -24,9 +24,11 @@ Supported drivers are:
 - `s3`, backed by an OpenDAL S3 operator and addressed through its configured public base URL.
 
 An enabled storage can become the default. The current default cannot be disabled or deleted,
-and a storage referenced by uploaded files cannot be deleted. Storage code and driver
-are immutable after creation because they identify the backend contract. Other configuration
-changes take effect immediately, so operators must move existing objects when changing location fields.
+and a storage referenced by uploaded files or active upload sessions cannot be deleted. Storage
+code, driver, and object-location fields are immutable after creation because persisted files and
+upload sessions address that backend directly. For local storage this includes `root`; for S3 it
+includes `root`, `bucket`, `region`, `endpoint`, `public_base_url`, and virtual-host style.
+Credentials may still be rotated in place.
 
 Managed uploads use 8 MiB chunks and persist their current offset in `uploaded_file_sessions`.
 The Admin Console resumes the same file from that offset after an interrupted request. Files are
@@ -34,10 +36,18 @@ limited to 1 GiB. Every upload resolves the database default when its session st
 require and resolve the file's persisted `storage_id`. Storage resolution reads PostgreSQL directly,
 so another process's default or credential change does not remain stale.
 
-Imported external URLs have no storage association. They are not served through the local upload
-route, and deleting them removes metadata only without touching an object store.
-During migration, existing `/uploads/...` records are backfilled to the seeded local storage.
+Imported external URLs have no storage association, including imported `/uploads/...` URLs. They
+are not served through the local upload route, and deleting them removes metadata only without
+touching an object store.
 Disabled storage is excluded from new default selection but remains readable for associated files.
+Completion uses the upload session ID as an idempotency key: the file row and session removal commit
+in one PostgreSQL transaction, and a retry returns the already-created file. Completed chunk prefixes
+are removed on the successful path and retried when completion is called again or the service restarts.
+
+Managed deletion first persists `deletion_pending`, which hides the file from listings and local
+serving, then deletes the object without buffering it in application memory. A retry can finish a
+pending deletion after interruption or an uncertain metadata-delete result; service startup also
+resumes persisted pending deletions.
 
 ## Credentials
 

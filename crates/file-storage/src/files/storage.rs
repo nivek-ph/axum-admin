@@ -2,38 +2,9 @@ use std::path::PathBuf;
 
 use opendal::{Operator, services};
 
+use crate::storages::{S3Credentials, StorageBackendConfig};
+
 const LOCAL_URL_PREFIX: &str = "/uploads";
-
-#[derive(Debug, Clone)]
-pub struct FileStorage {
-    pub driver: String,
-    pub local_root: String,
-    pub s3_bucket: String,
-    pub s3_region: String,
-    pub s3_endpoint: String,
-    pub s3_prefix: String,
-    pub s3_public_base_url: String,
-    pub s3_access_key_id: String,
-    pub s3_secret_access_key: String,
-    pub s3_virtual_host_style: bool,
-}
-
-impl Default for FileStorage {
-    fn default() -> Self {
-        Self {
-            driver: "local".to_string(),
-            local_root: "./uploads".to_string(),
-            s3_bucket: String::new(),
-            s3_region: String::new(),
-            s3_endpoint: String::new(),
-            s3_prefix: String::new(),
-            s3_public_base_url: String::new(),
-            s3_access_key_id: String::new(),
-            s3_secret_access_key: String::new(),
-            s3_virtual_host_style: false,
-        }
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileStorageError {
@@ -59,11 +30,26 @@ pub(crate) struct FileObjectStorage {
 }
 
 impl FileObjectStorage {
-    pub(crate) fn from_config(config: &FileStorage) -> Result<Self, FileStorageError> {
-        match config.driver.trim().to_ascii_lowercase().as_str() {
-            "local" => Self::local(&config.local_root),
-            "s3" => Self::s3(config),
-            _ => Err(FileStorageError::UnsupportedDriver(config.driver.clone())),
+    pub(crate) fn from_config(config: &StorageBackendConfig) -> Result<Self, FileStorageError> {
+        match config {
+            StorageBackendConfig::Local { root } => Self::local(root),
+            StorageBackendConfig::S3 {
+                root,
+                bucket,
+                region,
+                endpoint,
+                public_base_url,
+                credentials,
+                virtual_host_style,
+            } => Self::s3(
+                root.as_deref(),
+                bucket,
+                region,
+                endpoint.as_deref(),
+                public_base_url,
+                credentials.as_ref(),
+                *virtual_host_style,
+            ),
         }
     }
 
@@ -83,32 +69,34 @@ impl FileObjectStorage {
         })
     }
 
-    fn s3(config: &FileStorage) -> Result<Self, FileStorageError> {
-        let bucket = required(&config.s3_bucket, "bucket", "s3")?;
-        let region = required(&config.s3_region, "region", "s3")?;
-        let public_base_url = required(&config.s3_public_base_url, "public_base_url", "s3")?;
+    fn s3(
+        root: Option<&str>,
+        bucket: &str,
+        region: &str,
+        endpoint: Option<&str>,
+        public_base_url: &str,
+        credentials: Option<&S3Credentials>,
+        virtual_host_style: bool,
+    ) -> Result<Self, FileStorageError> {
+        let bucket = required(bucket, "bucket", "s3")?;
+        let region = required(region, "region", "s3")?;
+        let public_base_url = required(public_base_url, "public_base_url", "s3")?;
         if !public_base_url.starts_with("http://") && !public_base_url.starts_with("https://") {
             return Err(FileStorageError::InvalidPublicBaseUrl);
         }
-        let has_access_key = !config.s3_access_key_id.trim().is_empty();
-        let has_secret_key = !config.s3_secret_access_key.trim().is_empty();
-        if has_access_key != has_secret_key {
-            return Err(FileStorageError::IncompleteCredentials);
-        }
-
         let mut builder = services::S3::default().bucket(bucket).region(region);
-        if let Some(value) = optional(&config.s3_endpoint) {
+        if let Some(value) = endpoint.and_then(optional) {
             builder = builder.endpoint(value);
         }
-        if let Some(value) = optional(&config.s3_prefix) {
+        if let Some(value) = root.and_then(optional) {
             builder = builder.root(&format!("/{}", value.trim_matches('/')));
         }
-        if has_access_key {
+        if let Some(credentials) = credentials {
             builder = builder
-                .access_key_id(config.s3_access_key_id.trim())
-                .secret_access_key(config.s3_secret_access_key.trim());
+                .access_key_id(&credentials.access_key)
+                .secret_access_key(&credentials.secret_key);
         }
-        if config.s3_virtual_host_style {
+        if virtual_host_style {
             builder = builder.enable_virtual_host_style();
         }
 
@@ -157,25 +145,25 @@ fn absolute_path(path: &str) -> Result<PathBuf, std::io::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FileObjectStorage, FileStorage, FileStorageError};
+    use super::{FileObjectStorage, FileStorageError};
+    use crate::storages::StorageBackendConfig;
 
     #[test]
     fn unsupported_driver_is_rejected() {
-        let config = FileStorage {
-            driver: "azure".to_string(),
-            ..FileStorage::default()
-        };
-
-        let error = FileObjectStorage::from_config(&config)
-            .expect_err("unsupported drivers should fail during startup");
-        assert!(matches!(error, FileStorageError::UnsupportedDriver(_)));
+        let error = "azure".parse::<crate::storages::StorageDriver>();
+        assert!(error.is_err());
     }
 
     #[test]
     fn s3_requires_bucket_and_public_url() {
-        let config = FileStorage {
-            driver: "s3".to_string(),
-            ..FileStorage::default()
+        let config = StorageBackendConfig::S3 {
+            root: None,
+            bucket: String::new(),
+            region: String::new(),
+            endpoint: None,
+            public_base_url: String::new(),
+            credentials: None,
+            virtual_host_style: false,
         };
 
         let error = FileObjectStorage::from_config(&config)
@@ -184,29 +172,15 @@ mod tests {
     }
 
     #[test]
-    fn s3_credentials_must_be_a_complete_pair() {
-        let config = FileStorage {
-            driver: "s3".to_string(),
-            s3_bucket: "files".to_string(),
-            s3_region: "us-east-1".to_string(),
-            s3_public_base_url: "https://files.example.test".to_string(),
-            s3_access_key_id: "access-key".to_string(),
-            ..FileStorage::default()
-        };
-
-        let error = FileObjectStorage::from_config(&config)
-            .expect_err("partial S3 credentials should fail during startup");
-        assert!(matches!(error, FileStorageError::IncompleteCredentials));
-    }
-
-    #[test]
     fn s3_requires_an_http_public_url() {
-        let config = FileStorage {
-            driver: "s3".to_string(),
-            s3_bucket: "files".to_string(),
-            s3_region: "us-east-1".to_string(),
-            s3_public_base_url: "cdn.example.test".to_string(),
-            ..FileStorage::default()
+        let config = StorageBackendConfig::S3 {
+            root: None,
+            bucket: "files".to_string(),
+            region: "us-east-1".to_string(),
+            endpoint: None,
+            public_base_url: "cdn.example.test".to_string(),
+            credentials: None,
+            virtual_host_style: false,
         };
 
         let error = FileObjectStorage::from_config(&config)
@@ -216,12 +190,14 @@ mod tests {
 
     #[test]
     fn s3_public_urls_are_derived_from_the_configured_base() {
-        let config = FileStorage {
-            driver: "s3".to_string(),
-            s3_bucket: "files".to_string(),
-            s3_region: "us-east-1".to_string(),
-            s3_public_base_url: "https://cdn.example.test/assets/".to_string(),
-            ..FileStorage::default()
+        let config = StorageBackendConfig::S3 {
+            root: None,
+            bucket: "files".to_string(),
+            region: "us-east-1".to_string(),
+            endpoint: None,
+            public_base_url: "https://cdn.example.test/assets/".to_string(),
+            credentials: None,
+            virtual_host_style: false,
         };
         let storage = FileObjectStorage::from_config(&config)
             .expect("valid S3 configuration should construct an adapter");

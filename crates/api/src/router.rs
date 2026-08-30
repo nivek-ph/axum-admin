@@ -99,16 +99,26 @@ mod tests {
             .expect("router should respond");
         assert_eq!(response.status(), 404);
 
-        let mut upload = state
+        let upload = state
             .files
-            .begin_upload("tracked.txt", "", "")
+            .start_upload(file_storage::files::StartUpload {
+                name: "tracked.txt".to_string(),
+                size: 7,
+                tag: String::new(),
+                category: String::new(),
+            })
             .await
-            .expect("managed upload should start");
-        upload
-            .write_chunk(b"tracked")
+            .expect("managed upload session should start");
+        state
+            .files
+            .write_upload_chunk(&upload.id, 0, b"tracked")
             .await
             .expect("managed upload should write");
-        let stored = upload.finish().await.expect("managed upload should finish");
+        let stored = state
+            .files
+            .complete_upload(&upload.id)
+            .await
+            .expect("managed upload should finish");
         let object = stored
             .url
             .strip_prefix("/uploads/")

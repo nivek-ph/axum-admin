@@ -334,6 +334,7 @@ export function StoragesPage() {
               <div className="sm:col-span-2">
                 <Field htmlFor="storage-root" label={t('Root directory')}>
                   <Input
+                    disabled={Boolean(editing)}
                     id="storage-root"
                     onChange={(event) => setForm({ ...form, root: event.target.value })}
                     value={form.root}
@@ -344,6 +345,7 @@ export function StoragesPage() {
               <>
                 <Field htmlFor="storage-bucket" label={t('Bucket')}>
                   <Input
+                    disabled={Boolean(editing)}
                     id="storage-bucket"
                     onChange={(event) => setForm({ ...form, bucket: event.target.value })}
                     value={form.bucket}
@@ -351,6 +353,7 @@ export function StoragesPage() {
                 </Field>
                 <Field htmlFor="storage-region" label={t('Region')}>
                   <Input
+                    disabled={Boolean(editing)}
                     id="storage-region"
                     onChange={(event) => setForm({ ...form, region: event.target.value })}
                     value={form.region}
@@ -358,6 +361,7 @@ export function StoragesPage() {
                 </Field>
                 <Field htmlFor="storage-endpoint" label={t('Endpoint')}>
                   <Input
+                    disabled={Boolean(editing)}
                     id="storage-endpoint"
                     onChange={(event) => setForm({ ...form, endpoint: event.target.value })}
                     value={form.endpoint}
@@ -365,6 +369,7 @@ export function StoragesPage() {
                 </Field>
                 <Field htmlFor="storage-root" label={t('Root path')}>
                   <Input
+                    disabled={Boolean(editing)}
                     id="storage-root"
                     onChange={(event) => setForm({ ...form, root: event.target.value })}
                     placeholder="uploads"
@@ -374,6 +379,7 @@ export function StoragesPage() {
                 <div className="sm:col-span-2">
                   <Field htmlFor="storage-public-url" label={t('Public URL')}>
                     <Input
+                      disabled={Boolean(editing)}
                       id="storage-public-url"
                       onChange={(event) => setForm({ ...form, publicBaseUrl: event.target.value })}
                       value={form.publicBaseUrl}
@@ -414,6 +420,7 @@ export function StoragesPage() {
               <label className="flex items-center gap-2 text-sm">
                 <input
                   checked={form.virtualHostStyle}
+                  disabled={Boolean(editing)}
                   onChange={(event) => setForm({ ...form, virtualHostStyle: event.target.checked })}
                   type="checkbox"
                 />

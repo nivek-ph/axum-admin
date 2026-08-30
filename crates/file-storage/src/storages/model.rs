@@ -10,6 +10,124 @@ pub enum StorageDriver {
     S3,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct S3Credentials {
+    pub(crate) access_key: String,
+    pub(crate) secret_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StorageBackendConfig {
+    Local {
+        root: String,
+    },
+    S3 {
+        root: Option<String>,
+        bucket: String,
+        region: String,
+        endpoint: Option<String>,
+        public_base_url: String,
+        credentials: Option<S3Credentials>,
+        virtual_host_style: bool,
+    },
+}
+
+impl StorageBackendConfig {
+    pub(crate) fn driver(&self) -> StorageDriver {
+        match self {
+            Self::Local { .. } => StorageDriver::Local,
+            Self::S3 { .. } => StorageDriver::S3,
+        }
+    }
+
+    pub(crate) fn same_location(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Local { root: left }, Self::Local { root: right }) => left == right,
+            (
+                Self::S3 {
+                    root: left_root,
+                    bucket: left_bucket,
+                    region: left_region,
+                    endpoint: left_endpoint,
+                    public_base_url: left_public_base_url,
+                    virtual_host_style: left_virtual_host_style,
+                    ..
+                },
+                Self::S3 {
+                    root: right_root,
+                    bucket: right_bucket,
+                    region: right_region,
+                    endpoint: right_endpoint,
+                    public_base_url: right_public_base_url,
+                    virtual_host_style: right_virtual_host_style,
+                    ..
+                },
+            ) => {
+                left_root == right_root
+                    && left_bucket == right_bucket
+                    && left_region == right_region
+                    && left_endpoint == right_endpoint
+                    && left_public_base_url == right_public_base_url
+                    && left_virtual_host_style == right_virtual_host_style
+            }
+            _ => false,
+        }
+    }
+
+    pub(crate) fn root(&self) -> Option<&str> {
+        match self {
+            Self::Local { root } => Some(root),
+            Self::S3 { root, .. } => root.as_deref(),
+        }
+    }
+
+    pub(crate) fn bucket(&self) -> Option<&str> {
+        match self {
+            Self::Local { .. } => None,
+            Self::S3 { bucket, .. } => Some(bucket),
+        }
+    }
+
+    pub(crate) fn region(&self) -> Option<&str> {
+        match self {
+            Self::Local { .. } => None,
+            Self::S3 { region, .. } => Some(region),
+        }
+    }
+
+    pub(crate) fn endpoint(&self) -> Option<&str> {
+        match self {
+            Self::Local { .. } => None,
+            Self::S3 { endpoint, .. } => endpoint.as_deref(),
+        }
+    }
+
+    pub(crate) fn public_base_url(&self) -> Option<&str> {
+        match self {
+            Self::Local { .. } => None,
+            Self::S3 {
+                public_base_url, ..
+            } => Some(public_base_url),
+        }
+    }
+
+    pub(crate) fn credentials(&self) -> Option<&S3Credentials> {
+        match self {
+            Self::Local { .. } => None,
+            Self::S3 { credentials, .. } => credentials.as_ref(),
+        }
+    }
+
+    pub(crate) fn virtual_host_style(&self) -> bool {
+        match self {
+            Self::Local { .. } => false,
+            Self::S3 {
+                virtual_host_style, ..
+            } => *virtual_host_style,
+        }
+    }
+}
+
 impl StorageDriver {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -43,18 +161,36 @@ pub struct StorageQuery {
 pub struct StorageInput {
     pub name: String,
     pub code: String,
-    pub driver: String,
-    pub root: Option<String>,
-    pub bucket: Option<String>,
-    pub region: Option<String>,
-    pub endpoint: Option<String>,
-    pub public_base_url: Option<String>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub virtual_host_style: bool,
+    pub backend: StorageBackendInput,
     pub enabled: bool,
     pub sort: i32,
     pub description: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum StorageBackendInput {
+    Local {
+        root: String,
+    },
+    S3 {
+        root: Option<String>,
+        bucket: String,
+        region: String,
+        endpoint: Option<String>,
+        public_base_url: String,
+        access_key: Option<String>,
+        secret_key: Option<String>,
+        virtual_host_style: bool,
+    },
+}
+
+impl StorageBackendInput {
+    pub fn driver(&self) -> StorageDriver {
+        match self {
+            Self::Local { .. } => StorageDriver::Local,
+            Self::S3 { .. } => StorageDriver::S3,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

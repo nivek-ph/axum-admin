@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use file_storage::files::{
-    FileError, FileListQuery, FileService, ImportFileUrl, MAX_UPLOAD_BYTES, StartUpload,
+    FileError, FileListQuery, FileService, ImportFileUrl, MAX_UPLOAD_BYTES, StartUpload, StoredFile,
 };
 use uuid::Uuid;
 
@@ -21,24 +21,50 @@ async fn managed_service(pool: &sqlx::PgPool, root: &Path) -> FileService {
         .0
 }
 
+async fn upload_parts(
+    service: &FileService,
+    name: &str,
+    tag: &str,
+    category: &str,
+    parts: &[&[u8]],
+) -> StoredFile {
+    let size = parts.iter().map(|part| part.len() as i64).sum();
+    let session = service
+        .start_upload(StartUpload {
+            name: name.to_string(),
+            size,
+            tag: tag.to_string(),
+            category: category.to_string(),
+        })
+        .await
+        .expect("upload session should start");
+    let mut offset = 0;
+    for part in parts {
+        service
+            .write_upload_chunk(&session.id, offset, part)
+            .await
+            .expect("upload part should write");
+        offset += part.len() as i64;
+    }
+    service
+        .complete_upload(&session.id)
+        .await
+        .expect("upload should complete")
+}
+
 #[sqlx::test(migrations = "../../migrations")]
 async fn file_can_be_uploaded_in_multiple_chunks(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
     let service = managed_service(&pool, &upload_dir).await;
 
-    let mut upload = service
-        .begin_upload("../../Quarterly Report.PDF", "finance", "report")
-        .await
-        .expect("upload should start");
-    upload
-        .write_chunk(b"quarterly ")
-        .await
-        .expect("first chunk should write");
-    upload
-        .write_chunk(b"results")
-        .await
-        .expect("second chunk should write");
-    let stored = upload.finish().await.expect("upload should finish");
+    let stored = upload_parts(
+        &service,
+        "../../Quarterly Report.PDF",
+        "finance",
+        "report",
+        &[b"quarterly ".as_slice(), b"results".as_slice()],
+    )
+    .await;
 
     assert_eq!(stored.name, "../../Quarterly Report.PDF");
     assert_eq!(stored.ext, "pdf");
@@ -130,6 +156,24 @@ async fn duplicate_chunk_offset_has_exactly_one_winner(pool: sqlx::PgPool) {
         .complete_upload(&session.id)
         .await
         .expect("winning chunk should complete");
+    let repeated = service
+        .complete_upload(&session.id)
+        .await
+        .expect("completion retry should return the same file");
+    assert_eq!(repeated.id, stored.id);
+    let completed_status = service
+        .upload_status(&session.id)
+        .await
+        .expect("completed upload status should survive a lost response");
+    assert_eq!(completed_status.uploaded_size, completed_status.total_size);
+    let parts_pending: bool = sqlx::query_scalar(
+        "select upload_parts_pending from uploaded_files where id = $1",
+    )
+    .bind(stored.id)
+    .fetch_one(&pool)
+    .await
+    .expect("upload part cleanup state should be readable");
+    assert!(!parts_pending);
     let object = Path::new(&stored.url)
         .file_name()
         .expect("stored URL should contain an object name");
@@ -146,70 +190,68 @@ async fn duplicate_chunk_offset_has_exactly_one_winner(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn aborted_upload_removes_the_partial_object(pool: sqlx::PgPool) {
+async fn resumable_metadata_failure_keeps_the_session_retryable(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
     let service = managed_service(&pool, &upload_dir).await;
-    let mut upload = service
-        .begin_upload("report.pdf", "finance", "report")
+    let session = service
+        .start_upload(StartUpload {
+            name: "retryable.txt".to_string(),
+            size: 4,
+            tag: String::new(),
+            category: String::new(),
+        })
         .await
-        .expect("upload should start");
-    upload
-        .write_chunk(b"report contents")
+        .expect("upload session should start");
+    service
+        .write_upload_chunk(&session.id, 0, b"data")
         .await
-        .expect("upload content should write");
+        .expect("upload chunk should write");
+    sqlx::query(
+        r#"
+        create function reject_uploaded_file_insert() returns trigger language plpgsql as $$
+        begin
+            raise exception 'test insert failure';
+        end;
+        $$
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("test insert failure function should be created");
+    sqlx::query(
+        r#"
+        create trigger reject_uploaded_file_insert
+        before insert on uploaded_files
+        for each row execute function reject_uploaded_file_insert()
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("test insert failure trigger should be created");
 
-    upload.abort().await.expect("upload should abort cleanly");
-    let mut entries = tokio::fs::read_dir(&upload_dir)
-        .await
-        .expect("upload directory should exist");
-    assert!(
-        entries
-            .next_entry()
+    assert!(matches!(
+        service.complete_upload(&session.id).await,
+        Err(FileError::Database(_))
+    ));
+    assert!(!upload_dir.join(&session.object_name).exists());
+    assert_eq!(
+        service
+            .upload_status(&session.id)
             .await
-            .expect("upload directory should be readable")
-            .is_none(),
-        "aborted upload should not leave a partial object"
+            .expect("failed completion should preserve the session")
+            .uploaded_size,
+        4
     );
 
-    tokio::fs::remove_dir_all(upload_dir)
-        .await
-        .expect("test upload directory should be removed");
-}
-
-#[sqlx::test(migrations = "../../migrations")]
-async fn metadata_failure_removes_the_uploaded_file(pool: sqlx::PgPool) {
-    let upload_dir = upload_dir();
-    let service = managed_service(&pool, &upload_dir).await;
-    let mut upload = service
-        .begin_upload("report.pdf", "finance", "report")
-        .await
-        .expect("upload should start");
-    upload
-        .write_chunk(b"report contents")
-        .await
-        .expect("upload content should write");
-
-    sqlx::query("drop table uploaded_files")
+    sqlx::query("drop trigger reject_uploaded_file_insert on uploaded_files")
         .execute(&pool)
         .await
-        .expect("test should make metadata persistence fail");
-    let error = upload
-        .finish()
+        .expect("insert failure trigger should be removed");
+    let stored = service
+        .complete_upload(&session.id)
         .await
-        .expect_err("metadata failure should fail the upload");
-    assert!(matches!(error, FileError::Database(_)));
-
-    let mut entries = tokio::fs::read_dir(&upload_dir)
-        .await
-        .expect("upload directory should exist");
-    assert!(
-        entries
-            .next_entry()
-            .await
-            .expect("upload directory should be readable")
-            .is_none(),
-        "failed upload should not leave a stored file"
-    );
+        .expect("completion retry should succeed");
+    assert_eq!(stored.name, "retryable.txt");
 
     tokio::fs::remove_dir_all(upload_dir)
         .await
@@ -217,18 +259,17 @@ async fn metadata_failure_removes_the_uploaded_file(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn metadata_delete_failure_keeps_the_managed_object(pool: sqlx::PgPool) {
+async fn metadata_delete_failure_leaves_a_retryable_pending_delete(pool: sqlx::PgPool) {
     let upload_dir = upload_dir();
     let service = managed_service(&pool, &upload_dir).await;
-    let mut upload = service
-        .begin_upload("report.pdf", "finance", "report")
-        .await
-        .expect("upload should start");
-    upload
-        .write_chunk(b"report contents")
-        .await
-        .expect("upload content should write");
-    let stored = upload.finish().await.expect("upload should finish");
+    let stored = upload_parts(
+        &service,
+        "report.pdf",
+        "finance",
+        "report",
+        &[b"report contents".as_slice()],
+    )
+    .await;
     let stored_name = Path::new(&stored.url)
         .file_name()
         .expect("stored URL should contain a file name");
@@ -261,12 +302,29 @@ async fn metadata_delete_failure_keeps_the_managed_object(pool: sqlx::PgPool) {
         .await
         .expect_err("metadata delete failure should fail the operation");
     assert!(matches!(error, FileError::Database(_)));
-    assert_eq!(
-        tokio::fs::read(upload_dir.join(stored_name))
-            .await
-            .expect("managed object should remain available"),
-        b"report contents"
-    );
+    assert!(!upload_dir.join(stored_name).exists());
+    let pending: bool = sqlx::query_scalar(
+        "select deletion_pending from uploaded_files where id = $1",
+    )
+    .bind(stored.id)
+    .fetch_one(&pool)
+    .await
+    .expect("failed metadata deletion should remain retryable");
+    assert!(pending);
+
+    sqlx::query("drop trigger reject_uploaded_file_delete on uploaded_files")
+        .execute(&pool)
+        .await
+        .expect("delete failure trigger should be removed");
+    FileService::managed(pool.clone())
+        .await
+        .expect("service startup should resume pending deletion");
+    let remaining: i64 = sqlx::query_scalar("select count(*) from uploaded_files where id = $1")
+        .bind(stored.id)
+        .fetch_one(&pool)
+        .await
+        .expect("file count should be readable");
+    assert_eq!(remaining, 0);
 
     tokio::fs::remove_dir_all(upload_dir)
         .await

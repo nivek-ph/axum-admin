@@ -282,6 +282,9 @@ impl From<file_storage::files::FileError> for AppError {
             FileError::UploadNotFound => UPLOAD_NOT_FOUND.into(),
             FileError::OffsetMismatch => UPLOAD_OFFSET_MISMATCH.into(),
             FileError::UploadIncomplete => UPLOAD_INCOMPLETE.into(),
+            source @ FileError::UploadCorrupt => {
+                INTERNAL_SERVER_ERROR.into_error().with_source(source)
+            }
             FileError::Storage(source) => source.into(),
             source @ (FileError::Database(_) | FileError::Io(_) | FileError::Adapter(_)) => {
                 INTERNAL_SERVER_ERROR.into_error().with_source(source)
@@ -303,7 +306,7 @@ impl From<file_storage::storages::StorageError> for AppError {
             }
             StorageError::ImmutableIdentity => ErrorSpec::failed_precondition(
                 "STORAGE_IDENTITY_IMMUTABLE",
-                "storage code and driver cannot be changed",
+                "storage code, driver, and object location cannot be changed",
             )
             .into(),
             StorageError::DefaultProtected => ErrorSpec::failed_precondition(
@@ -318,7 +321,7 @@ impl From<file_storage::storages::StorageError> for AppError {
             .into(),
             StorageError::InUse => ErrorSpec::failed_precondition(
                 "STORAGE_IN_USE",
-                "storage is referenced by uploaded files",
+                "storage is referenced by uploaded files or active upload sessions",
             )
             .into(),
             source @ (StorageError::InvalidInput(_) | StorageError::InvalidConfiguration(_)) => {
