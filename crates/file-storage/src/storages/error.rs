@@ -1,4 +1,4 @@
-use crate::files::ObjectStorageError;
+use super::ObjectStorageError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {

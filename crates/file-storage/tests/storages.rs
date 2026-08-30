@@ -5,7 +5,7 @@ use std::{
 
 use file_storage::{
     files::{FileService, StartUpload, StoredFile},
-    storages::{StorageBackendInput, StorageError, StorageInput},
+    storages::{StorageBackendInput, StorageBackendView, StorageError, StorageInput},
 };
 use uuid::Uuid;
 
@@ -76,7 +76,10 @@ async fn migration_seeds_the_local_default(pool: sqlx::PgPool) {
     assert_eq!(list[0].code, "local");
     assert!(list[0].enabled);
     assert!(list[0].is_default);
-    assert_eq!(list[0].root.as_deref(), Some("./uploads"));
+    assert!(matches!(
+        &list[0].backend,
+        StorageBackendView::Local { root } if root == "./uploads"
+    ));
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -455,9 +458,15 @@ async fn s3_credentials_are_stored_but_never_returned(pool: sqlx::PgPool) {
         .create(input)
         .await
         .expect("S3 storage should be created");
-    assert_eq!(view.root.as_deref(), Some("uploads"));
-    assert!(view.has_access_key);
-    assert!(view.has_secret_key);
+    assert!(matches!(
+        view.backend,
+        StorageBackendView::S3 {
+            root: Some(ref root),
+            has_access_key: true,
+            has_secret_key: true,
+            ..
+        } if root == "uploads"
+    ));
 
     let credentials: (String, String) = sqlx::query_as(
         r#"
@@ -506,7 +515,7 @@ async fn s3_credentials_are_required(pool: sqlx::PgPool) {
     assert!(matches!(
         storages.create(input).await,
         Err(StorageError::InvalidConfiguration(
-            file_storage::files::ObjectStorageError::MissingCredentials
+            file_storage::storages::ObjectStorageError::MissingCredentials
         ))
     ));
 
@@ -531,7 +540,7 @@ async fn managed_storage_rejects_s3_without_database_credentials(pool: sqlx::PgP
     assert!(matches!(
         FileService::managed(pool).await,
         Err(StorageError::InvalidConfiguration(
-            file_storage::files::ObjectStorageError::MissingCredentials
+            file_storage::storages::ObjectStorageError::MissingCredentials
         ))
     ));
 }

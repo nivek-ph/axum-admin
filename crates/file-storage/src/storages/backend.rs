@@ -25,13 +25,13 @@ pub enum ObjectStorageError {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FileObjectStorage {
+pub(crate) struct StorageBackend {
     pub(crate) operator: Operator,
     url_base: String,
     local_root: Option<PathBuf>,
 }
 
-impl FileObjectStorage {
+impl StorageBackend {
     pub(crate) fn validate_config(config: &StorageBackendConfig) -> Result<(), ObjectStorageError> {
         match config {
             StorageBackendConfig::Local { root } => {
@@ -170,7 +170,7 @@ fn absolute_path(path: &str) -> Result<PathBuf, std::io::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FileObjectStorage, ObjectStorageError};
+    use super::{ObjectStorageError, StorageBackend};
     use crate::storages::{S3Credentials, StorageBackendConfig};
 
     fn credentials() -> S3Credentials {
@@ -198,7 +198,7 @@ mod tests {
             virtual_host_style: false,
         };
 
-        let error = FileObjectStorage::from_config(&config)
+        let error = StorageBackend::from_config(&config)
             .expect_err("missing S3 settings should fail during startup");
         assert!(matches!(error, ObjectStorageError::Missing("bucket", "s3")));
     }
@@ -215,7 +215,7 @@ mod tests {
             virtual_host_style: false,
         };
 
-        let error = FileObjectStorage::from_config(&config)
+        let error = StorageBackend::from_config(&config)
             .expect_err("invalid S3 public URLs should fail during startup");
         assert!(matches!(error, ObjectStorageError::InvalidPublicBaseUrl));
     }
@@ -231,7 +231,7 @@ mod tests {
             credentials: credentials(),
             virtual_host_style: false,
         };
-        let storage = FileObjectStorage::from_config(&config)
+        let storage = StorageBackend::from_config(&config)
             .expect("valid S3 configuration should construct an adapter");
 
         assert_eq!(

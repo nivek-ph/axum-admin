@@ -18,6 +18,10 @@ pub fn public_routes() -> Router<crate::state::AppState> {
     public::router()
 }
 
+pub fn public_root_routes() -> Router<crate::state::AppState> {
+    public::root_router()
+}
+
 pub fn captcha_routes() -> Router<crate::state::AppState> {
     auth::captcha_routes()
 }

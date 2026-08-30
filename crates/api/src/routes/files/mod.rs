@@ -1,5 +1,6 @@
 mod dto;
 mod handler;
+mod public;
 
 use axum::{
     Router,
@@ -25,6 +26,10 @@ pub fn routes() -> Router<AppState> {
         .route("/uploads/{id}/complete", post(handler::complete_upload))
         .route("/{id}", delete(handler::delete_file_by_id))
         .route("/{id}/name", patch(handler::edit_file_name_by_id))
+}
+
+pub(crate) fn public_routes() -> Router<AppState> {
+    public::routes()
 }
 
 #[cfg(test)]

@@ -145,7 +145,7 @@ impl FromStr for StorageDriver {
             "local" => Ok(Self::Local),
             "s3" => Ok(Self::S3),
             _ => Err(StorageError::InvalidConfiguration(
-                crate::files::ObjectStorageError::UnsupportedDriver(value.to_string()),
+                super::ObjectStorageError::UnsupportedDriver(value.to_string()),
             )),
         }
     }
@@ -154,7 +154,7 @@ impl FromStr for StorageDriver {
 #[derive(Debug, Clone, Default)]
 pub struct StorageQuery {
     pub keyword: Option<String>,
-    pub driver: Option<String>,
+    pub driver: Option<StorageDriver>,
 }
 
 #[derive(Debug, Clone)]
@@ -198,21 +198,30 @@ pub struct StorageView {
     pub id: i64,
     pub name: String,
     pub code: String,
-    pub driver: String,
-    pub root: Option<String>,
-    pub bucket: Option<String>,
-    pub region: Option<String>,
-    pub endpoint: Option<String>,
-    pub public_base_url: Option<String>,
-    pub virtual_host_style: bool,
-    pub has_access_key: bool,
-    pub has_secret_key: bool,
+    pub backend: StorageBackendView,
     pub enabled: bool,
     pub is_default: bool,
     pub sort: i32,
     pub description: String,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum StorageBackendView {
+    Local {
+        root: String,
+    },
+    S3 {
+        root: Option<String>,
+        bucket: String,
+        region: String,
+        endpoint: Option<String>,
+        public_base_url: String,
+        virtual_host_style: bool,
+        has_access_key: bool,
+        has_secret_key: bool,
+    },
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -237,27 +246,36 @@ pub(crate) struct StorageRecord {
     pub updated_at: jiff_sqlx::Timestamp,
 }
 
-impl From<StorageRecord> for StorageView {
-    fn from(value: StorageRecord) -> Self {
-        Self {
+impl TryFrom<StorageRecord> for StorageView {
+    type Error = StorageError;
+
+    fn try_from(value: StorageRecord) -> Result<Self, Self::Error> {
+        let backend = match StorageDriver::from_str(&value.driver)? {
+            StorageDriver::Local => StorageBackendView::Local {
+                root: value.root.unwrap_or_default(),
+            },
+            StorageDriver::S3 => StorageBackendView::S3 {
+                root: value.root,
+                bucket: value.bucket.unwrap_or_default(),
+                region: value.region.unwrap_or_default(),
+                endpoint: value.endpoint,
+                public_base_url: value.public_base_url.unwrap_or_default(),
+                virtual_host_style: value.virtual_host_style,
+                has_access_key: value.access_key.is_some(),
+                has_secret_key: value.secret_key.is_some(),
+            },
+        };
+        Ok(Self {
             id: value.id,
             name: value.name,
             code: value.code,
-            driver: value.driver,
-            root: value.root,
-            bucket: value.bucket,
-            region: value.region,
-            endpoint: value.endpoint,
-            public_base_url: value.public_base_url,
-            virtual_host_style: value.virtual_host_style,
-            has_access_key: value.access_key.is_some(),
-            has_secret_key: value.secret_key.is_some(),
+            backend,
             enabled: value.enabled,
             is_default: value.is_default,
             sort: value.sort,
             description: value.description,
             created_at: value.created_at.to_jiff().to_string(),
             updated_at: value.updated_at.to_jiff().to_string(),
-        }
+        })
     }
 }

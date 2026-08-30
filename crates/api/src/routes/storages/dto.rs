@@ -1,4 +1,6 @@
-use file_storage::storages::{StorageBackendInput, StorageInput, StorageQuery, StorageView};
+use file_storage::storages::{
+    StorageBackendInput, StorageBackendView, StorageDriver, StorageInput, StorageQuery, StorageView,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -7,14 +9,30 @@ use utoipa::{IntoParams, ToSchema};
 #[serde(rename_all = "camelCase")]
 pub struct StorageListRequest {
     pub keyword: Option<String>,
-    pub driver: Option<String>,
+    pub driver: Option<StorageDriverRequest>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageDriverRequest {
+    Local,
+    S3,
+}
+
+impl From<StorageDriverRequest> for StorageDriver {
+    fn from(value: StorageDriverRequest) -> Self {
+        match value {
+            StorageDriverRequest::Local => Self::Local,
+            StorageDriverRequest::S3 => Self::S3,
+        }
+    }
 }
 
 impl From<StorageListRequest> for StorageQuery {
     fn from(value: StorageListRequest) -> Self {
         Self {
             keyword: value.keyword,
-            driver: value.driver,
+            driver: value.driver.map(StorageDriver::from),
         }
     }
 }
@@ -113,15 +131,8 @@ pub struct StorageResponse {
     pub id: i64,
     pub name: String,
     pub code: String,
-    pub driver: String,
-    pub root: Option<String>,
-    pub bucket: Option<String>,
-    pub region: Option<String>,
-    pub endpoint: Option<String>,
-    pub public_base_url: Option<String>,
-    pub virtual_host_style: bool,
-    pub has_access_key: bool,
-    pub has_secret_key: bool,
+    #[serde(flatten)]
+    pub backend: StorageBackendResponse,
     pub enabled: bool,
     pub is_default: bool,
     pub sort: i32,
@@ -130,21 +141,62 @@ pub struct StorageResponse {
     pub updated_at: String,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(
+    tag = "driver",
+    rename_all = "lowercase",
+    rename_all_fields = "camelCase"
+)]
+pub enum StorageBackendResponse {
+    Local {
+        root: String,
+    },
+    S3 {
+        root: Option<String>,
+        bucket: String,
+        region: String,
+        endpoint: Option<String>,
+        public_base_url: String,
+        virtual_host_style: bool,
+        has_access_key: bool,
+        has_secret_key: bool,
+    },
+}
+
+impl From<StorageBackendView> for StorageBackendResponse {
+    fn from(value: StorageBackendView) -> Self {
+        match value {
+            StorageBackendView::Local { root } => Self::Local { root },
+            StorageBackendView::S3 {
+                root,
+                bucket,
+                region,
+                endpoint,
+                public_base_url,
+                virtual_host_style,
+                has_access_key,
+                has_secret_key,
+            } => Self::S3 {
+                root,
+                bucket,
+                region,
+                endpoint,
+                public_base_url,
+                virtual_host_style,
+                has_access_key,
+                has_secret_key,
+            },
+        }
+    }
+}
+
 impl From<StorageView> for StorageResponse {
     fn from(value: StorageView) -> Self {
         Self {
             id: value.id,
             name: value.name,
             code: value.code,
-            driver: value.driver,
-            root: value.root,
-            bucket: value.bucket,
-            region: value.region,
-            endpoint: value.endpoint,
-            public_base_url: value.public_base_url,
-            virtual_host_style: value.virtual_host_style,
-            has_access_key: value.has_access_key,
-            has_secret_key: value.has_secret_key,
+            backend: value.backend.into(),
             enabled: value.enabled,
             is_default: value.is_default,
             sort: value.sort,

@@ -3,10 +3,9 @@ use std::str::FromStr;
 use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
 
 use super::{
-    S3Credentials, StorageBackendConfig, StorageBackendInput, StorageDriver, StorageError,
-    StorageInput, StorageQuery, StorageView, model::StorageRecord,
+    ObjectStorageError, S3Credentials, StorageBackend, StorageBackendConfig, StorageBackendInput,
+    StorageDriver, StorageError, StorageInput, StorageQuery, StorageView, model::StorageRecord,
 };
-use crate::files::storage::FileObjectStorage;
 
 const STORAGE_LIFECYCLE_LOCK: i64 = 0x4156_415f_5354_4f52;
 
@@ -32,11 +31,6 @@ const STORAGE_SELECT: &str = r#"
         updated_at
     from sys_storages
 "#;
-
-#[derive(Clone)]
-pub(crate) struct StorageEntry {
-    pub(crate) storage: FileObjectStorage,
-}
 
 #[derive(Clone)]
 pub struct StorageService {
@@ -80,15 +74,9 @@ impl StorageService {
         Ok(record.id)
     }
 
-    pub(crate) async fn entry_for_id(&self, id: i64) -> Result<StorageEntry, StorageError> {
+    pub(crate) async fn backend_for_id(&self, id: i64) -> Result<StorageBackend, StorageError> {
         let record = fetch_one(&self.pool, id).await?;
-        self.entry_from_record(&record)
-    }
-
-    fn entry_from_record(&self, record: &StorageRecord) -> Result<StorageEntry, StorageError> {
-        Ok(StorageEntry {
-            storage: storage_from_record(record)?,
-        })
+        storage_from_record(&record)
     }
 
     pub async fn list(&self, query: StorageQuery) -> Result<Vec<StorageView>, StorageError> {
@@ -100,20 +88,20 @@ impl StorageService {
         );
         let records = sqlx::query_as::<_, StorageRecord>(AssertSqlSafe(sql))
             .bind(query.keyword.as_deref())
-            .bind(query.driver.as_deref())
+            .bind(query.driver.map(StorageDriver::as_str))
             .fetch_all(&self.pool)
             .await?;
-        Ok(records.into_iter().map(StorageView::from).collect())
+        records.into_iter().map(StorageView::try_from).collect()
     }
 
     pub async fn find(&self, id: i64) -> Result<StorageView, StorageError> {
-        Ok(fetch_one(&self.pool, id).await?.into())
+        fetch_one(&self.pool, id).await?.try_into()
     }
 
     pub async fn create(&self, payload: StorageInput) -> Result<StorageView, StorageError> {
         validate_input(&payload)?;
         let config = config_from_input(&payload, None)?;
-        FileObjectStorage::validate_config(&config)?;
+        StorageBackend::validate_config(&config)?;
         let credentials = config.credentials();
         let result = sqlx::query_scalar::<_, i64>(
             r#"
@@ -168,7 +156,7 @@ impl StorageService {
         if !current_config.same_location(&config) {
             return Err(StorageError::ImmutableIdentity);
         }
-        FileObjectStorage::validate_config(&config)?;
+        StorageBackend::validate_config(&config)?;
         let credentials = config.credentials();
         sqlx::query(
             r#"
@@ -385,14 +373,14 @@ fn config_from_input(
     }
 }
 
-fn storage_from_record(record: &StorageRecord) -> Result<FileObjectStorage, StorageError> {
+fn storage_from_record(record: &StorageRecord) -> Result<StorageBackend, StorageError> {
     let config = config_from_record(record)?;
-    Ok(FileObjectStorage::from_config(&config)?)
+    Ok(StorageBackend::from_config(&config)?)
 }
 
 fn validate_record(record: &StorageRecord) -> Result<(), StorageError> {
     let config = config_from_record(record)?;
-    Ok(FileObjectStorage::validate_config(&config)?)
+    Ok(StorageBackend::validate_config(&config)?)
 }
 
 fn config_from_record(record: &StorageRecord) -> Result<StorageBackendConfig, StorageError> {
@@ -451,8 +439,8 @@ fn credentials(
             access_key,
             secret_key,
         }),
-        (None, None) => Err(crate::files::ObjectStorageError::MissingCredentials.into()),
-        _ => Err(crate::files::ObjectStorageError::IncompleteCredentials.into()),
+        (None, None) => Err(ObjectStorageError::MissingCredentials.into()),
+        _ => Err(ObjectStorageError::IncompleteCredentials.into()),
     }
 }
 

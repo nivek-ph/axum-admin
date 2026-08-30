@@ -100,4 +100,72 @@ describe('Storage workflow', () => {
     )
     await waitFor(() => expect(reads).toBeGreaterThan(1))
   })
+
+  it('renders and edits an S3 storage from its discriminated response fields', async () => {
+    const user = userEvent.setup()
+    const currentUser = { id: 1, userName: 'admin', nickName: 'Admin' }
+    useAuthStore.getState().setSession({ accessToken: 'token', refreshToken: 'refresh', userInfo: currentUser })
+    http.defaults.adapter = (async (config) => {
+      let data: unknown
+      if (config.url === '/users/me') {
+        data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
+      } else if (config.url === '/menus/current') {
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            menus: [{ name: 'sys-storage', path: '/sys-storage' }],
+            permissions: ['system:storage:update'],
+          },
+        }
+      } else if (config.url === '/storages' && config.method === 'get') {
+        data = {
+          code: 'OK',
+          message: 'ok',
+          data: {
+            list: [
+              {
+                id: 2,
+                name: 'Archive objects',
+                code: 'archive_objects',
+                driver: 's3',
+                root: 'uploads',
+                bucket: 'archive-bucket',
+                region: 'ap-southeast-1',
+                endpoint: null,
+                publicBaseUrl: 'https://cdn.example.test/uploads',
+                virtualHostStyle: true,
+                hasAccessKey: true,
+                hasSecretKey: true,
+                enabled: true,
+                isDefault: false,
+                sort: 10,
+                description: 'Long-term archive',
+                createdAt: '2026-08-30T00:00:00',
+                updatedAt: '2026-08-30T00:00:00',
+              },
+            ],
+          },
+        }
+      } else {
+        throw new Error(`Unexpected request: ${config.method} ${config.url}`)
+      }
+      return { data, status: 200, statusText: 'OK', headers: {}, config }
+    }) as AxiosAdapter
+    window.history.replaceState({}, '', '/sys-storage')
+    render(<Application />)
+
+    await screen.findByText('Archive objects')
+    expect(screen.getByText('archive-bucket')).toBeInTheDocument()
+    expect(screen.getByText('AWS')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByLabelText('Bucket')).toHaveValue('archive-bucket')
+    expect(screen.getByLabelText('Region')).toHaveValue('ap-southeast-1')
+    expect(screen.getByLabelText('Root path')).toHaveValue('uploads')
+    expect(screen.getByLabelText('Public URL')).toHaveValue('https://cdn.example.test/uploads')
+    expect(screen.getByLabelText('Access key')).toHaveAttribute('placeholder', 'Leave blank to keep current')
+    expect(screen.getByLabelText('Secret key')).toHaveAttribute('placeholder', 'Leave blank to keep current')
+    expect(screen.getByLabelText('Virtual-hosted style')).toBeChecked()
+  })
 })

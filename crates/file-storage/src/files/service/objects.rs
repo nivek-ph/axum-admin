@@ -73,7 +73,7 @@ impl FileService {
             self.cleanup_upload_parts(id, storage_id, upload_id).await?;
         }
 
-        let storage = self.storage_for(storage_id).await?.storage;
+        let storage = self.storage_for(storage_id).await?;
         let object = file.object_name.ok_or(FileError::UploadCorrupt)?;
         match storage.operator.delete(&object).await {
             Ok(()) => {}
@@ -164,15 +164,15 @@ impl FileService {
             return Ok(None);
         };
         let storage = self.storage_for(storage_id).await?;
-        if !storage.storage.is_local() {
+        if !storage.is_local() {
             return Ok(None);
         }
-        let metadata = match storage.storage.operator.stat(object).await {
+        let metadata = match storage.operator.stat(object).await {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
         };
-        let reader = storage.storage.operator.reader(object).await?;
+        let reader = storage.operator.reader(object).await?;
         Ok(Some(LocalFileReader {
             reader,
             size: metadata.content_length(),

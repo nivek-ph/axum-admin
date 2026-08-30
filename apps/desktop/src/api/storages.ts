@@ -4,19 +4,10 @@ import { http } from './http'
 
 export type StorageDriver = 'local' | 's3'
 
-export interface StorageRecord {
+interface StorageRecordBase {
   id: number
   name: string
   code: string
-  driver: StorageDriver
-  root?: string | null
-  bucket?: string | null
-  region?: string | null
-  endpoint?: string | null
-  publicBaseUrl?: string | null
-  virtualHostStyle: boolean
-  hasAccessKey: boolean
-  hasSecretKey: boolean
   enabled: boolean
   isDefault: boolean
   sort: number
@@ -24,6 +15,23 @@ export interface StorageRecord {
   createdAt: string
   updatedAt: string
 }
+
+export type StorageRecord =
+  | (StorageRecordBase & {
+      driver: 'local'
+      root: string
+    })
+  | (StorageRecordBase & {
+      driver: 's3'
+      root?: string | null
+      bucket: string
+      region: string
+      endpoint?: string | null
+      publicBaseUrl: string
+      virtualHostStyle: boolean
+      hasAccessKey: boolean
+      hasSecretKey: boolean
+    })
 
 interface StoragePayloadBase {
   name: string
