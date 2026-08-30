@@ -333,7 +333,7 @@ async fn s3_credentials_are_required(pool: sqlx::PgPool) {
         .expect("managed storage should load");
     let input = StorageInput {
         name: "Object storage".to_string(),
-        code: "object_store_without_credentials".to_string(),
+        code: "s3_without_credentials".to_string(),
         backend: StorageBackendInput::S3 {
             root: None,
             bucket: "test-bucket".to_string(),
