@@ -107,4 +107,25 @@ describe('file upload adapter', () => {
     await expect(uploadFile(new File(['data'], 'failed.txt'))).rejects.toThrow('failed')
     expect(attempts).toBe(1)
   })
+
+  it('keeps the resumable session when its status lookup fails transiently', async () => {
+    const file = new File(['data'], 'resume.txt', { lastModified: 123 })
+    const resumeKey = `file-upload:${file.name}:${file.size}:${file.lastModified}`
+    localStorage.setItem(resumeKey, 'saved-session')
+    const requests: string[] = []
+    http.defaults.adapter = (async (config: InternalAxiosRequestConfig) => {
+      requests.push(`${config.method} ${config.url}`)
+      throw new AxiosError('failed', '500', config, undefined, {
+        data: { code: 'INTERNAL_SERVER_ERROR', message: 'temporary failure' },
+        status: 500,
+        statusText: 'Error',
+        headers: {},
+        config,
+      })
+    }) as AxiosAdapter
+
+    await expect(uploadFile(file)).rejects.toThrow('temporary failure')
+    expect(localStorage.getItem(resumeKey)).toBe('saved-session')
+    expect(requests).toEqual(['get /files/uploads/saved-session'])
+  })
 })

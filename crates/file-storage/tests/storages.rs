@@ -173,12 +173,18 @@ async fn protected_and_referenced_configurations_cannot_be_removed(pool: sqlx::P
         .file_name()
         .and_then(|value| value.to_str())
         .expect("stored URL should contain an object name");
-    assert_eq!(
+    assert!(
         files
             .read_local_object(object)
             .await
             .expect("disabled associated storage should remain readable")
-            .expect("associated object should exist"),
+            .is_some(),
+        "associated object should expose a stream"
+    );
+    assert_eq!(
+        tokio::fs::read(secondary_root.join(object))
+            .await
+            .expect("associated object should remain readable"),
         b"used"
     );
 

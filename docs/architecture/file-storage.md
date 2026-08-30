@@ -30,19 +30,29 @@ upload sessions address that backend directly. For local storage this includes `
 includes `root`, `bucket`, `region`, `endpoint`, `public_base_url`, and virtual-host style.
 Credentials may still be rotated in place.
 
-Managed uploads use 8 MiB chunks and persist their current offset in `uploaded_file_sessions`.
-The Admin Console resumes the same file from that offset after an interrupted request. Files are
-limited to 1 GiB. Every upload resolves the database default when its session starts. Reads and deletes
-require and resolve the file's persisted `storage_id`. Storage resolution reads PostgreSQL directly,
-so another process's default or credential change does not remain stale.
+Managed uploads use chunks of at most 8 MiB and persist their current offset in
+`uploaded_file_sessions`. Each chunk is claimed with a short conditional database update, written
+outside a database transaction under an operation-specific object key, then recorded in
+`uploaded_file_parts` by a second short transaction. The Admin Console resumes the same file from
+the persisted offset after an interrupted request and retains that resume ID across transient status
+errors. Files are limited to 1 GiB. Every upload resolves the database default when its session
+starts. Reads and deletes require the file's persisted `(storage_id, object_name)` identity rather
+than reverse-parsing its public URL. Local responses stream from OpenDAL instead of buffering the
+whole object. Storage resolution reads PostgreSQL directly, so another process's default or
+credential change does not remain stale.
 
 Imported external URLs have no storage association, including imported `/uploads/...` URLs. They
 are not served through the local upload route, and deleting them removes metadata only without
 touching an object store.
 Disabled storage is excluded from new default selection but remains readable for associated files.
-Completion uses the upload session ID as an idempotency key: the file row and session removal commit
-in one PostgreSQL transaction, and a retry returns the already-created file. Completed chunk prefixes
-are removed on the successful path and retried when completion is called again or the service restarts.
+Completion uses the upload session ID as an idempotency key. A short database update claims the
+session as `completing`; object assembly runs outside a transaction into an operation-specific final
+object; and a final short transaction inserts the file row and removes the session. Explicit failure
+paths abort and delete the in-progress final object before releasing the claim. Operation tokens fence
+concurrent or stale workers, while an expired claim can be retried without letting an earlier worker
+overwrite the replacement object. A retry after a committed response loss returns the already-created
+file. Completed chunk prefixes are removed on the successful path and retried when completion is
+called again or the service restarts.
 
 Managed deletion first persists `deletion_pending`, which hides the file from listings and local
 serving, then deletes the object without buffering it in application memory. A retry can finish a

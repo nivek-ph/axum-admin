@@ -166,13 +166,12 @@ async fn duplicate_chunk_offset_has_exactly_one_winner(pool: sqlx::PgPool) {
         .await
         .expect("completed upload status should survive a lost response");
     assert_eq!(completed_status.uploaded_size, completed_status.total_size);
-    let parts_pending: bool = sqlx::query_scalar(
-        "select upload_parts_pending from uploaded_files where id = $1",
-    )
-    .bind(stored.id)
-    .fetch_one(&pool)
-    .await
-    .expect("upload part cleanup state should be readable");
+    let parts_pending: bool =
+        sqlx::query_scalar("select upload_parts_pending from uploaded_files where id = $1")
+            .bind(stored.id)
+            .fetch_one(&pool)
+            .await
+            .expect("upload part cleanup state should be readable");
     assert!(!parts_pending);
     let object = Path::new(&stored.url)
         .file_name()
@@ -303,13 +302,12 @@ async fn metadata_delete_failure_leaves_a_retryable_pending_delete(pool: sqlx::P
         .expect_err("metadata delete failure should fail the operation");
     assert!(matches!(error, FileError::Database(_)));
     assert!(!upload_dir.join(stored_name).exists());
-    let pending: bool = sqlx::query_scalar(
-        "select deletion_pending from uploaded_files where id = $1",
-    )
-    .bind(stored.id)
-    .fetch_one(&pool)
-    .await
-    .expect("failed metadata deletion should remain retryable");
+    let pending: bool =
+        sqlx::query_scalar("select deletion_pending from uploaded_files where id = $1")
+            .bind(stored.id)
+            .fetch_one(&pool)
+            .await
+            .expect("failed metadata deletion should remain retryable");
     assert!(pending);
 
     sqlx::query("drop trigger reject_uploaded_file_delete on uploaded_files")

@@ -58,7 +58,7 @@ pub async fn create(
     State(state): State<AppState>,
     Json(payload): Json<StorageRequest>,
 ) -> AppResult<Json<ApiResponse<StorageResponse>>> {
-    let payload: file_storage::storages::StorageInput = payload.try_into()?;
+    let payload: file_storage::storages::StorageInput = payload.into();
     let item = state.storages.create(payload).await?;
     Ok(Json(ApiResponse::new("OK", "created", Some(item.into()))))
 }
@@ -77,7 +77,7 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(payload): Json<StorageRequest>,
 ) -> AppResult<Json<ApiResponse<StorageResponse>>> {
-    let payload: file_storage::storages::StorageInput = payload.try_into()?;
+    let payload: file_storage::storages::StorageInput = payload.into();
     let item = state.storages.update(id, payload).await?;
     Ok(Json(ApiResponse::new("OK", "updated", Some(item.into()))))
 }

@@ -17,7 +17,6 @@ const payload: StoragePayload = {
   code: 'local_store',
   driver: 'local',
   root: './uploads',
-  virtualHostStyle: false,
   enabled: true,
   sort: 10,
   description: '',

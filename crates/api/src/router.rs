@@ -1,7 +1,8 @@
 use axum::{
     Router,
+    body::Body,
     extract::{Path, State},
-    http::{StatusCode, header},
+    http::{HeaderValue, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
     routing::get,
@@ -63,11 +64,19 @@ async fn serve_local_upload(
     State(state): State<AppState>,
     Path(object): Path<String>,
 ) -> AppResult<Response> {
-    let Some(bytes) = state.files.read_local_object(&object).await? else {
+    let Some(file) = state.files.read_local_object(&object).await? else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
     let content_type = mime_guess::from_path(&object).first_or_octet_stream();
-    Ok(([(header::CONTENT_TYPE, content_type.as_ref())], bytes).into_response())
+    let mut response = Body::from_stream(file.stream).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(content_type.as_ref()).expect("MIME type should be a valid header"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_LENGTH, HeaderValue::from(file.size));
+    Ok(response)
 }
 
 #[cfg(test)]

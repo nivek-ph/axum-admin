@@ -28,16 +28,13 @@ VALUES
     (1103, 11, '', 'users:delete', true, '', 30, 'Delete user', '', 'action', 'enabled', 'system:user:delete'),
     (1104, 11, '', 'users:reset-password', true, '', 40, 'Reset password', '', 'action', 'enabled', 'system:user:reset-password'),
     (1105, 11, '', 'users:assign-roles', true, '', 50, 'Assign roles', '', 'action', 'enabled', 'system:user:assign-roles'),
-    (1106, 11, '', 'users:permissions-read', true, '', 60, 'Read user permissions', '', 'action', 'enabled', 'system:user:permissions-read'),
-    (1107, 11, '', 'users:permissions-update', true, '', 70, 'Update user permissions', '', 'action', 'enabled', 'system:user:permissions-update'),
+    (1106, 11, '', 'users:access-read', true, '', 60, 'Read user access', '', 'action', 'enabled', 'system:user:access-read'),
     (12, 10, '/roles', 'roles', false, '', 20, 'Roles', 'shield', 'page', 'enabled', 'system:role:list'),
     (1201, 12, '', 'roles:create', true, '', 10, 'Create role', '', 'action', 'enabled', 'system:role:create'),
     (1202, 12, '', 'roles:update', true, '', 20, 'Update role', '', 'action', 'enabled', 'system:role:update'),
     (1203, 12, '', 'roles:delete', true, '', 30, 'Delete role', '', 'action', 'enabled', 'system:role:delete'),
-    (1204, 12, '', 'roles:menus-read', true, '', 40, 'Read role menus', '', 'action', 'enabled', 'system:role:menus-read'),
-    (1205, 12, '', 'roles:menus-update', true, '', 50, 'Update role menus', '', 'action', 'enabled', 'system:role:update-permission'),
-    (1210, 12, '', 'roles:permissions-read', true, '', 60, 'Read role permissions', '', 'action', 'enabled', 'system:role:permissions-read'),
-    (1211, 12, '', 'roles:permissions-update', true, '', 70, 'Update role permissions', '', 'action', 'enabled', 'system:role:permissions-update'),
+    (1204, 12, '', 'roles:access-read', true, '', 40, 'Read role access', '', 'action', 'enabled', 'system:role:access-read'),
+    (1205, 12, '', 'roles:access-update', true, '', 50, 'Update role access', '', 'action', 'enabled', 'system:role:access-update'),
     (13, 10, '/departments', 'departments', false, '', 30, 'Departments', 'building', 'page', 'enabled', 'system:dept:list'),
     (1301, 13, '', 'departments:create', true, '', 10, 'Create department', '', 'action', 'enabled', 'system:dept:create'),
     (1302, 13, '', 'departments:get', true, '', 20, 'Get department', '', 'action', 'enabled', 'system:dept:get'),
@@ -86,17 +83,14 @@ VALUES
     (1103, 'DELETE', '/api/users/{id}'),
     (1104, 'POST', '/api/users/{id}/password/reset'),
     (1105, 'PUT', '/api/users/{id}/roles'),
-    (1106, 'GET', '/api/users/{id}/permissions'),
-    (1107, 'PUT', '/api/users/{id}/permissions'),
+    (1106, 'GET', '/api/users/{id}/access'),
 
     (12, 'GET', '/api/roles'),
     (1201, 'POST', '/api/roles'),
     (1202, 'PUT', '/api/roles/{id}'),
     (1203, 'DELETE', '/api/roles/{id}'),
-    (1204, 'GET', '/api/roles/{id}/menus'),
-    (1205, 'PUT', '/api/roles/{id}/menus'),
-    (1210, 'GET', '/api/roles/{id}/permissions'),
-    (1211, 'PUT', '/api/roles/{id}/permissions'),
+    (1204, 'GET', '/api/roles/{id}/access'),
+    (1205, 'PUT', '/api/roles/{id}/access'),
 
     (13, 'GET', '/api/depts'),
     (1301, 'POST', '/api/depts'),
@@ -151,18 +145,9 @@ VALUES
     (41, 'POST', '/api/audit/events/analyze'),
     (41, 'GET', '/api/audit/events/stats');
 
-INSERT INTO sys_role_menus (role_id, menu_id)
-SELECT 1, id
-FROM sys_menus
-WHERE menu_type IN ('directory', 'page');
-
 INSERT INTO casbin_rule (ptype, v0, v1, v2, v3, v4, v5)
-SELECT 'p', 'role:1', menu.permission, '', '', '', ''
-FROM sys_role_menus access
-JOIN sys_menus menu ON menu.id = access.menu_id
-WHERE access.role_id = 1
-  AND menu.menu_type = 'page'
-UNION ALL
-SELECT 'p', 'role:1', permission, '', '', '', ''
-FROM sys_menus
-WHERE menu_type = 'action';
+SELECT 'p', 'role:' || role.id::text, menu.permission, '', '', '', ''
+FROM sys_roles role
+CROSS JOIN sys_menus menu
+WHERE role.code = 'super_admin'
+  AND menu.menu_type IN ('page', 'action');

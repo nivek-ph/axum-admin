@@ -8,6 +8,8 @@ pub enum FileError {
     OffsetMismatch,
     #[error("upload is incomplete")]
     UploadIncomplete,
+    #[error("upload operation is already in progress")]
+    UploadInProgress,
     #[error("uploaded chunks do not match the persisted upload state")]
     UploadCorrupt,
     #[error("file storage operation failed")]

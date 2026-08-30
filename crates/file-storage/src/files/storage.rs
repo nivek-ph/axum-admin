@@ -111,11 +111,6 @@ impl FileObjectStorage {
         format!("{}/{object}", self.url_base)
     }
 
-    pub(crate) fn managed_object(&self, url: &str) -> Option<String> {
-        let object = url.strip_prefix(&format!("{}/", self.url_base))?;
-        (!object.is_empty() && !object.contains('/')).then(|| object.to_string())
-    }
-
     pub(crate) fn is_local(&self) -> bool {
         self.local_root.is_some()
     }
@@ -205,10 +200,6 @@ mod tests {
         assert_eq!(
             storage.public_url("report.pdf"),
             "https://cdn.example.test/assets/report.pdf"
-        );
-        assert_eq!(
-            storage.managed_object("https://cdn.example.test/assets/report.pdf"),
-            Some("report.pdf".to_string())
         );
     }
 }

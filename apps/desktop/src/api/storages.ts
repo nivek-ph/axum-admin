@@ -25,22 +25,30 @@ export interface StorageRecord {
   updatedAt: string
 }
 
-export interface StoragePayload {
+interface StoragePayloadBase {
   name: string
   code: string
-  driver: StorageDriver
-  root?: string
-  bucket?: string
-  region?: string
-  endpoint?: string
-  publicBaseUrl?: string
-  accessKey?: string
-  secretKey?: string
-  virtualHostStyle: boolean
   enabled: boolean
   sort: number
   description: string
 }
+
+export type StoragePayload =
+  | (StoragePayloadBase & {
+      driver: 'local'
+      root: string
+    })
+  | (StoragePayloadBase & {
+      driver: 's3'
+      root: string
+      bucket: string
+      region: string
+      endpoint: string
+      publicBaseUrl: string
+      accessKey: string
+      secretKey: string
+      virtualHostStyle: boolean
+    })
 
 export async function fetchStorages(filters: { keyword?: string; driver?: StorageDriver } = {}) {
   const response = await http.get<never, ApiResponse<{ list: StorageRecord[] }>>('/storages', {

@@ -75,6 +75,10 @@ const UPLOAD_OFFSET_MISMATCH: ErrorSpec =
     ErrorSpec::conflict("UPLOAD_OFFSET_MISMATCH", "upload offset does not match");
 const UPLOAD_INCOMPLETE: ErrorSpec =
     ErrorSpec::conflict("UPLOAD_INCOMPLETE", "upload is incomplete");
+const UPLOAD_IN_PROGRESS: ErrorSpec = ErrorSpec::conflict(
+    "UPLOAD_IN_PROGRESS",
+    "upload operation is already in progress",
+);
 
 impl From<iam::access::AccessEvaluationError> for AppError {
     fn from(error: iam::access::AccessEvaluationError) -> Self {
@@ -282,6 +286,7 @@ impl From<file_storage::files::FileError> for AppError {
             FileError::UploadNotFound => UPLOAD_NOT_FOUND.into(),
             FileError::OffsetMismatch => UPLOAD_OFFSET_MISMATCH.into(),
             FileError::UploadIncomplete => UPLOAD_INCOMPLETE.into(),
+            FileError::UploadInProgress => UPLOAD_IN_PROGRESS.into(),
             source @ FileError::UploadCorrupt => {
                 INTERNAL_SERVER_ERROR.into_error().with_source(source)
             }

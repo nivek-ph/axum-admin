@@ -1,6 +1,6 @@
 import type { ApiResponse } from './core'
 import { withAuthHeaders } from './core'
-import { http } from './http'
+import { ApiHttpError, http } from './http'
 
 export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
 
@@ -71,8 +71,12 @@ export async function uploadFile(
         withAuthHeaders(),
       )
       if (response.data?.totalSize === file.size) session = response.data
-    } catch {
-      localStorage.removeItem(resumeKey)
+    } catch (error) {
+      if (error instanceof ApiHttpError && error.body?.code === 'UPLOAD_NOT_FOUND') {
+        localStorage.removeItem(resumeKey)
+      } else {
+        throw error
+      }
     }
   }
   if (!session) {

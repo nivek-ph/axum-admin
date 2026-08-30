@@ -374,10 +374,7 @@ fn config_from_input(
                 bucket: bucket.trim().to_string(),
                 region: region.trim().to_string(),
                 endpoint: optional_owned(endpoint.as_deref()),
-                public_base_url: public_base_url
-                    .trim()
-                    .trim_end_matches('/')
-                    .to_string(),
+                public_base_url: public_base_url.trim().trim_end_matches('/').to_string(),
                 credentials: credentials(access_key, secret_key)?,
                 virtual_host_style: *virtual_host_style,
             })
@@ -393,7 +390,12 @@ fn storage_from_record(record: &StorageRecord) -> Result<FileObjectStorage, Stor
 fn config_from_record(record: &StorageRecord) -> Result<StorageBackendConfig, StorageError> {
     match StorageDriver::from_str(&record.driver)? {
         StorageDriver::Local => Ok(StorageBackendConfig::Local {
-            root: record.root.as_deref().unwrap_or_default().trim().to_string(),
+            root: record
+                .root
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
         }),
         StorageDriver::S3 => Ok(StorageBackendConfig::S3 {
             root: optional_owned(record.root.as_deref()),

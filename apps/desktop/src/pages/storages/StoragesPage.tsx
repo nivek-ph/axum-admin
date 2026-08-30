@@ -42,13 +42,6 @@ const emptyForm: StoragePayload = {
   code: '',
   driver: 'local',
   root: './uploads',
-  bucket: '',
-  region: '',
-  endpoint: '',
-  publicBaseUrl: '',
-  accessKey: '',
-  secretKey: '',
-  virtualHostStyle: false,
   enabled: true,
   sort: 999,
   description: '',
@@ -129,22 +122,29 @@ export function StoragesPage() {
 
   function openEdit(item: StorageRecord) {
     setEditing(item)
-    setForm({
+    const common = {
       name: item.name,
       code: item.code,
-      driver: item.driver,
-      root: item.root || '',
-      bucket: item.bucket || '',
-      region: item.region || '',
-      endpoint: item.endpoint || '',
-      publicBaseUrl: item.publicBaseUrl || '',
-      accessKey: '',
-      secretKey: '',
-      virtualHostStyle: item.virtualHostStyle,
       enabled: item.enabled,
       sort: item.sort,
       description: item.description,
-    })
+    }
+    setForm(
+      item.driver === 'local'
+        ? { ...common, driver: 'local', root: item.root || '' }
+        : {
+            ...common,
+            driver: 's3',
+            root: item.root || '',
+            bucket: item.bucket || '',
+            region: item.region || '',
+            endpoint: item.endpoint || '',
+            publicBaseUrl: item.publicBaseUrl || '',
+            accessKey: '',
+            secretKey: '',
+            virtualHostStyle: item.virtualHostStyle,
+          },
+    )
     setDialogOpen(true)
   }
 
@@ -313,7 +313,29 @@ export function StoragesPage() {
                 id="storage-driver"
                 onChange={(event) => {
                   const driver = event.target.value as StorageDriver
-                  setForm({ ...form, driver, root: driver === 'local' ? './uploads' : '' })
+                  const common = {
+                    name: form.name,
+                    code: form.code,
+                    enabled: form.enabled,
+                    sort: form.sort,
+                    description: form.description,
+                  }
+                  setForm(
+                    driver === 'local'
+                      ? { ...common, driver: 'local', root: './uploads' }
+                      : {
+                          ...common,
+                          driver: 's3',
+                          root: '',
+                          bucket: '',
+                          region: '',
+                          endpoint: '',
+                          publicBaseUrl: '',
+                          accessKey: '',
+                          secretKey: '',
+                          virtualHostStyle: false,
+                        },
+                  )
                 }}
                 value={form.driver}
               >

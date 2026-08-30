@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use opendal::{ErrorKind, Writer};
+use opendal::{ErrorKind, FuturesBytesStream, Writer};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -24,40 +24,60 @@ struct PendingObject {
     stored_name: String,
     writer: Option<Writer>,
     size: usize,
-    cleanup_object: bool,
 }
 
 #[derive(sqlx::FromRow)]
 struct FileDeletion {
     storage_id: Option<i64>,
-    url: String,
+    object_name: Option<String>,
     upload_id: Option<String>,
     upload_parts_pending: bool,
 }
 
-impl Drop for PendingObject {
-    fn drop(&mut self) {
-        if !self.cleanup_object {
-            return;
-        }
-        let writer = self.writer.take();
-        let operator = self.storage.operator.clone();
-        let object = self.stored_name.clone();
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
-                if let Some(mut writer) = writer
-                    && let Err(error) = writer.abort().await
-                {
-                    tracing::warn!(%object, %error, "failed to abort abandoned upload writer");
-                }
-                if let Err(error) = operator.delete(&object).await {
-                    tracing::warn!(%object, %error, "failed to clean up abandoned upload object");
-                }
-            });
-        } else {
-            tracing::error!(%object, "could not clean up abandoned upload outside a Tokio runtime");
-        }
+#[derive(sqlx::FromRow)]
+struct UploadPart {
+    part_offset: i64,
+    size: i64,
+    object_name: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct CompletionClaim {
+    id: String,
+    storage_id: i64,
+    name: String,
+    object_name: String,
+    ext: String,
+    tag: String,
+    category: String,
+    total_size: i64,
+    uploaded_size: i64,
+    previous_object_name: String,
+}
+
+impl CompletionClaim {
+    fn into_parts(self) -> (UploadSession, String) {
+        let previous_object_name = self.previous_object_name;
+        (
+            UploadSession {
+                id: self.id,
+                storage_id: self.storage_id,
+                name: self.name,
+                object_name: self.object_name,
+                ext: self.ext,
+                tag: self.tag,
+                category: self.category,
+                total_size: self.total_size,
+                uploaded_size: self.uploaded_size,
+            },
+            previous_object_name,
+        )
     }
+}
+
+pub struct LocalFileStream {
+    pub stream: FuturesBytesStream,
+    pub size: u64,
 }
 
 impl PendingObject {
@@ -69,7 +89,6 @@ impl PendingObject {
             tracing::warn!(object = %self.stored_name, %error, "failed to abort upload writer");
         }
         self.storage.operator.delete(&self.stored_name).await?;
-        self.cleanup_object = false;
         Ok(())
     }
 
@@ -199,55 +218,119 @@ impl FileService {
         offset: i64,
         bytes: &[u8],
     ) -> Result<UploadSession, FileError> {
-        let mut transaction = self.pool.begin().await?;
-        // check if the upload session exists
+        if bytes.is_empty() || bytes.len() > UPLOAD_CHUNK_BYTES {
+            return Err(FileError::OffsetMismatch);
+        }
+        let token = Uuid::new_v4().to_string();
         let Some(session) = sqlx::query_as::<_, UploadSession>(
             r#"
-            select id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
-            from uploaded_file_sessions
+            update uploaded_file_sessions
+            set
+                operation_state = 'writing',
+                operation_token = $3,
+                operation_started_at = now()
             where id = $1
-            for update
+              and uploaded_size = $2
+              and (
+                  operation_state = 'uploading'
+                  or (
+                      operation_state = 'writing'
+                      and operation_started_at < now() - interval '5 minutes'
+                  )
+              )
+              and $2 + $4 <= total_size
+            returning id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
             "#,
         )
         .bind(id)
-        .fetch_optional(&mut *transaction)
+        .bind(offset)
+        .bind(&token)
+        .bind(bytes.len() as i64)
+        .fetch_optional(&self.pool)
         .await?
         else {
             if completed_upload(&self.pool, id).await?.is_some() {
                 return Err(FileError::OffsetMismatch);
             }
-            return Err(FileError::UploadNotFound);
+            return match upload_operation_state(&self.pool, id).await? {
+                Some(_) => Err(FileError::OffsetMismatch),
+                None => Err(FileError::UploadNotFound),
+            };
         };
-        // check if the offset is correct
-        if offset != session.uploaded_size {
-            return Err(FileError::OffsetMismatch);
+        let storage = match self.storage_for(session.storage_id).await {
+            Ok(storage) => storage,
+            Err(error) => {
+                self.release_upload_operation(id, &token).await;
+                return Err(error);
+            }
+        };
+        let part = upload_part(&session.id, offset, &token);
+        if let Err(error) = storage.storage.operator.write(&part, bytes.to_vec()).await {
+            self.release_upload_operation(id, &token).await;
+            if let Err(cleanup_error) = storage.storage.operator.delete(&part).await
+                && cleanup_error.kind() != ErrorKind::NotFound
+            {
+                tracing::warn!(%part, %cleanup_error, "failed to clean up rejected upload part");
+            }
+            return Err(error.into());
         }
-        let remaining = session.total_size - session.uploaded_size;
-        if bytes.is_empty() || bytes.len() > UPLOAD_CHUNK_BYTES || bytes.len() as i64 > remaining {
-            return Err(FileError::OffsetMismatch);
+
+        let result = self
+            .persist_upload_part(&session, &token, &part, bytes.len() as i64)
+            .await;
+        if result.is_err() {
+            self.release_upload_operation(id, &token).await;
         }
-        let storage = self.storage_for(session.storage_id).await?;
-        storage
-            .storage
-            .operator
-            .write(&upload_part(&session.id, offset), bytes.to_vec())
-            .await?;
-        let uploaded_size = offset + bytes.len() as i64;
-        let session = sqlx::query_as::<_, UploadSession>(
+        result
+    }
+
+    async fn persist_upload_part(
+        &self,
+        session: &UploadSession,
+        token: &str,
+        object_name: &str,
+        size: i64,
+    ) -> Result<UploadSession, FileError> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query(
+            r#"
+            insert into uploaded_file_parts (upload_id, part_offset, size, object_name)
+            values ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(&session.id)
+        .bind(session.uploaded_size)
+        .bind(size)
+        .bind(object_name)
+        .execute(&mut *transaction)
+        .await?;
+        let uploaded_size = session.uploaded_size + size;
+        let Some(session) = sqlx::query_as::<_, UploadSession>(
             r#"
             update uploaded_file_sessions
-            set uploaded_size = $1
+            set
+                uploaded_size = $1,
+                operation_state = 'uploading',
+                operation_token = null,
+                operation_started_at = null
             where id = $2
+              and operation_state = 'writing'
+              and operation_token = $3
             returning id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
             "#,
         )
         .bind(uploaded_size)
-        .bind(id)
-        .fetch_one(&mut *transaction)
-        .await?;
+        .bind(&session.id)
+        .bind(token)
+        .fetch_optional(&mut *transaction)
+        .await?
+        else {
+            return Err(FileError::UploadInProgress);
+        };
         transaction.commit().await?;
         Ok(session)
     }
+
     pub async fn complete_upload(&self, id: &str) -> Result<StoredFile, FileError> {
         if let Some(stored) = completed_upload(&self.pool, id).await? {
             if let Some(storage_id) = stored.storage_id
@@ -257,56 +340,148 @@ impl FileService {
             }
             return Ok(stored);
         }
-        let mut transaction = self.pool.begin().await?;
-        let Some(session) = sqlx::query_as::<_, UploadSession>(
-            r#"
-            select id, storage_id, name, object_name, ext, tag, category, total_size, uploaded_size
-            from uploaded_file_sessions
-            where id = $1
-            for update
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(&mut *transaction)
-        .await?
+        let token = Uuid::new_v4().to_string();
+        let Some(ext) =
+            sqlx::query_scalar::<_, String>("select ext from uploaded_file_sessions where id = $1")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?
         else {
-            transaction.rollback().await?;
             return completed_upload(&self.pool, id)
                 .await?
                 .ok_or(FileError::UploadNotFound);
         };
-        if session.uploaded_size != session.total_size {
-            return Err(FileError::UploadIncomplete);
-        }
-        let storage = self.storage_for(session.storage_id).await?;
-        let writer = storage
-            .storage
-            .operator
-            .writer(&session.object_name)
-            .await?;
-        let mut upload = PendingObject {
-            storage: storage.storage.clone(),
-            stored_name: session.object_name.clone(),
-            writer: Some(writer),
-            size: 0,
-            cleanup_object: true,
-        };
-        let mut offset = 0_i64;
-        while offset < session.total_size {
-            let bytes = storage
-                .storage
-                .operator
-                .read(&upload_part(id, offset))
-                .await?
-                .to_vec();
-            let expected = (session.total_size - offset).min(UPLOAD_CHUNK_BYTES as i64) as usize;
-            if bytes.len() != expected {
-                return Err(FileError::UploadCorrupt);
+        let object_name = new_object_name(&ext);
+        let Some(claim) = sqlx::query_as::<_, CompletionClaim>(
+            r#"
+            with candidate as (
+                select id, object_name as previous_object_name
+                from uploaded_file_sessions
+                where id = $1
+                  and uploaded_size = total_size
+                  and (
+                      operation_state = 'uploading'
+                      or (
+                          operation_state = 'completing'
+                          and operation_started_at < now() - interval '5 minutes'
+                      )
+                  )
+                for update
+            ), updated as (
+                update uploaded_file_sessions as session
+                set
+                    object_name = $2,
+                    operation_state = 'completing',
+                    operation_token = $3,
+                    operation_started_at = now()
+                from candidate
+                where session.id = candidate.id
+                returning
+                    session.id,
+                    session.storage_id,
+                    session.name,
+                    session.object_name,
+                    session.ext,
+                    session.tag,
+                    session.category,
+                    session.total_size,
+                    session.uploaded_size,
+                    candidate.previous_object_name
+            )
+            select * from updated
+            "#,
+        )
+        .bind(id)
+        .bind(&object_name)
+        .bind(&token)
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            if let Some(stored) = completed_upload(&self.pool, id).await? {
+                return Ok(stored);
             }
-            upload.write_chunk(&bytes).await?;
-            offset += bytes.len() as i64;
+            let Some((uploaded_size, total_size, state)) =
+                upload_operation_state(&self.pool, id).await?
+            else {
+                return Err(FileError::UploadNotFound);
+            };
+            return if uploaded_size != total_size {
+                Err(FileError::UploadIncomplete)
+            } else if state == "completing" || state == "writing" {
+                Err(FileError::UploadInProgress)
+            } else {
+                Err(FileError::UploadCorrupt)
+            };
+        };
+        let (session, previous_object_name) = claim.into_parts();
+        let storage = match self.storage_for(session.storage_id).await {
+            Ok(storage) => storage,
+            Err(error) => {
+                self.release_upload_operation(id, &token).await;
+                return Err(error);
+            }
+        };
+        if previous_object_name != session.object_name
+            && let Err(error) = storage.storage.operator.delete(&previous_object_name).await
+            && error.kind() != ErrorKind::NotFound
+        {
+            tracing::warn!(object = %previous_object_name, %error, "failed to clean up superseded completion object");
         }
-        upload.close_object().await?;
+        let mut upload = match self
+            .assemble_upload(&storage.storage, &session, &token)
+            .await
+        {
+            Ok(upload) => upload,
+            Err(error) => {
+                self.release_upload_operation(id, &token).await;
+                return Err(error);
+            }
+        };
+
+        let mut transaction = match self.pool.begin().await {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                upload
+                    .cleanup_after_failure("upload finalization transaction failed")
+                    .await;
+                self.release_upload_operation(id, &token).await;
+                return Err(error.into());
+            }
+        };
+        let owns_claim = match sqlx::query_scalar::<_, bool>(
+            r#"
+            select true
+            from uploaded_file_sessions
+            where id = $1
+              and operation_state = 'completing'
+              and operation_token = $2
+            for update
+            "#,
+        )
+        .bind(id)
+        .bind(&token)
+        .fetch_optional(&mut *transaction)
+        .await
+        {
+            Ok(owns_claim) => owns_claim.is_some(),
+            Err(error) => {
+                let _ = transaction.rollback().await;
+                upload
+                    .cleanup_after_failure("upload claim verification failed")
+                    .await;
+                self.release_upload_operation(id, &token).await;
+                return Err(error.into());
+            }
+        };
+        if !owns_claim {
+            let _ = transaction.rollback().await;
+            upload
+                .cleanup_after_failure("superseded upload completion")
+                .await;
+            return completed_upload(&self.pool, id)
+                .await?
+                .ok_or(FileError::UploadInProgress);
+        }
         let url = upload.storage.public_url(&upload.stored_name);
         let stored = match sqlx::query_as::<_, StoredFile>(
             r#"
@@ -332,22 +507,44 @@ impl FileService {
         {
             Ok(stored) => stored,
             Err(error) => {
+                let _ = transaction.rollback().await;
                 upload
                     .cleanup_after_failure("upload metadata persistence failed")
                     .await;
+                self.release_upload_operation(id, &token).await;
                 return Err(error.into());
             }
         };
-        sqlx::query("delete from uploaded_file_sessions where id = $1")
-            .bind(id)
-            .execute(&mut *transaction)
-            .await?;
+        let deleted = match sqlx::query(
+            "delete from uploaded_file_sessions where id = $1 and operation_token = $2",
+        )
+        .bind(id)
+        .bind(&token)
+        .execute(&mut *transaction)
+        .await
+        {
+            Ok(deleted) => deleted,
+            Err(error) => {
+                let _ = transaction.rollback().await;
+                upload
+                    .cleanup_after_failure("upload session finalization failed")
+                    .await;
+                self.release_upload_operation(id, &token).await;
+                return Err(error.into());
+            }
+        };
+        if deleted.rows_affected() != 1 {
+            let _ = transaction.rollback().await;
+            upload
+                .cleanup_after_failure("upload claim was lost before commit")
+                .await;
+            return Err(FileError::UploadInProgress);
+        }
         match transaction.commit().await {
-            Ok(()) => upload.cleanup_object = false,
+            Ok(()) => {}
             Err(error) => {
                 // PostgreSQL commit errors can be ambiguous. Keep the deterministic object so a
-                // retry can either return the committed upload_id or safely overwrite it.
-                upload.cleanup_object = false;
+                // retry can either return the committed upload_id or safely supersede it.
                 return Err(error.into());
             }
         }
@@ -360,6 +557,104 @@ impl FileService {
         Ok(stored)
     }
 
+    async fn assemble_upload(
+        &self,
+        storage: &FileObjectStorage,
+        session: &UploadSession,
+        token: &str,
+    ) -> Result<PendingObject, FileError> {
+        let writer = storage.operator.writer(&session.object_name).await?;
+        let mut upload = PendingObject {
+            storage: storage.clone(),
+            stored_name: session.object_name.clone(),
+            writer: Some(writer),
+            size: 0,
+        };
+        let result = async {
+            let parts = sqlx::query_as::<_, UploadPart>(
+                r#"
+                select part_offset, size, object_name
+                from uploaded_file_parts
+                where upload_id = $1
+                order by part_offset
+                "#,
+            )
+            .bind(&session.id)
+            .fetch_all(&self.pool)
+            .await?;
+            let mut offset = 0_i64;
+            for part in parts {
+                if part.part_offset != offset
+                    || part.size <= 0
+                    || part.size > UPLOAD_CHUNK_BYTES as i64
+                    || part.size > session.total_size - offset
+                {
+                    return Err(FileError::UploadCorrupt);
+                }
+                let bytes = storage.operator.read(&part.object_name).await?.to_vec();
+                if bytes.len() as i64 != part.size {
+                    return Err(FileError::UploadCorrupt);
+                }
+                upload.write_chunk(&bytes).await?;
+                offset += part.size;
+                self.refresh_upload_operation(&session.id, token).await?;
+            }
+            if offset != session.total_size {
+                return Err(FileError::UploadCorrupt);
+            }
+            upload.close_object().await
+        }
+        .await;
+        match result {
+            Ok(()) => Ok(upload),
+            Err(error) => {
+                upload
+                    .cleanup_after_failure("upload object assembly failed")
+                    .await;
+                Err(error)
+            }
+        }
+    }
+
+    async fn refresh_upload_operation(&self, id: &str, token: &str) -> Result<(), FileError> {
+        let updated = sqlx::query(
+            r#"
+            update uploaded_file_sessions
+            set operation_started_at = now()
+            where id = $1 and operation_token = $2
+            "#,
+        )
+        .bind(id)
+        .bind(token)
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(FileError::UploadInProgress)
+        }
+    }
+
+    async fn release_upload_operation(&self, id: &str, token: &str) {
+        if let Err(error) = sqlx::query(
+            r#"
+            update uploaded_file_sessions
+            set
+                operation_state = 'uploading',
+                operation_token = null,
+                operation_started_at = null
+            where id = $1 and operation_token = $2
+            "#,
+        )
+        .bind(id)
+        .bind(token)
+        .execute(&self.pool)
+        .await
+        {
+            tracing::error!(upload_id = id, %error, "failed to release upload operation claim");
+        }
+    }
+
     // delete a file from the database and the object store
     pub async fn delete(&self, id: i64) -> Result<(), FileError> {
         let mut transaction = self.pool.begin().await?;
@@ -367,7 +662,7 @@ impl FileService {
             r#"
             select
                 storage_id,
-                url,
+                object_name,
                 upload_id,
                 upload_parts_pending
             from uploaded_files
@@ -404,10 +699,7 @@ impl FileService {
         }
 
         let storage = self.storage_for(storage_id).await?.storage;
-        let Some(object) = storage.managed_object(&file.url) else {
-            self.finish_metadata_delete(id).await?;
-            return Ok(());
-        };
+        let object = file.object_name.ok_or(FileError::UploadCorrupt)?;
         match storage.operator.delete(&object).await {
             Ok(()) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => {}
@@ -508,21 +800,23 @@ impl FileService {
     }
 
     // read a local object from the object store
-    pub async fn read_local_object(&self, object: &str) -> Result<Option<Vec<u8>>, FileError> {
+    pub async fn read_local_object(
+        &self,
+        object: &str,
+    ) -> Result<Option<LocalFileStream>, FileError> {
         if object.is_empty() || object.contains('/') || object.contains("..") {
             return Ok(None);
         }
-        let url = format!("/uploads/{object}");
         let storage_id = sqlx::query_scalar::<_, Option<i64>>(
             r#"
             select storage_id
             from uploaded_files
-            where url = $1 and storage_id is not null and not deletion_pending
+            where object_name = $1 and storage_id is not null and not deletion_pending
             order by id desc
             limit 1
             "#,
         )
-        .bind(&url)
+        .bind(object)
         .fetch_optional(&self.pool)
         .await?;
         let Some(Some(storage_id)) = storage_id else {
@@ -532,11 +826,17 @@ impl FileService {
         if !storage.storage.is_local() {
             return Ok(None);
         }
-        match storage.storage.operator.read(object).await {
-            Ok(bytes) => Ok(Some(bytes.to_vec())),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error.into()),
-        }
+        let metadata = match storage.storage.operator.stat(object).await {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let reader = storage.storage.operator.reader(object).await?;
+        let stream = reader.into_bytes_stream(..).await?;
+        Ok(Some(LocalFileStream {
+            stream,
+            size: metadata.content_length(),
+        }))
     }
 
     async fn default_storage(&self) -> Result<StorageEntry, FileError> {
@@ -658,8 +958,32 @@ fn safe_extension(value: &str) -> String {
     }
 }
 
-fn upload_part(id: &str, offset: i64) -> String {
-    format!(".uploads/{id}/{offset:020}")
+async fn upload_operation_state(
+    pool: &PgPool,
+    id: &str,
+) -> Result<Option<(i64, i64, String)>, FileError> {
+    Ok(sqlx::query_as(
+        r#"
+        select uploaded_size, total_size, operation_state
+        from uploaded_file_sessions
+        where id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?)
+}
+
+fn new_object_name(ext: &str) -> String {
+    if ext.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        format!("{}.{ext}", Uuid::new_v4())
+    }
+}
+
+fn upload_part(id: &str, offset: i64, token: &str) -> String {
+    format!(".uploads/{id}/{offset:020}-{token}")
 }
 
 #[cfg(test)]
