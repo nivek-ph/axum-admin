@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use super::{AccessBinding, AccessNode, CatalogError, MenuType};
+use super::{AccessBinding, AccessNode, CatalogError, MenuType, routes::RouteBinding};
 
 #[derive(Debug, Clone)]
 pub(super) struct MenuIndex {
@@ -43,20 +43,27 @@ impl MenuIndex {
         })
     }
 
-    pub(super) fn active_bindings(
+    pub(super) fn active_route_bindings(
         &self,
         bindings: Vec<AccessBinding>,
-    ) -> Result<Vec<AccessBinding>, CatalogError> {
+    ) -> Result<Vec<RouteBinding>, CatalogError> {
         bindings
             .into_iter()
             .filter_map(|binding| {
                 let node = self.nodes.get(&binding.menu_id)?;
-                if node.menu_type == MenuType::Directory || node.permission.is_none() {
+                if node.menu_type == MenuType::Directory {
                     return Some(Err(CatalogError::InvalidBinding));
                 }
-                self.enabled_menu_ids
-                    .contains(&binding.menu_id)
-                    .then_some(Ok(binding))
+                self.enabled_menu_ids.contains(&binding.menu_id).then(|| {
+                    Ok(RouteBinding {
+                        method: binding.method,
+                        path: binding.path,
+                        permission: node
+                            .permission
+                            .clone()
+                            .ok_or(CatalogError::InvalidBinding)?,
+                    })
+                })
             })
             .collect()
     }
@@ -128,16 +135,6 @@ impl MenuIndex {
             }
         }
         menu_ids
-    }
-
-    pub(super) fn permission_for_menu(&self, menu_id: i64) -> Result<&str, CatalogError> {
-        if !self.enabled_menu_ids.contains(&menu_id) {
-            return Err(CatalogError::InvalidBinding);
-        }
-        self.nodes
-            .get(&menu_id)
-            .and_then(|node| node.permission.as_deref())
-            .ok_or(CatalogError::InvalidBinding)
     }
 }
 
