@@ -1,6 +1,5 @@
 mod menus;
 mod routes;
-mod source;
 #[cfg(test)]
 mod tests;
 
@@ -9,11 +8,35 @@ use std::collections::{BTreeSet, HashSet};
 use menus::MenuIndex;
 use routes::RouteIndex;
 pub(crate) use routes::normalize_request_path;
-use source::{AccessBinding, AccessNode};
-use sqlx::PgPool;
+use sqlx::{FromRow, PgPool};
 
 use super::CatalogError;
 use crate::IamInitError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumString, sqlx::Type)]
+#[strum(serialize_all = "lowercase")]
+#[sqlx(type_name = "text", rename_all = "lowercase")]
+enum MenuType {
+    Directory,
+    Page,
+    Action,
+}
+
+#[derive(Debug, Clone, FromRow, PartialEq, Eq)]
+struct AccessNode {
+    id: i64,
+    parent_id: Option<i64>,
+    menu_type: MenuType,
+    status: String,
+    permission: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow, PartialEq, Eq)]
+struct AccessBinding {
+    menu_id: i64,
+    method: String,
+    path: String,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct AccessCatalog {
@@ -23,8 +46,17 @@ pub(crate) struct AccessCatalog {
 
 impl AccessCatalog {
     pub(crate) async fn load(pool: &PgPool) -> Result<Self, IamInitError> {
-        let source = source::load(pool).await?;
-        Ok(Self::from_parts(source.nodes, source.bindings)?)
+        let nodes = sqlx::query_as::<_, AccessNode>(
+            "select id, parent_id, menu_type, status, permission from sys_menus order by id",
+        )
+        .fetch_all(pool)
+        .await?;
+        let bindings = sqlx::query_as::<_, AccessBinding>(
+            "select menu_id, method, path_pattern as path from sys_menu_apis order by method, path_pattern",
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(Self::from_parts(nodes, bindings)?)
     }
 
     fn from_parts(
@@ -38,10 +70,11 @@ impl AccessCatalog {
 
     pub(crate) fn required_permission(
         &self,
-        method: &str,
-        path: &str,
+        normalized_method: &str,
+        normalized_path: &str,
     ) -> Result<&str, CatalogError> {
-        self.routes.required_permission(method, path)
+        self.routes
+            .required_permission(normalized_method, normalized_path)
     }
 
     pub(crate) fn enabled_permissions(&self) -> &HashSet<String> {

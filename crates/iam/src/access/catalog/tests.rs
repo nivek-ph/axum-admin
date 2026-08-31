@@ -1,9 +1,6 @@
 use std::collections::BTreeSet;
 
-use super::{
-    AccessCatalog, CatalogError,
-    source::{AccessBinding, AccessNode, MenuType},
-};
+use super::{AccessBinding, AccessCatalog, AccessNode, CatalogError, MenuType};
 
 #[test]
 fn menu_type_uses_lowercase_database_values() {
@@ -19,7 +16,6 @@ fn catalog(bindings: Vec<AccessBinding>) -> Result<AccessCatalog, CatalogError> 
     let mut nodes = vec![AccessNode {
         id: -1,
         parent_id: None,
-        title: "Test directory".to_string(),
         menu_type: MenuType::Directory,
         status: "enabled".to_string(),
         permission: None,
@@ -27,7 +23,6 @@ fn catalog(bindings: Vec<AccessBinding>) -> Result<AccessCatalog, CatalogError> 
     nodes.extend(menu_ids.into_iter().map(|id| AccessNode {
         id,
         parent_id: Some(-1),
-        title: format!("Menu {id}"),
         menu_type: MenuType::Page,
         status: "enabled".to_string(),
         permission: Some(format!("test:menu:{id}")),
@@ -52,7 +47,7 @@ fn resolves_exact_routes_before_dynamic_routes() {
     .expect("catalog should be valid");
 
     assert_eq!(
-        catalog.required_permission("get", "/api/users/batch"),
+        catalog.required_permission("GET", "/api/users/batch"),
         Ok("test:menu:11")
     );
     assert_eq!(
@@ -160,7 +155,6 @@ fn disabled_ancestors_remove_descendant_routes_and_permissions() {
             AccessNode {
                 id: 1,
                 parent_id: None,
-                title: "Directory".to_string(),
                 menu_type: MenuType::Directory,
                 status: "disabled".to_string(),
                 permission: None,
@@ -168,7 +162,6 @@ fn disabled_ancestors_remove_descendant_routes_and_permissions() {
             AccessNode {
                 id: 2,
                 parent_id: Some(1),
-                title: "Users".to_string(),
                 menu_type: MenuType::Page,
                 status: "enabled".to_string(),
                 permission: Some("system:user:list".to_string()),
@@ -195,7 +188,6 @@ fn actions_must_have_page_parents() {
         vec![AccessNode {
             id: 2,
             parent_id: None,
-            title: "Create user".to_string(),
             menu_type: MenuType::Action,
             status: "enabled".to_string(),
             permission: Some("system:user:create".to_string()),
@@ -213,7 +205,6 @@ fn role_access_action_selection_adds_its_page_without_adding_siblings() {
             AccessNode {
                 id: 1,
                 parent_id: None,
-                title: "Directory".to_string(),
                 menu_type: MenuType::Directory,
                 status: "enabled".to_string(),
                 permission: None,
@@ -221,7 +212,6 @@ fn role_access_action_selection_adds_its_page_without_adding_siblings() {
             AccessNode {
                 id: 2,
                 parent_id: Some(1),
-                title: "Users".to_string(),
                 menu_type: MenuType::Page,
                 status: "enabled".to_string(),
                 permission: Some("users:list".to_string()),
@@ -229,7 +219,6 @@ fn role_access_action_selection_adds_its_page_without_adding_siblings() {
             AccessNode {
                 id: 3,
                 parent_id: Some(2),
-                title: "Create user".to_string(),
                 menu_type: MenuType::Action,
                 status: "enabled".to_string(),
                 permission: Some("users:create".to_string()),
@@ -237,7 +226,6 @@ fn role_access_action_selection_adds_its_page_without_adding_siblings() {
             AccessNode {
                 id: 4,
                 parent_id: Some(2),
-                title: "Delete user".to_string(),
                 menu_type: MenuType::Action,
                 status: "enabled".to_string(),
                 permission: Some("users:delete".to_string()),
@@ -262,7 +250,6 @@ fn navigation_is_derived_only_from_selected_page_permissions() {
             AccessNode {
                 id: 1,
                 parent_id: None,
-                title: "Directory".to_string(),
                 menu_type: MenuType::Directory,
                 status: "enabled".to_string(),
                 permission: None,
@@ -270,7 +257,6 @@ fn navigation_is_derived_only_from_selected_page_permissions() {
             AccessNode {
                 id: 2,
                 parent_id: Some(1),
-                title: "Users".to_string(),
                 menu_type: MenuType::Page,
                 status: "enabled".to_string(),
                 permission: Some("users:list".to_string()),
@@ -278,7 +264,6 @@ fn navigation_is_derived_only_from_selected_page_permissions() {
             AccessNode {
                 id: 3,
                 parent_id: Some(2),
-                title: "Create user".to_string(),
                 menu_type: MenuType::Action,
                 status: "enabled".to_string(),
                 permission: Some("users:create".to_string()),
@@ -306,7 +291,6 @@ fn rejects_directory_cycles() {
             AccessNode {
                 id: 1,
                 parent_id: Some(2),
-                title: "First".to_string(),
                 menu_type: MenuType::Directory,
                 status: "enabled".to_string(),
                 permission: None,
@@ -314,7 +298,6 @@ fn rejects_directory_cycles() {
             AccessNode {
                 id: 2,
                 parent_id: Some(1),
-                title: "Second".to_string(),
                 menu_type: MenuType::Directory,
                 status: "enabled".to_string(),
                 permission: None,

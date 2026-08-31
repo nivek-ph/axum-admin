@@ -1,10 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use super::{
-    CatalogError,
-    routes::RouteBinding,
-    source::{AccessBinding, AccessNode, MenuType},
-};
+use super::{AccessBinding, AccessNode, CatalogError, MenuType, routes::RouteBinding};
 
 #[derive(Debug, Clone)]
 pub(super) struct MenuIndex {

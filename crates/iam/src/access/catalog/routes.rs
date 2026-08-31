@@ -35,14 +35,12 @@ impl RouteIndex {
 
     pub(super) fn required_permission(
         &self,
-        method: &str,
-        path: &str,
+        normalized_method: &str,
+        normalized_path: &str,
     ) -> Result<&str, CatalogError> {
-        let method = normalize_method(method)?;
-        let path = normalize_path(path)?;
         self.by_method
-            .get(&method)
-            .and_then(|router| router.at(&path).ok())
+            .get(normalized_method)
+            .and_then(|router| router.at(normalized_path).ok())
             .map(|matched| matched.value.as_str())
             .ok_or(CatalogError::Unbound)
     }
