@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { IconEye, IconEyeOff, IconRefresh } from '@tabler/icons-react'
+import { IconBrandGithub, IconEye, IconEyeOff, IconRefresh } from '@tabler/icons-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -12,7 +12,7 @@ import { getApiErrorMessage } from '@/api/http'
 import { BrandMark } from '@/components/BrandMark'
 import { LanguageSwitch } from '@/components/LanguageSwitch'
 import { ThemeSwitch } from '@/components/ThemeSwitch'
-import { Button } from '@/components/ui/Button'
+import { Button, buttonVariants } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth'
@@ -25,6 +25,8 @@ const schema = z.object({
 })
 
 type FormValues = z.infer<typeof schema>
+
+const GITHUB_REPOSITORY_URL = 'https://github.com/nivek-ph/axum-admin'
 
 export function LoginPage() {
   const { t } = useTranslation()
@@ -147,6 +149,16 @@ export function LoginPage() {
 
       <section className="relative flex flex-col bg-background">
         <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
+          <a
+            aria-label="GitHub"
+            className={buttonVariants({ size: 'sm', variant: 'ghost' })}
+            href={GITHUB_REPOSITORY_URL}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <IconBrandGithub />
+            GitHub
+          </a>
           <ThemeSwitch />
           <LanguageSwitch />
         </div>

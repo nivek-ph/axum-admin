@@ -60,6 +60,7 @@ describe('AppLayout shell', () => {
     expect(screen.getByRole('button', { name: '组织架构' })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByRole('link', { name: '用户管理' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: 'GitHub' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '灰蓝' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '组织架构' }))
