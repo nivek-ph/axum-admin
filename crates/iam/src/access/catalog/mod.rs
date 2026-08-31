@@ -68,6 +68,8 @@ impl AccessCatalog {
         Ok(Self { menus, routes })
     }
 
+    /// Requires an uppercase HTTP method and a path normalized by
+    /// [`normalize_request_path`].
     pub(crate) fn required_permission(
         &self,
         normalized_method: &str,
