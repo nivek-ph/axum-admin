@@ -45,8 +45,7 @@ impl AccessService {
         if is_self_service_endpoint(&method, &path) {
             return Ok(());
         }
-        let menu_id = self.access_catalog.resolve(&method, &path)?;
-        let required_permission = self.access_catalog.permission_for_menu(menu_id)?;
+        let required_permission = self.access_catalog.required_permission(&method, &path)?;
         let active_role_ids = self.authorization.active_user_role_ids(user_id).await?;
         if self
             .authorization

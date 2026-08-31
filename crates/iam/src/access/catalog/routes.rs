@@ -2,18 +2,24 @@ use std::collections::HashMap;
 
 use matchit::Router;
 
-use super::{AccessBinding, CatalogError};
+use super::CatalogError;
 
 const API_PREFIX: &str = "/api";
 
 #[derive(Debug, Clone)]
 pub(super) struct RouteIndex {
-    by_method: HashMap<String, Router<i64>>,
+    by_method: HashMap<String, Router<String>>,
+}
+
+pub(super) struct RouteBinding {
+    pub method: String,
+    pub path: String,
+    pub permission: String,
 }
 
 impl RouteIndex {
-    pub(super) fn from_bindings(bindings: Vec<AccessBinding>) -> Result<Self, CatalogError> {
-        let mut by_method = HashMap::<String, Router<i64>>::new();
+    pub(super) fn from_bindings(bindings: Vec<RouteBinding>) -> Result<Self, CatalogError> {
+        let mut by_method = HashMap::<String, Router<String>>::new();
 
         for binding in bindings {
             let method = normalize_method(&binding.method)?;
@@ -21,19 +27,23 @@ impl RouteIndex {
             by_method
                 .entry(method)
                 .or_default()
-                .insert(path, binding.menu_id)?;
+                .insert(path, binding.permission)?;
         }
 
         Ok(Self { by_method })
     }
 
-    pub(super) fn resolve(&self, method: &str, path: &str) -> Result<i64, CatalogError> {
+    pub(super) fn required_permission(
+        &self,
+        method: &str,
+        path: &str,
+    ) -> Result<&str, CatalogError> {
         let method = normalize_method(method)?;
         let path = normalize_path(path)?;
         self.by_method
             .get(&method)
             .and_then(|router| router.at(&path).ok())
-            .map(|matched| *matched.value)
+            .map(|matched| matched.value.as_str())
             .ok_or(CatalogError::Unbound)
     }
 }
