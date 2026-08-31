@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use opendal::{Operator, services};
+use opendal::{Operator, Writer, services};
 
 use crate::storages::{S3Credentials, StorageBackendConfig};
 
@@ -141,6 +141,14 @@ impl StorageBackend {
         format!("{}/{object}", self.url_base)
     }
 
+    pub(crate) async fn writer(&self, object: &str) -> Result<Writer, opendal::Error> {
+        let content_type = mime_guess::from_path(object).first_or_octet_stream();
+        self.operator
+            .writer_with(object)
+            .content_type(content_type.as_ref())
+            .await
+    }
+
     pub(crate) fn is_local(&self) -> bool {
         self.local_root.is_some()
     }
@@ -170,6 +178,8 @@ fn absolute_path(path: &str) -> Result<PathBuf, std::io::Error> {
 
 #[cfg(test)]
 mod tests {
+    use opendal::{Operator, services};
+
     use super::{ObjectStorageError, StorageBackend};
     use crate::storages::{S3Credentials, StorageBackendConfig};
 
@@ -238,5 +248,32 @@ mod tests {
             storage.public_url("report.pdf"),
             "https://cdn.example.test/assets/report.pdf"
         );
+    }
+
+    #[tokio::test]
+    async fn writer_sets_content_type_from_object_extension() {
+        let storage = StorageBackend {
+            operator: Operator::new(services::Memory::default())
+                .expect("memory adapter should construct"),
+            url_base: String::new(),
+            local_root: None,
+        };
+
+        let mut writer = storage
+            .writer("preview.png")
+            .await
+            .expect("writer should open");
+        writer
+            .write(b"png".to_vec())
+            .await
+            .expect("bytes should write");
+        writer.close().await.expect("writer should close");
+
+        let metadata = storage
+            .operator
+            .stat("preview.png")
+            .await
+            .expect("object metadata should be readable");
+        assert_eq!(metadata.content_type(), Some("image/png"));
     }
 }

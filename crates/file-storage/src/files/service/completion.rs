@@ -342,7 +342,7 @@ impl FileService {
         session: &UploadSession,
         token: &str,
     ) -> Result<PendingObject, FileError> {
-        let writer = storage.operator.writer(&session.object_name).await?;
+        let writer = storage.writer(&session.object_name).await?;
         let mut upload = PendingObject {
             storage: storage.clone(),
             stored_name: session.object_name.clone(),

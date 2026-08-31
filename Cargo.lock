@@ -1228,6 +1228,7 @@ name = "file-storage"
 version = "0.1.0"
 dependencies = [
  "jiff-sqlx",
+ "mime_guess",
  "opendal",
  "serde",
  "serde_json",
