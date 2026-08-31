@@ -21,7 +21,7 @@ const GLOBAL_LIMIT: u64 = 60; // 60 req/min
 
 // captcha policy and limit
 const CAPTCHA_POLICY: &str = "captcha";
-const CAPTCHA_LIMIT: u64 = 3; // 3 req/min
+const CAPTCHA_LIMIT: u64 = 10; // 10 req/min
 
 #[derive(Clone, Copy, Debug, Default)]
 struct ApiRateLimitResponseFactory;
