@@ -8,6 +8,7 @@ license.workspace = true
 # External crates.
 opendal.workspace = true
 jiff-sqlx.workspace = true
+mime_guess.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
