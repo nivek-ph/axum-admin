@@ -1,36 +1,23 @@
-use std::sync::Arc;
-
 use sqlx::PgPool;
 
-use super::{AccessCatalog, AccessEvaluationError, catalog::normalize_request_path};
+use super::AccessEvaluationError;
 use crate::authorization::Authorization;
 
 #[derive(Clone)]
 pub struct AccessService {
     pool: PgPool,
     authorization: Authorization,
-    access_catalog: Arc<AccessCatalog>,
 }
 
 impl AccessService {
-    pub(crate) fn from_catalog(
-        pool: PgPool,
-        authorization: Authorization,
-        access_catalog: Arc<AccessCatalog>,
-    ) -> Self {
+    pub(crate) fn new(pool: PgPool, authorization: Authorization) -> Self {
         Self {
             pool,
             authorization,
-            access_catalog,
         }
     }
 
-    pub async fn evaluate(
-        &self,
-        user_id: i64,
-        method: &str,
-        path: &str,
-    ) -> Result<(), AccessEvaluationError> {
+    pub async fn require_active_user(&self, user_id: i64) -> Result<(), AccessEvaluationError> {
         let enabled = sqlx::query_scalar::<_, bool>("select enable from sys_users where id = $1")
             .bind(user_id)
             .fetch_optional(&self.pool)
@@ -39,13 +26,14 @@ impl AccessService {
         if !enabled {
             return Err(AccessEvaluationError::UserDisabled);
         }
+        Ok(())
+    }
 
-        let method = method.trim().to_ascii_uppercase();
-        let path = normalize_request_path(path);
-        if is_self_service_endpoint(&method, &path) {
-            return Ok(());
-        }
-        let required_permission = self.access_catalog.required_permission(&method, &path)?;
+    pub async fn authorize_permission(
+        &self,
+        user_id: i64,
+        required_permission: &str,
+    ) -> Result<(), AccessEvaluationError> {
         let active_role_ids = self.authorization.active_user_role_ids(user_id).await?;
         if self
             .authorization
@@ -54,30 +42,7 @@ impl AccessService {
         {
             Ok(())
         } else {
-            Err(AccessEvaluationError::PermissionDenied { path })
+            Err(AccessEvaluationError::PermissionDenied)
         }
-    }
-}
-
-fn is_self_service_endpoint(method: &str, path: &str) -> bool {
-    matches!(
-        (method, path),
-        ("GET", "/api/users/me")
-            | ("PUT", "/api/users/me")
-            | ("PUT", "/api/users/me/password")
-            | ("PUT", "/api/users/me/settings")
-            | ("GET", "/api/menus/current")
-            | ("POST", "/api/auth/logout")
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn self_service_routes_are_explicit() {
-        assert!(is_self_service_endpoint("GET", "/api/users/me"));
-        assert!(!is_self_service_endpoint("GET", "/api/users"));
     }
 }

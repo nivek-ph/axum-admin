@@ -3,22 +3,42 @@ mod handler;
 
 use axum::{
     Router,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 pub use handler::*;
 
-use crate::state::AppState;
+use crate::{middleware::permission::permission, state::AppState};
 
-pub fn routes() -> Router<AppState> {
+pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/me", get(get_user_info).put(set_self_info))
         .route("/me/password", put(change_password))
         .route("/me/settings", put(set_self_setting))
-        .route("/", get(get_user_list_by_query).post(admin_register))
-        .route("/{id}", put(set_user_info_by_id).delete(delete_user_by_id))
-        .route("/{id}/password/reset", post(reset_password_by_id))
-        .route("/{id}/roles", put(set_user_roles_by_id))
-        .route("/{id}/access", get(get_user_access))
+        .route(
+            "/",
+            permission("system:user:list", get(get_user_list_by_query)),
+        )
+        .route("/", permission("system:user:create", post(admin_register)))
+        .route(
+            "/{id}",
+            permission("system:user:update", put(set_user_info_by_id)),
+        )
+        .route(
+            "/{id}",
+            permission("system:user:delete", delete(delete_user_by_id)),
+        )
+        .route(
+            "/{id}/password/reset",
+            permission("system:user:reset-password", post(reset_password_by_id)),
+        )
+        .route(
+            "/{id}/roles",
+            permission("system:user:assign-roles", put(set_user_roles_by_id)),
+        )
+        .route(
+            "/{id}/access",
+            permission("system:user:access-read", get(get_user_access)),
+        )
 }
 
 #[cfg(test)]
@@ -204,6 +224,17 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn concrete_permission_does_not_delegate_access_administration(pool: sqlx::PgPool) {
         let (app, tokens, _, ordinary_token) = app_with_tokens(&pool).await;
+        let (status, body) = request_json(
+            &app,
+            &ordinary_token,
+            Method::HEAD,
+            "/api/users?page=1&pageSize=10",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.is_null(), "HEAD response body must be empty");
+
         let (status, body) = request_json(
             &app,
             &ordinary_token,

@@ -12,9 +12,6 @@ export interface MenuRecord {
   menuType?: string
   status?: 'enabled' | 'disabled'
   permission?: string | null
-  method?: string
-  apiPath?: string
-  apiBindings?: Array<{ method: string; pathPattern: string }>
   children: MenuRecord[]
 }
 

@@ -3,22 +3,34 @@ mod handler;
 
 use axum::{
     Router,
-    routing::{get, put},
+    routing::{delete, get, post, put},
 };
 pub(crate) use handler::*;
 
-use crate::state::AppState;
+use crate::{middleware::permission::permission, state::AppState};
 
-pub fn routes() -> Router<AppState> {
+pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(handler::get_roles).post(handler::create_role))
+        .route("/", permission("system:role:list", get(handler::get_roles)))
+        .route(
+            "/",
+            permission("system:role:create", post(handler::create_role)),
+        )
         .route(
             "/{id}",
-            put(handler::update_role).delete(handler::delete_role),
+            permission("system:role:update", put(handler::update_role)),
+        )
+        .route(
+            "/{id}",
+            permission("system:role:delete", delete(handler::delete_role)),
         )
         .route(
             "/{id}/access",
-            get(handler::get_role_access).put(handler::set_role_access),
+            permission("system:role:access-read", get(handler::get_role_access)),
+        )
+        .route(
+            "/{id}/access",
+            permission("system:role:access-update", put(handler::set_role_access)),
         )
 }
 

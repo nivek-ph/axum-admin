@@ -3,23 +3,39 @@ mod handler;
 
 use axum::{
     Router,
-    routing::{get, patch, put},
+    routing::{delete, get, patch, post, put},
 };
 pub(crate) use handler::*;
 
-use crate::state::AppState;
+use crate::{middleware::permission::permission, state::AppState};
 
-pub fn routes() -> Router<AppState> {
+pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(handler::list).post(handler::create))
+        .route("/", permission("system:storage:list", get(handler::list)))
+        .route(
+            "/",
+            permission("system:storage:create", post(handler::create)),
+        )
         .route(
             "/{id}",
-            get(handler::find)
-                .put(handler::update)
-                .delete(handler::delete),
+            permission("system:storage:list", get(handler::find)),
         )
-        .route("/{id}/status", patch(handler::set_status))
-        .route("/{id}/default", put(handler::set_default))
+        .route(
+            "/{id}",
+            permission("system:storage:update", put(handler::update)),
+        )
+        .route(
+            "/{id}",
+            permission("system:storage:delete", delete(handler::delete)),
+        )
+        .route(
+            "/{id}/status",
+            permission("system:storage:update-status", patch(handler::set_status)),
+        )
+        .route(
+            "/{id}/default",
+            permission("system:storage:set-default", put(handler::set_default)),
+        )
 }
 
 #[cfg(test)]
@@ -33,6 +49,12 @@ mod tests {
 
     use super::*;
 
+    fn handler_routes() -> Router<AppState> {
+        Router::new()
+            .route("/", get(handler::list).post(handler::create))
+            .route("/{id}/status", patch(handler::set_status))
+    }
+
     async fn json_body(response: axum::response::Response) -> serde_json::Value {
         let bytes = to_bytes(response.into_body(), usize::MAX)
             .await
@@ -44,7 +66,7 @@ mod tests {
     async fn routes_create_list_and_protect_the_default_without_exposing_secrets(
         pool: sqlx::PgPool,
     ) {
-        let app = routes().with_state(crate::state::tests::test_state(pool).await);
+        let app = handler_routes().with_state(crate::state::tests::test_state(pool).await);
         let root = std::env::temp_dir().join(format!("ava-api-storage-{}", uuid::Uuid::new_v4()));
         let response = app
             .clone()

@@ -21,7 +21,7 @@ describe('Access catalog', () => {
     await i18n.changeLanguage('en-US')
   })
 
-  it('shows menu permissions and API bindings as a read-only tree table', async () => {
+  it('shows menu permissions as a read-only tree table', async () => {
     const currentUser = {
       id: 1,
       userName: 'admin',
@@ -57,7 +57,6 @@ describe('Access catalog', () => {
                   menuType: 'page',
                   permission: 'system:user:list',
                   meta: { title: 'Users' },
-                  apiBindings: [{ method: 'GET', pathPattern: '/api/users' }],
                   children: [
                     {
                       id: 3,
@@ -67,7 +66,6 @@ describe('Access catalog', () => {
                       menuType: 'action',
                       permission: 'system:user:create',
                       meta: { title: 'Create user' },
-                      apiBindings: [{ method: 'POST', pathPattern: '/api/users' }],
                       children: [],
                     },
                   ],
@@ -91,7 +89,7 @@ describe('Access catalog', () => {
     expect(await screen.findByText('system:user:list')).toBeInTheDocument()
     expect(screen.getByText('system:user:create')).toBeInTheDocument()
     expect(screen.getByText('Create user')).toBeInTheDocument()
-    expect(screen.getAllByText('/api/users').length).toBeGreaterThan(0)
+    expect(screen.queryByText('API bindings')).not.toBeInTheDocument()
     expect(screen.queryByText('Basic operations')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /new|edit|delete/i })).not.toBeInTheDocument()
 
@@ -114,58 +112,5 @@ describe('Access catalog', () => {
 
     await user.click(screen.getByRole('button', { name: 'Switch language' }))
     expect(await screen.findByRole('heading', { name: '权限目录' })).toBeInTheDocument()
-  })
-
-  it('collapses extra API bindings behind an expand control', async () => {
-    const currentUser = {
-      id: 1,
-      userName: 'admin',
-      nickName: 'Admin',
-      roles: [{ id: 1, code: 'super_admin', name: 'Super Admin' }],
-    }
-    useAuthStore.getState().setSession({ accessToken: 'token', refreshToken: 'refresh', userInfo: currentUser })
-    http.defaults.adapter = (async (config) => {
-      let data: unknown
-      if (config.url === '/users/me') data = { code: 'OK', message: 'ok', data: { userInfo: currentUser } }
-      else if (config.url === '/menus/current')
-        data = { code: 'OK', message: 'ok', data: { menus: [{ name: 'menus', path: 'menus' }], permissions: [] } }
-      else if (config.url === '/menus/tree')
-        data = {
-          code: 'OK',
-          message: 'ok',
-          data: [
-            {
-              id: 2,
-              parentId: 0,
-              path: 'dictionaries',
-              name: 'dictionaries',
-              sort: 1,
-              menuType: 'page',
-              permission: 'system:dict:list',
-              meta: { title: 'Dictionaries' },
-              apiBindings: [
-                { method: 'GET', pathPattern: '/api/dictionaries' },
-                { method: 'GET', pathPattern: '/api/dictionaries/{id}' },
-                { method: 'GET', pathPattern: '/api/dictionaries/{id}/tree' },
-              ],
-              children: [],
-            },
-          ],
-        }
-      else throw new Error(`Unexpected request: ${config.method} ${config.url}`)
-      return { data, status: 200, statusText: 'OK', headers: {}, config }
-    }) as AxiosAdapter
-    window.history.replaceState({}, '', '/menus')
-    render(<Application />)
-
-    expect(await screen.findByRole('heading', { name: 'Access catalog' })).toBeInTheDocument()
-    expect(await screen.findByText('/api/dictionaries')).toBeInTheDocument()
-    expect(screen.queryByText('/api/dictionaries/{id}')).not.toBeInTheDocument()
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: '+2 APIs' }))
-    expect(screen.getByText('/api/dictionaries/{id}')).toBeInTheDocument()
-    expect(screen.getByText('/api/dictionaries/{id}/tree')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Collapse APIs' }))
-    expect(screen.queryByText('/api/dictionaries/{id}')).not.toBeInTheDocument()
   })
 })

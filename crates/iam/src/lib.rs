@@ -27,11 +27,7 @@ impl Iam {
     pub async fn load(pool: PgPool) -> Result<Self, IamInitError> {
         let authorization = Authorization::load(pool.clone()).await?;
         let access_catalog = Arc::new(AccessCatalog::load(&pool).await?);
-        let access = AccessService::from_catalog(
-            pool.clone(),
-            authorization.clone(),
-            access_catalog.clone(),
-        );
+        let access = AccessService::new(pool.clone(), authorization.clone());
         let accounts = accounts::Accounts::new(pool.clone(), authorization.clone());
         let menus =
             MenuService::from_catalog(pool.clone(), authorization.clone(), access_catalog.clone());

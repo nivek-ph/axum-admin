@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use super::{AccessBinding, AccessNode, CatalogError, MenuType, routes::RouteBinding};
+use super::{AccessNode, CatalogError, MenuType};
 
 #[derive(Debug, Clone)]
 pub(super) struct MenuIndex {
@@ -41,31 +41,6 @@ impl MenuIndex {
             enabled_menu_ids,
             enabled_permissions,
         })
-    }
-
-    pub(super) fn active_route_bindings(
-        &self,
-        bindings: Vec<AccessBinding>,
-    ) -> Result<Vec<RouteBinding>, CatalogError> {
-        bindings
-            .into_iter()
-            .filter_map(|binding| {
-                let node = self.nodes.get(&binding.menu_id)?;
-                if node.menu_type == MenuType::Directory {
-                    return Some(Err(CatalogError::InvalidBinding));
-                }
-                self.enabled_menu_ids.contains(&binding.menu_id).then(|| {
-                    Ok(RouteBinding {
-                        method: binding.method,
-                        path: binding.path,
-                        permission: node
-                            .permission
-                            .clone()
-                            .ok_or(CatalogError::InvalidBinding)?,
-                    })
-                })
-            })
-            .collect()
     }
 
     pub(super) fn enabled_permissions(&self) -> &HashSet<String> {

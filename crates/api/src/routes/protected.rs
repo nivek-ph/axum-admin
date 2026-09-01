@@ -3,8 +3,9 @@ use axum::Router;
 use super::{
     audit, auth, departments, dictionaries, files, menus, parameters, roles, storages, users,
 };
+use crate::state::AppState;
 
-pub fn router() -> Router<crate::state::AppState> {
+pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .nest("/depts", departments::routes())
         .nest("/dictionaries", dictionaries::routes())

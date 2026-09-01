@@ -80,8 +80,18 @@ async fn multiple_roles_are_additive_and_survive_restart(pool: sqlx::PgPool) {
         .replace_roles(101, 102, vec![2, 3], audit_context(101))
         .await
         .unwrap();
-    assert!(iam.access.evaluate(102, "GET", "/api/users").await.is_ok());
-    assert!(iam.access.evaluate(102, "POST", "/api/users").await.is_ok());
+    assert!(
+        iam.access
+            .authorize_permission(102, "system:user:list")
+            .await
+            .is_ok()
+    );
+    assert!(
+        iam.access
+            .authorize_permission(102, "system:user:create")
+            .await
+            .is_ok()
+    );
 
     let restarted = Iam::load(pool).await.unwrap();
     let access = restarted.accounts.access(101, 102).await.unwrap();
@@ -94,15 +104,12 @@ async fn zero_role_user_has_only_explicit_self_service(pool: sqlx::PgPool) {
     insert_user(&pool, 103, "zero-role").await;
     let iam = Iam::load(pool).await.unwrap();
 
-    assert!(
-        iam.access
-            .evaluate(103, "GET", "/api/users/me")
-            .await
-            .is_ok()
-    );
+    assert!(iam.access.require_active_user(103).await.is_ok());
     assert!(matches!(
-        iam.access.evaluate(103, "GET", "/api/users").await,
-        Err(AccessEvaluationError::PermissionDenied { .. })
+        iam.access
+            .authorize_permission(103, "system:user:list")
+            .await,
+        Err(AccessEvaluationError::PermissionDenied)
     ));
     let (menus, permissions) = iam.menus.current(103).await.unwrap();
     assert!(menus.is_empty());
@@ -206,10 +213,17 @@ async fn failed_periodic_reload_retains_last_good_policy_then_recovers(pool: sql
 
     insert_policy(&pool, "p", "user:112", "system:user:create").await;
     tokio::time::sleep(Duration::from_millis(80)).await;
-    assert!(iam.access.evaluate(112, "GET", "/api/users").await.is_ok());
+    assert!(
+        iam.access
+            .authorize_permission(112, "system:user:list")
+            .await
+            .is_ok()
+    );
     assert!(matches!(
-        iam.access.evaluate(112, "POST", "/api/users").await,
-        Err(AccessEvaluationError::PermissionDenied { .. })
+        iam.access
+            .authorize_permission(112, "system:user:create")
+            .await,
+        Err(AccessEvaluationError::PermissionDenied)
     ));
 
     sqlx::query("delete from casbin_rule where ptype = 'p' and v0 = 'user:112'")
@@ -223,8 +237,10 @@ async fn failed_periodic_reload_retains_last_good_policy_then_recovers(pool: sql
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             if matches!(
-                iam.access.evaluate(112, "GET", "/api/users").await,
-                Err(AccessEvaluationError::PermissionDenied { .. })
+                iam.access
+                    .authorize_permission(112, "system:user:list")
+                    .await,
+                Err(AccessEvaluationError::PermissionDenied)
             ) {
                 break;
             }
@@ -265,7 +281,7 @@ async fn watcher_propagates_membership_changes(pool: sqlx::PgPool) {
         loop {
             if subscriber
                 .access
-                .evaluate(114, "GET", "/api/users")
+                .authorize_permission(114, "system:user:list")
                 .await
                 .is_ok()
             {

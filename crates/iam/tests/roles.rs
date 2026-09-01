@@ -101,14 +101,24 @@ async fn action_selection_adds_page_and_persists_through_restart(pool: sqlx::PgP
         access.permissions,
         vec!["system:user:create", "system:user:list"]
     );
-    assert!(iam.access.evaluate(303, "GET", "/api/users").await.is_ok());
-    assert!(iam.access.evaluate(303, "POST", "/api/users").await.is_ok());
+    assert!(
+        iam.access
+            .authorize_permission(303, "system:user:list")
+            .await
+            .is_ok()
+    );
+    assert!(
+        iam.access
+            .authorize_permission(303, "system:user:create")
+            .await
+            .is_ok()
+    );
 
     let restarted = Iam::load(pool).await.unwrap();
     assert!(
         restarted
             .access
-            .evaluate(303, "GET", "/api/users")
+            .authorize_permission(303, "system:user:list")
             .await
             .is_ok()
     );
@@ -137,12 +147,16 @@ async fn removing_page_and_actions_removes_navigation_and_operations(pool: sqlx:
         .await
         .unwrap();
     assert!(matches!(
-        iam.access.evaluate(305, "GET", "/api/users").await,
-        Err(AccessEvaluationError::PermissionDenied { .. })
+        iam.access
+            .authorize_permission(305, "system:user:list")
+            .await,
+        Err(AccessEvaluationError::PermissionDenied)
     ));
     assert!(matches!(
-        iam.access.evaluate(305, "POST", "/api/users").await,
-        Err(AccessEvaluationError::PermissionDenied { .. })
+        iam.access
+            .authorize_permission(305, "system:user:create")
+            .await,
+        Err(AccessEvaluationError::PermissionDenied)
     ));
     assert!(iam.menus.current(305).await.unwrap().0.is_empty());
 }

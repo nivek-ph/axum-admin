@@ -1853,7 +1853,6 @@ version = "0.1.0"
 dependencies = [
  "audit",
  "casbin",
- "matchit",
  "redis-watcher",
  "serde",
  "serde_json",

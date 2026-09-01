@@ -3,47 +3,115 @@ mod handler;
 
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{delete, get, post, put},
 };
 pub(crate) use handler::*;
 
-use crate::state::AppState;
+use crate::{middleware::permission::permission, state::AppState};
 
-pub fn routes() -> Router<AppState> {
+pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            get(handler::get_sys_dictionary_list).post(handler::create_sys_dictionary),
+            permission(
+                "system:dictionary:list",
+                get(handler::get_sys_dictionary_list),
+            ),
         )
-        .route("/import", post(handler::import_sys_dictionary))
+        .route(
+            "/",
+            permission(
+                "system:dictionary:create",
+                post(handler::create_sys_dictionary),
+            ),
+        )
+        .route(
+            "/import",
+            permission(
+                "system:dictionary:import",
+                post(handler::import_sys_dictionary),
+            ),
+        )
         .route(
             "/by-type/{dictionary_type}/tree",
-            get(handler::get_dictionary_tree_by_type),
+            permission(
+                "system:dictionary:list",
+                get(handler::get_dictionary_tree_by_type),
+            ),
         )
         .route(
             "/{id}",
-            get(handler::find_sys_dictionary_by_id)
-                .put(handler::update_sys_dictionary_by_id)
-                .delete(handler::delete_sys_dictionary_by_id),
+            permission(
+                "system:dictionary:list",
+                get(handler::find_sys_dictionary_by_id),
+            ),
         )
-        .route("/{id}/export", get(handler::export_sys_dictionary_by_id))
+        .route(
+            "/{id}",
+            permission(
+                "system:dictionary:update",
+                put(handler::update_sys_dictionary_by_id),
+            ),
+        )
+        .route(
+            "/{id}",
+            permission(
+                "system:dictionary:delete",
+                delete(handler::delete_sys_dictionary_by_id),
+            ),
+        )
+        .route(
+            "/{id}/export",
+            permission(
+                "system:dictionary:export",
+                get(handler::export_sys_dictionary_by_id),
+            ),
+        )
         .route(
             "/{id}/tree",
-            get(handler::get_dictionary_tree).post(handler::create_dictionary_tree_node),
+            permission("system:dictionary:list", get(handler::get_dictionary_tree)),
+        )
+        .route(
+            "/{id}/tree",
+            permission(
+                "system:dictionary-detail:create",
+                post(handler::create_dictionary_tree_node),
+            ),
         )
         .route(
             "/{id}/tree/{node_id}",
-            get(handler::find_dictionary_tree_node)
-                .put(handler::update_dictionary_tree_node)
-                .delete(handler::delete_dictionary_tree_node),
+            permission(
+                "system:dictionary:list",
+                get(handler::find_dictionary_tree_node),
+            ),
+        )
+        .route(
+            "/{id}/tree/{node_id}",
+            permission(
+                "system:dictionary-detail:update",
+                put(handler::update_dictionary_tree_node),
+            ),
+        )
+        .route(
+            "/{id}/tree/{node_id}",
+            permission(
+                "system:dictionary-detail:delete",
+                delete(handler::delete_dictionary_tree_node),
+            ),
         )
         .route(
             "/{id}/tree/{node_id}/children",
-            get(handler::get_dictionary_tree_node_children),
+            permission(
+                "system:dictionary:list",
+                get(handler::get_dictionary_tree_node_children),
+            ),
         )
         .route(
             "/{id}/tree/{node_id}/path",
-            get(handler::get_dictionary_tree_node_path),
+            permission(
+                "system:dictionary:list",
+                get(handler::get_dictionary_tree_node_path),
+            ),
         )
 }
 
@@ -57,6 +125,24 @@ mod tests {
 
     use super::*;
 
+    fn handler_routes() -> Router<AppState> {
+        Router::new()
+            .route(
+                "/",
+                get(handler::get_sys_dictionary_list).post(handler::create_sys_dictionary),
+            )
+            .route("/import", post(handler::import_sys_dictionary))
+            .route(
+                "/{id}",
+                get(handler::find_sys_dictionary_by_id).put(handler::update_sys_dictionary_by_id),
+            )
+            .route(
+                "/{id}/tree",
+                get(handler::get_dictionary_tree).post(handler::create_dictionary_tree_node),
+            )
+            .route("/{id}/export", get(handler::export_sys_dictionary_by_id))
+    }
+
     async fn json(response: axum::response::Response) -> serde_json::Value {
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
@@ -66,7 +152,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn dictionary_routes_keep_transport_shape_and_derive_tree_fields(pool: sqlx::PgPool) {
-        let app = routes().with_state(crate::state::tests::test_state(pool).await);
+        let app = handler_routes().with_state(crate::state::tests::test_state(pool).await);
         let response = app
             .clone()
             .oneshot(

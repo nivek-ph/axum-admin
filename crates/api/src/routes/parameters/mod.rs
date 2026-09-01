@@ -3,25 +3,47 @@ mod handler;
 
 use axum::{
     Router,
-    routing::{delete, get},
+    routing::{delete, get, post, put},
 };
 pub(crate) use handler::*;
 
-use crate::state::AppState;
+use crate::{middleware::permission::permission, state::AppState};
 
-pub fn routes() -> Router<AppState> {
+pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            get(handler::get_sys_params_list).post(handler::create_sys_params),
+            permission("system:param:list", get(handler::get_sys_params_list)),
         )
-        .route("/by-key", get(handler::get_sys_param))
-        .route("/batch", delete(handler::delete_sys_params_by_ids))
+        .route(
+            "/",
+            permission("system:param:create", post(handler::create_sys_params)),
+        )
+        .route(
+            "/by-key",
+            permission("system:param:list", get(handler::get_sys_param)),
+        )
+        .route(
+            "/batch",
+            permission(
+                "system:param:batch-delete",
+                delete(handler::delete_sys_params_by_ids),
+            ),
+        )
         .route(
             "/{id}",
-            get(handler::find_sys_params_by_id)
-                .put(handler::update_sys_params_by_id)
-                .delete(handler::delete_sys_params_by_id),
+            permission("system:param:get", get(handler::find_sys_params_by_id)),
+        )
+        .route(
+            "/{id}",
+            permission("system:param:update", put(handler::update_sys_params_by_id)),
+        )
+        .route(
+            "/{id}",
+            permission(
+                "system:param:delete",
+                delete(handler::delete_sys_params_by_id),
+            ),
         )
 }
 
@@ -35,6 +57,21 @@ mod tests {
 
     use super::*;
 
+    fn handler_routes() -> Router<AppState> {
+        Router::new()
+            .route(
+                "/",
+                get(handler::get_sys_params_list).post(handler::create_sys_params),
+            )
+            .route("/by-key", get(handler::get_sys_param))
+            .route(
+                "/{id}",
+                get(handler::find_sys_params_by_id)
+                    .put(handler::update_sys_params_by_id)
+                    .delete(handler::delete_sys_params_by_id),
+            )
+    }
+
     async fn json(response: axum::response::Response) -> serde_json::Value {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         serde_json::from_slice(&body).unwrap()
@@ -42,7 +79,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn parameter_routes_keep_list_detail_key_and_path_body_contract(pool: sqlx::PgPool) {
-        let app = routes().with_state(crate::state::tests::test_state(pool).await);
+        let app = handler_routes().with_state(crate::state::tests::test_state(pool).await);
         let response = app
             .clone()
             .oneshot(

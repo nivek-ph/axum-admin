@@ -17,14 +17,13 @@ use crate::{
 };
 
 pub fn router(state: AppState) -> Router {
+    let protected_routes = routes::protected_routes()
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
     let captcha = rate_limit::apply_captcha(routes::captcha_routes(), &state.redis);
     let api_router = Router::new()
         .merge(routes::public_routes())
         .merge(captcha)
-        .merge(
-            routes::protected_routes()
-                .route_layer(middleware::from_fn_with_state(state.clone(), require_auth)),
-        );
+        .merge(protected_routes);
     let api_router = rate_limit::apply_global(api_router, &state.redis);
 
     Router::new()

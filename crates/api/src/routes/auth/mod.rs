@@ -21,6 +21,6 @@ pub fn captcha_routes() -> Router<AppState> {
     Router::new().route("/auth/captcha", post(captcha))
 }
 
-pub fn protected_routes() -> Router<AppState> {
+pub(crate) fn protected_routes() -> Router<AppState> {
     Router::new().route("/auth/logout", post(logout))
 }

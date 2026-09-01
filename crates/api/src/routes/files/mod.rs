@@ -10,22 +10,45 @@ use axum::{
 use file_storage::files::UPLOAD_CHUNK_BYTES;
 pub(crate) use handler::*;
 
-use crate::state::AppState;
+use crate::{middleware::permission::permission, state::AppState};
 
-pub fn routes() -> Router<AppState> {
+pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(handler::get_file_list_by_query))
-        .route("/import-url", post(handler::import_url))
-        .route("/uploads", post(handler::start_upload))
+        .route(
+            "/",
+            permission("system:file:list", get(handler::get_file_list_by_query)),
+        )
+        .route(
+            "/import-url",
+            permission("system:file:import-url", post(handler::import_url)),
+        )
+        .route(
+            "/uploads",
+            permission("system:file:upload", post(handler::start_upload)),
+        )
         .route(
             "/uploads/{id}",
-            get(handler::upload_status)
-                .patch(handler::upload_chunk)
-                .layer(DefaultBodyLimit::max(UPLOAD_CHUNK_BYTES)),
+            permission("system:file:upload", get(handler::upload_status)),
         )
-        .route("/uploads/{id}/complete", post(handler::complete_upload))
-        .route("/{id}", delete(handler::delete_file_by_id))
-        .route("/{id}/name", patch(handler::edit_file_name_by_id))
+        .route(
+            "/uploads/{id}",
+            permission(
+                "system:file:upload",
+                patch(handler::upload_chunk).layer(DefaultBodyLimit::max(UPLOAD_CHUNK_BYTES)),
+            ),
+        )
+        .route(
+            "/uploads/{id}/complete",
+            permission("system:file:upload", post(handler::complete_upload)),
+        )
+        .route(
+            "/{id}",
+            permission("system:file:delete", delete(handler::delete_file_by_id)),
+        )
+        .route(
+            "/{id}/name",
+            permission("system:file:rename", patch(handler::edit_file_name_by_id)),
+        )
 }
 
 pub(crate) fn public_routes() -> Router<AppState> {
@@ -44,6 +67,17 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+
+    fn upload_handler_routes() -> Router<AppState> {
+        Router::new()
+            .route("/uploads", post(handler::start_upload))
+            .route("/uploads/{id}", get(handler::upload_status))
+            .route(
+                "/uploads/{id}",
+                patch(handler::upload_chunk).layer(DefaultBodyLimit::max(UPLOAD_CHUNK_BYTES)),
+            )
+            .route("/uploads/{id}/complete", post(handler::complete_upload))
+    }
 
     fn upload_dir() -> PathBuf {
         std::env::temp_dir().join(format!("ava-api-upload-test-{}", Uuid::new_v4()))
@@ -68,7 +102,7 @@ mod tests {
     #[sqlx::test(migrations = "../../migrations")]
     async fn resumable_upload_continues_from_the_persisted_offset(pool: sqlx::PgPool) {
         let upload_dir = upload_dir();
-        let app = routes().with_state(test_state(pool, &upload_dir).await);
+        let app = upload_handler_routes().with_state(test_state(pool, &upload_dir).await);
         let response = app
             .clone()
             .oneshot(
@@ -154,7 +188,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn upload_start_rejects_files_larger_than_one_gib(pool: sqlx::PgPool) {
-        let app = routes().with_state(crate::state::tests::test_state(pool).await);
+        let app = upload_handler_routes().with_state(crate::state::tests::test_state(pool).await);
         let response = app
             .oneshot(
                 Request::post("/uploads")

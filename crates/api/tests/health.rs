@@ -57,9 +57,13 @@ async fn test_state(pool: sqlx::PgPool) -> api::AppState {
     }
 }
 
+fn test_router(state: api::AppState) -> axum::Router {
+    api::router(state)
+}
+
 #[sqlx::test(migrations = "../../migrations")]
 async fn health_route_returns_ok_response_body(pool: sqlx::PgPool) {
-    let app = api::router(test_state(pool).await);
+    let app = test_router(test_state(pool).await);
     let response = app
         .oneshot(
             request()
@@ -86,7 +90,7 @@ async fn health_route_returns_ok_response_body(pool: sqlx::PgPool) {
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn swagger_ui_route_is_available(pool: sqlx::PgPool) {
-    let app = api::router(test_state(pool).await);
+    let app = test_router(test_state(pool).await);
     let response = app
         .oneshot(
             request()
@@ -102,7 +106,7 @@ async fn swagger_ui_route_is_available(pool: sqlx::PgPool) {
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn protected_route_without_bearer_returns_login_required_envelope(pool: sqlx::PgPool) {
-    let response = api::router(test_state(pool).await)
+    let response = test_router(test_state(pool).await)
         .oneshot(
             request()
                 .uri("/api/users/me")
@@ -128,7 +132,7 @@ async fn protected_route_without_bearer_returns_login_required_envelope(pool: sq
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn protected_route_with_invalid_bearer_returns_token_invalid_envelope(pool: sqlx::PgPool) {
-    let response = api::router(test_state(pool).await)
+    let response = test_router(test_state(pool).await)
         .oneshot(
             request()
                 .uri("/api/users/me")
@@ -168,7 +172,7 @@ async fn protected_route_with_expired_bearer_returns_access_token_expired_envelo
         &EncodingKey::from_secret(b"test-secret"),
     )
     .expect("expired token should encode");
-    let response = api::router(test_state(pool).await)
+    let response = test_router(test_state(pool).await)
         .oneshot(
             request()
                 .uri("/api/users/me")
@@ -217,7 +221,7 @@ async fn protected_route_with_missing_login_session_returns_session_invalid_enve
     let mut state = test_state(pool).await;
     state.tokens = tokens;
 
-    let response = api::router(state)
+    let response = test_router(state)
         .oneshot(
             request()
                 .uri("/api/users/me")
@@ -250,7 +254,7 @@ async fn protected_route_without_session_store_returns_authorization_unavailable
         .issue_token(1, "admin", "missing-store-session")
         .expect("valid access token should be issued");
 
-    let response = api::router(test_state(pool).await)
+    let response = test_router(test_state(pool).await)
         .oneshot(
             request()
                 .uri("/api/users/me")
@@ -277,7 +281,7 @@ async fn protected_route_without_session_store_returns_authorization_unavailable
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn malformed_refresh_token_returns_refresh_token_invalid_envelope(pool: sqlx::PgPool) {
-    let response = api::router(test_state(pool).await)
+    let response = test_router(test_state(pool).await)
         .oneshot(
             request()
                 .method(Method::POST)
@@ -308,7 +312,7 @@ async fn valid_refresh_shape_without_session_store_returns_authorization_unavail
     pool: sqlx::PgPool,
 ) {
     let refresh_token = format!("{}.{}", "a".repeat(64), "b".repeat(64));
-    let response = api::router(test_state(pool).await)
+    let response = test_router(test_state(pool).await)
         .oneshot(
             request()
                 .method(Method::POST)
@@ -348,7 +352,7 @@ async fn refresh_for_missing_session_returns_session_invalid_envelope(pool: sqlx
     let mut state = test_state(pool).await;
     state.tokens = auth::token::TokenService::new("test-secret", redis);
     let refresh_token = format!("{}.{}", "c".repeat(64), "d".repeat(64));
-    let response = api::router(state)
+    let response = test_router(state)
         .oneshot(
             request()
                 .method(Method::POST)
@@ -378,7 +382,7 @@ async fn refresh_for_missing_session_returns_session_invalid_envelope(pool: sqlx
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn removed_non_core_routes_return_not_found(pool: sqlx::PgPool) {
-    let app = api::router(test_state(pool).await);
+    let app = test_router(test_state(pool).await);
     let requests = [
         ("/api/autoCode/getDB", "GET"),
         ("/api/customer/customerList?page=1&pageSize=10", "GET"),
@@ -421,7 +425,7 @@ async fn removed_non_core_routes_return_not_found(pool: sqlx::PgPool) {
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn cors_preflight_allows_desktop_dev_origin(pool: sqlx::PgPool) {
-    let app = api::router(test_state(pool).await);
+    let app = test_router(test_state(pool).await);
     let response = app
         .oneshot(
             request()
