@@ -80,12 +80,6 @@ const UPLOAD_IN_PROGRESS: ErrorSpec = ErrorSpec::conflict(
     "upload operation is already in progress",
 );
 
-impl From<iam::access::CatalogError> for AppError {
-    fn from(error: iam::access::CatalogError) -> Self {
-        AUTHORIZATION_CONFIG_INVALID.into_error().with_source(error)
-    }
-}
-
 impl From<iam::access::AccessEvaluationError> for AppError {
     fn from(error: iam::access::AccessEvaluationError) -> Self {
         use iam::access::AccessEvaluationError;
