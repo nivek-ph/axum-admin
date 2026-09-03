@@ -267,11 +267,14 @@ impl Accounts {
     ) -> Result<(), AccountError> {
         self.ensure_visible(actor_user_id, target_user_id).await?;
         self.authorization.remove_user(target_user_id).await?;
-        sqlx::query("delete from sys_users where id = $1")
+        let deleted = sqlx::query("delete from sys_users where id = $1")
             .bind(target_user_id)
             .execute(&self.pool)
             .await?
             .rows_affected();
+        if deleted == 0 {
+            return Err(AccountError::NotFound);
+        }
         self.authorization.notify_reload();
         Ok(())
     }
