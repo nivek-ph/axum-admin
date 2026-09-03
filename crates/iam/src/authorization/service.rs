@@ -80,6 +80,10 @@ impl Authorization {
         self.engine.set_role_status(role_id, enabled).await;
     }
 
+    pub(crate) fn notify_reload(&self) {
+        self.engine.notify_reload();
+    }
+
     pub(crate) async fn is_active_super_admin(
         &self,
         user_id: i64,

@@ -169,11 +169,12 @@ successful and the service emits a high-priority structured error containing the
 and request identifier.
 
 Every process reloads the complete policy, User status, and Role status into a candidate snapshot and
-validates it before swapping the active instance. User and Role status mutations update the local
-snapshot and publish a Redis reload notification; Casbin policy saves publish the same class of
-notification. Periodic reload repairs missed notifications. A failed reload retains the last
-successfully loaded snapshot. Requests fail closed for evaluation errors, but policy freshness is
-not strictly fail closed.
+validates it before swapping the active instance. User and Role status mutations take the reload lock,
+update the local snapshot, and publish a Redis reload notification so an in-flight rebuild cannot
+replace newer local status. Casbin policy saves publish the same class of notification. Account and
+Role deletion publish a final notification after the authoritative row is removed. Periodic reload
+repairs missed notifications. A failed reload retains the last successfully loaded snapshot. Requests
+fail closed for evaluation errors, but policy freshness is not strictly fail closed.
 
 Invalid policy at startup is fatal and prevents the application from serving requests.
 

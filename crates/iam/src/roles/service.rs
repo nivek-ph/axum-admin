@@ -168,6 +168,7 @@ impl RoleService {
         if deleted == 0 {
             return Err(RoleError::NotFound);
         }
+        self.authorization.notify_reload();
         self.record_role_audit(
             audit_context,
             AuditAction::DeleteRole,

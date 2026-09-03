@@ -272,6 +272,7 @@ impl EnforcementEngine {
     }
 
     pub(super) async fn remove_user(&self, user_id: i64) -> Result<(), AuthorizationError> {
+        let _reload = self.reload_lock.lock().await;
         let mut snapshot = self.snapshot.write().await;
         snapshot
             .policy
@@ -279,12 +280,14 @@ impl EnforcementEngine {
             .await?;
         snapshot.users.remove(&user_id);
         drop(snapshot);
+        drop(_reload);
         self.notify_reload();
         Ok(())
     }
 
     pub(super) async fn remove_role(&self, role_id: i64) -> Result<(), AuthorizationError> {
         let subject = role_subject(role_id);
+        let _reload = self.reload_lock.lock().await;
         let mut snapshot = self.snapshot.write().await;
         snapshot
             .policy
@@ -296,16 +299,20 @@ impl EnforcementEngine {
             .await?;
         snapshot.enabled_role_ids.remove(&role_id);
         drop(snapshot);
+        drop(_reload);
         self.notify_reload();
         Ok(())
     }
 
     pub(super) async fn set_user_status(&self, user_id: i64, enabled: bool) {
+        let _reload = self.reload_lock.lock().await;
         self.snapshot.write().await.users.insert(user_id, enabled);
+        drop(_reload);
         self.notify_reload();
     }
 
     pub(super) async fn set_role_status(&self, role_id: i64, enabled: bool) {
+        let _reload = self.reload_lock.lock().await;
         let mut snapshot = self.snapshot.write().await;
         if enabled {
             snapshot.enabled_role_ids.insert(role_id);
@@ -313,10 +320,11 @@ impl EnforcementEngine {
             snapshot.enabled_role_ids.remove(&role_id);
         }
         drop(snapshot);
+        drop(_reload);
         self.notify_reload();
     }
 
-    fn notify_reload(&self) {
+    pub(super) fn notify_reload(&self) {
         let Ok(watcher) = self.watcher.lock() else {
             tracing::error!("Casbin watcher lock is poisoned; policy reload was not published");
             return;
