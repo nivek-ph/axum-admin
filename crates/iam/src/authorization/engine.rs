@@ -66,7 +66,8 @@ impl EnforcementEngine {
         self: &Arc<Self>,
         redis_url: &str,
     ) -> Result<(), AuthorizationError> {
-        let _guard = self.mutation_lock.lock().await;
+        // Network I/O (Redis connection + PING) happens outside the mutation
+        // critical section; only the snapshot/watcher installation is serialized.
         let options = WatcherOptions::default()
             .with_channel(REDIS_CHANNEL.to_string())
             .with_ignore_self(true);
@@ -83,6 +84,7 @@ impl EnforcementEngine {
             });
         }));
         let shared = SharedWatcher(Arc::new(StdMutex::new(watcher)));
+        let _guard = self.mutation_lock.lock().await;
         self.snapshot
             .write()
             .await
