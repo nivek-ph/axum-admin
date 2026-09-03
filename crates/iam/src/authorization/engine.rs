@@ -21,7 +21,9 @@ const REDIS_CHANNEL: &str = "/ava/casbin";
 pub(super) struct EnforcementEngine {
     store: Arc<PolicyStore>,
     snapshot: RwLock<AuthorizationSnapshot>,
-    reload_lock: Mutex<()>,
+    /// Serializes all snapshot mutations (reloads and local writes) so a
+    /// completed reload can never overwrite a more recent local update.
+    mutation_lock: Mutex<()>,
     watcher: StdMutex<Option<SharedWatcher>>,
 }
 
@@ -55,7 +57,7 @@ impl EnforcementEngine {
         Ok(Self {
             store,
             snapshot: RwLock::new(snapshot),
-            reload_lock: Mutex::new(()),
+            mutation_lock: Mutex::new(()),
             watcher: StdMutex::new(None),
         })
     }
@@ -64,7 +66,7 @@ impl EnforcementEngine {
         self: &Arc<Self>,
         redis_url: &str,
     ) -> Result<(), AuthorizationError> {
-        let _reload_guard = self.reload_lock.lock().await;
+        let _guard = self.mutation_lock.lock().await;
         let options = WatcherOptions::default()
             .with_channel(REDIS_CHANNEL.to_string())
             .with_ignore_self(true);
@@ -110,7 +112,7 @@ impl EnforcementEngine {
     }
 
     pub(super) async fn reload(&self) -> Result<(), AuthorizationError> {
-        let _guard = self.reload_lock.lock().await;
+        let _guard = self.mutation_lock.lock().await;
         let mut next = build_snapshot(&self.store).await?;
         if let Some(watcher) = self
             .watcher
@@ -217,6 +219,7 @@ impl EnforcementEngine {
         permissions: BTreeSet<String>,
     ) -> Result<BTreeSet<String>, AuthorizationError> {
         let subject = role_subject(role_id);
+        let _guard = self.mutation_lock.lock().await;
         let mut snapshot = self.snapshot.write().await;
         let policy = &mut snapshot.policy;
         let before = policy
@@ -247,6 +250,7 @@ impl EnforcementEngine {
         role_ids: BTreeSet<i64>,
     ) -> Result<BTreeSet<i64>, AuthorizationError> {
         let user = user_subject(user_id);
+        let _guard = self.mutation_lock.lock().await;
         let mut snapshot = self.snapshot.write().await;
         let policy = &mut snapshot.policy;
         let before = policy
@@ -272,7 +276,7 @@ impl EnforcementEngine {
     }
 
     pub(super) async fn remove_user(&self, user_id: i64) -> Result<(), AuthorizationError> {
-        let _reload = self.reload_lock.lock().await;
+        let _guard = self.mutation_lock.lock().await;
         let mut snapshot = self.snapshot.write().await;
         snapshot
             .policy
@@ -280,14 +284,14 @@ impl EnforcementEngine {
             .await?;
         snapshot.users.remove(&user_id);
         drop(snapshot);
-        drop(_reload);
+        drop(_guard);
         self.notify_reload();
         Ok(())
     }
 
     pub(super) async fn remove_role(&self, role_id: i64) -> Result<(), AuthorizationError> {
         let subject = role_subject(role_id);
-        let _reload = self.reload_lock.lock().await;
+        let _guard = self.mutation_lock.lock().await;
         let mut snapshot = self.snapshot.write().await;
         snapshot
             .policy
@@ -299,20 +303,20 @@ impl EnforcementEngine {
             .await?;
         snapshot.enabled_role_ids.remove(&role_id);
         drop(snapshot);
-        drop(_reload);
+        drop(_guard);
         self.notify_reload();
         Ok(())
     }
 
     pub(super) async fn set_user_status(&self, user_id: i64, enabled: bool) {
-        let _reload = self.reload_lock.lock().await;
+        let _guard = self.mutation_lock.lock().await;
         self.snapshot.write().await.users.insert(user_id, enabled);
-        drop(_reload);
+        drop(_guard);
         self.notify_reload();
     }
 
     pub(super) async fn set_role_status(&self, role_id: i64, enabled: bool) {
-        let _reload = self.reload_lock.lock().await;
+        let guard = self.mutation_lock.lock().await;
         let mut snapshot = self.snapshot.write().await;
         if enabled {
             snapshot.enabled_role_ids.insert(role_id);
@@ -320,7 +324,7 @@ impl EnforcementEngine {
             snapshot.enabled_role_ids.remove(&role_id);
         }
         drop(snapshot);
-        drop(_reload);
+        drop(guard);
         self.notify_reload();
     }
 
