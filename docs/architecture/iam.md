@@ -19,12 +19,17 @@ request. A route-local Permission guard performs one Authorization decision for 
 management method. Self-Service Access is a protected route without a Permission guard; it is not a
 special Permission or a separate admission type.
 
+The token/session check uses the session store. User existence and enabled status, User-to-Role
+membership, Role enabled status, and concrete Role Permissions are read from one process-local
+last-good Authorization snapshot. Authentication and Permission evaluation do not query PostgreSQL
+on the request path.
+
 Each management method declares one concrete Permission beside its handler registration with
-`permission(code, MethodRouter)`. HTTP topology belongs only to Axum route registration. The Access
-Catalog does not store HTTP methods or paths, Router construction does not compare routes with
-PostgreSQL, and Request Access does not resolve Permissions from request paths. Handlers call
-Accounts or Roles for administration; they never extract the private guard context or call private
-Authorization directly.
+`.permission(code)` on its `MethodRouter`. HTTP topology belongs only to Axum route
+registration. The Access Catalog does not store HTTP methods or paths, Router construction does not
+compare routes with PostgreSQL, and Request Access does not resolve Permissions from request paths.
+Handlers call Accounts or Roles for administration; they never extract the private guard context or
+call private Authorization directly.
 
 ## Domain model
 
@@ -163,11 +168,12 @@ Audit is intentionally non-atomic with policy. If audit storage fails, the commi
 successful and the service emits a high-priority structured error containing the action, resource,
 and request identifier.
 
-Every process reloads the complete policy into a candidate Enforcer and validates it before swapping
-the active instance. The Redis Watcher is installed on every active and replacement Enforcer, so a
-successful Casbin save publishes a prompt reload notification; periodic reload repairs missed
-notifications. A failed reload retains the last successfully loaded Enforcer. Requests fail closed
-for evaluation errors, but policy freshness is not strictly fail closed.
+Every process reloads the complete policy, User status, and Role status into a candidate snapshot and
+validates it before swapping the active instance. User and Role status mutations update the local
+snapshot and publish a Redis reload notification; Casbin policy saves publish the same class of
+notification. Periodic reload repairs missed notifications. A failed reload retains the last
+successfully loaded snapshot. Requests fail closed for evaluation errors, but policy freshness is
+not strictly fail closed.
 
 Invalid policy at startup is fatal and prevents the application from serving requests.
 

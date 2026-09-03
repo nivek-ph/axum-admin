@@ -4,12 +4,12 @@ mod handler;
 use axum::{Router, routing::get};
 pub use handler::*;
 
-use crate::{middleware::permission::permission, state::AppState};
+use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new().route("/current", get(get_menu)).route(
         "/tree",
-        permission("system:menu:list", get(get_base_menu_tree)),
+        get(get_base_menu_tree).permission("system:menu:list"),
     )
 }
 

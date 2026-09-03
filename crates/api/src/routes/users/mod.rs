@@ -7,7 +7,7 @@ use axum::{
 };
 pub use handler::*;
 
-use crate::{middleware::permission::permission, state::AppState};
+use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
@@ -16,28 +16,28 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/me/settings", put(set_self_setting))
         .route(
             "/",
-            permission("system:user:list", get(get_user_list_by_query)),
+            get(get_user_list_by_query).permission("system:user:list"),
         )
-        .route("/", permission("system:user:create", post(admin_register)))
+        .route("/", post(admin_register).permission("system:user:create"))
         .route(
             "/{id}",
-            permission("system:user:update", put(set_user_info_by_id)),
+            put(set_user_info_by_id).permission("system:user:update"),
         )
         .route(
             "/{id}",
-            permission("system:user:delete", delete(delete_user_by_id)),
+            delete(delete_user_by_id).permission("system:user:delete"),
         )
         .route(
             "/{id}/password/reset",
-            permission("system:user:reset-password", post(reset_password_by_id)),
+            post(reset_password_by_id).permission("system:user:reset-password"),
         )
         .route(
             "/{id}/roles",
-            permission("system:user:assign-roles", put(set_user_roles_by_id)),
+            put(set_user_roles_by_id).permission("system:user:assign-roles"),
         )
         .route(
             "/{id}/access",
-            permission("system:user:access-read", get(get_user_access)),
+            get(get_user_access).permission("system:user:access-read"),
         )
 }
 

@@ -44,11 +44,14 @@ This file gives repo-specific guidance for agents working in this project.
   access administration, never extract the private guard context, and never call private
   Authorization directly.
 - HTTP topology is owned by Axum route registration, not by the Access Catalog. Management methods
-  declare one concrete Permission with `permission(code, MethodRouter)`; the Access Catalog does not
-  store or expose HTTP method/path bindings, and Router construction must not validate against them.
+  attach one concrete Permission to their `MethodRouter` with `.permission(code)`; the Access
+  Catalog does not store or expose HTTP method/path bindings, and Router construction must not
+  validate against them.
 - PostgreSQL is authoritative. Casbin's `SqlxAdapter` exclusively persists concrete Role Permission
   policy (`p`) and User-to-Role membership (`g`) through Casbin Management APIs. Do not query or
-  mutate `casbin_rule` directly in application code. Redis only propagates reload notifications.
+  mutate `casbin_rule` directly in application code. Authentication and route-local Permission
+  evaluation read the process-local last-good Authorization snapshot and must not query PostgreSQL.
+  Redis only propagates reload notifications.
 - Access is role-only, additive, and allow-only. A User may have zero, one, or multiple Roles.
   Effective Permissions are the union of concrete Permissions from enabled assigned Roles. Do not
   add Direct Permissions, deny rules, wildcard grants, Role inheritance, configurable Data Scope,

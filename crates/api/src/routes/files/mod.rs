@@ -10,44 +10,43 @@ use axum::{
 use file_storage::files::UPLOAD_CHUNK_BYTES;
 pub(crate) use handler::*;
 
-use crate::{middleware::permission::permission, state::AppState};
+use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            permission("system:file:list", get(handler::get_file_list_by_query)),
+            get(handler::get_file_list_by_query).permission("system:file:list"),
         )
         .route(
             "/import-url",
-            permission("system:file:import-url", post(handler::import_url)),
+            post(handler::import_url).permission("system:file:import-url"),
         )
         .route(
             "/uploads",
-            permission("system:file:upload", post(handler::start_upload)),
+            post(handler::start_upload).permission("system:file:upload"),
         )
         .route(
             "/uploads/{id}",
-            permission("system:file:upload", get(handler::upload_status)),
+            get(handler::upload_status).permission("system:file:upload"),
         )
         .route(
             "/uploads/{id}",
-            permission(
-                "system:file:upload",
-                patch(handler::upload_chunk).layer(DefaultBodyLimit::max(UPLOAD_CHUNK_BYTES)),
-            ),
+            patch(handler::upload_chunk)
+                .layer(DefaultBodyLimit::max(UPLOAD_CHUNK_BYTES))
+                .permission("system:file:upload"),
         )
         .route(
             "/uploads/{id}/complete",
-            permission("system:file:upload", post(handler::complete_upload)),
+            post(handler::complete_upload).permission("system:file:upload"),
         )
         .route(
             "/{id}",
-            permission("system:file:delete", delete(handler::delete_file_by_id)),
+            delete(handler::delete_file_by_id).permission("system:file:delete"),
         )
         .route(
             "/{id}/name",
-            permission("system:file:rename", patch(handler::edit_file_name_by_id)),
+            patch(handler::edit_file_name_by_id).permission("system:file:rename"),
         )
 }
 

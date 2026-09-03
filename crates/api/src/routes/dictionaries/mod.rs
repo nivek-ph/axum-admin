@@ -7,111 +7,71 @@ use axum::{
 };
 pub(crate) use handler::*;
 
-use crate::{middleware::permission::permission, state::AppState};
+use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            permission(
-                "system:dictionary:list",
-                get(handler::get_sys_dictionary_list),
-            ),
+            get(handler::get_sys_dictionary_list).permission("system:dictionary:list"),
         )
         .route(
             "/",
-            permission(
-                "system:dictionary:create",
-                post(handler::create_sys_dictionary),
-            ),
+            post(handler::create_sys_dictionary).permission("system:dictionary:create"),
         )
         .route(
             "/import",
-            permission(
-                "system:dictionary:import",
-                post(handler::import_sys_dictionary),
-            ),
+            post(handler::import_sys_dictionary).permission("system:dictionary:import"),
         )
         .route(
             "/by-type/{dictionary_type}/tree",
-            permission(
-                "system:dictionary:list",
-                get(handler::get_dictionary_tree_by_type),
-            ),
+            get(handler::get_dictionary_tree_by_type).permission("system:dictionary:list"),
         )
         .route(
             "/{id}",
-            permission(
-                "system:dictionary:list",
-                get(handler::find_sys_dictionary_by_id),
-            ),
+            get(handler::find_sys_dictionary_by_id).permission("system:dictionary:list"),
         )
         .route(
             "/{id}",
-            permission(
-                "system:dictionary:update",
-                put(handler::update_sys_dictionary_by_id),
-            ),
+            put(handler::update_sys_dictionary_by_id).permission("system:dictionary:update"),
         )
         .route(
             "/{id}",
-            permission(
-                "system:dictionary:delete",
-                delete(handler::delete_sys_dictionary_by_id),
-            ),
+            delete(handler::delete_sys_dictionary_by_id).permission("system:dictionary:delete"),
         )
         .route(
             "/{id}/export",
-            permission(
-                "system:dictionary:export",
-                get(handler::export_sys_dictionary_by_id),
-            ),
+            get(handler::export_sys_dictionary_by_id).permission("system:dictionary:export"),
         )
         .route(
             "/{id}/tree",
-            permission("system:dictionary:list", get(handler::get_dictionary_tree)),
+            get(handler::get_dictionary_tree).permission("system:dictionary:list"),
         )
         .route(
             "/{id}/tree",
-            permission(
-                "system:dictionary-detail:create",
-                post(handler::create_dictionary_tree_node),
-            ),
+            post(handler::create_dictionary_tree_node)
+                .permission("system:dictionary-detail:create"),
         )
         .route(
             "/{id}/tree/{node_id}",
-            permission(
-                "system:dictionary:list",
-                get(handler::find_dictionary_tree_node),
-            ),
+            get(handler::find_dictionary_tree_node).permission("system:dictionary:list"),
         )
         .route(
             "/{id}/tree/{node_id}",
-            permission(
-                "system:dictionary-detail:update",
-                put(handler::update_dictionary_tree_node),
-            ),
+            put(handler::update_dictionary_tree_node).permission("system:dictionary-detail:update"),
         )
         .route(
             "/{id}/tree/{node_id}",
-            permission(
-                "system:dictionary-detail:delete",
-                delete(handler::delete_dictionary_tree_node),
-            ),
+            delete(handler::delete_dictionary_tree_node)
+                .permission("system:dictionary-detail:delete"),
         )
         .route(
             "/{id}/tree/{node_id}/children",
-            permission(
-                "system:dictionary:list",
-                get(handler::get_dictionary_tree_node_children),
-            ),
+            get(handler::get_dictionary_tree_node_children).permission("system:dictionary:list"),
         )
         .route(
             "/{id}/tree/{node_id}/path",
-            permission(
-                "system:dictionary:list",
-                get(handler::get_dictionary_tree_node_path),
-            ),
+            get(handler::get_dictionary_tree_node_path).permission("system:dictionary:list"),
         )
 }
 

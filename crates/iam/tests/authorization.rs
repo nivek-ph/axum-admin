@@ -117,6 +117,36 @@ async fn zero_role_user_has_only_explicit_self_service(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn request_access_uses_the_last_good_snapshot_when_postgres_is_unavailable(
+    pool: sqlx::PgPool,
+) {
+    insert_user(&pool, 115, "snapshot-user").await;
+    insert_user(&pool, 116, "disabled-snapshot-user").await;
+    sqlx::query("update sys_users set enable = false where id = 116")
+        .execute(&pool)
+        .await
+        .unwrap();
+    insert_role(&pool, 2, "snapshot-reader", "enabled").await;
+    insert_policy(&pool, "g", "user:115", "role:2").await;
+    insert_policy(&pool, "p", "role:2", "system:user:list").await;
+    let iam = Iam::load(pool.clone()).await.unwrap();
+
+    pool.close().await;
+
+    assert!(iam.access.require_active_user(115).await.is_ok());
+    assert!(matches!(
+        iam.access.require_active_user(116).await,
+        Err(AccessEvaluationError::UserDisabled)
+    ));
+    assert!(
+        iam.access
+            .authorize_permission(115, "system:user:list")
+            .await
+            .is_ok()
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn dormant_membership_is_visible_retainable_and_not_effective(pool: sqlx::PgPool) {
     insert_user(&pool, 104, "super-user").await;
     insert_user(&pool, 105, "target-user").await;

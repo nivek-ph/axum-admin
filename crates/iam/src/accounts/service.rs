@@ -66,6 +66,7 @@ impl Accounts {
         nickname: &str,
     ) -> Result<(), AccountError> {
         let user_id = ensure_admin_user(&self.pool, username, password_hash, nickname).await?;
+        self.authorization.set_user_status(user_id, true).await;
         self.authorization
             .ensure_bootstrap_role(user_id, super_admin_role_id(&self.pool).await?)
             .await?;
@@ -102,6 +103,7 @@ impl Accounts {
             .authorization
             .prepare_initial_user_roles(actor_user_id, &role_ids)
             .await?;
+        let enabled = payload.enable.unwrap_or(1) == 1;
 
         let user_id: i64 = sqlx::query_scalar(
             r#"
@@ -117,12 +119,13 @@ impl Accounts {
         .bind(payload.password_hash)
         .bind(&payload.nick_name)
         .bind(payload.header_img.unwrap_or_else(|| HEADER_IMG.to_string()))
-        .bind(payload.enable.unwrap_or(1) == 1)
+        .bind(enabled)
         .bind(payload.phone)
         .bind(payload.email)
         .bind(dept_id)
         .fetch_one(&self.pool)
         .await?;
+        self.authorization.set_user_status(user_id, enabled).await;
         self.authorization
             .assign_initial_user_roles(user_id, role_ids, audit_context)
             .await?;
@@ -186,6 +189,7 @@ impl Accounts {
                 }
             }
         }
+        let enabled = payload.enable == 1;
         let updated = sqlx::query(
             r#"
             update sys_users
@@ -201,7 +205,7 @@ impl Accounts {
         )
         .bind(payload.nick_name)
         .bind(payload.header_img)
-        .bind(payload.enable == 1)
+        .bind(enabled)
         .bind(payload.phone)
         .bind(payload.email)
         .bind(payload.dept_id)
@@ -211,6 +215,9 @@ impl Accounts {
         if updated.rows_affected() == 0 {
             return Err(AccountError::NotFound);
         }
+        self.authorization
+            .set_user_status(target_user_id, enabled)
+            .await;
         Ok(())
     }
 

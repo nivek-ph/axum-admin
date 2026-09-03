@@ -16,7 +16,7 @@ pub(super) struct RoleFact {
 
 #[derive(Debug)]
 pub(super) struct PolicyFacts {
-    pub users: HashSet<i64>,
+    pub users: HashMap<i64, bool>,
     pub roles: HashMap<i64, RoleFact>,
     pub enabled_permissions: HashSet<String>,
     pub action_pages: HashMap<String, String>,
@@ -38,7 +38,7 @@ impl PolicyStore {
     }
 
     pub(super) async fn policy_facts(&self) -> Result<PolicyFacts, AuthorizationError> {
-        let users = sqlx::query_scalar::<_, i64>("select id from sys_users")
+        let users = sqlx::query_as::<_, (i64, bool)>("select id, enable from sys_users")
             .fetch_all(&self.pool)
             .await?
             .into_iter()

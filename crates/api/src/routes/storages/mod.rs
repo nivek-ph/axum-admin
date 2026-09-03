@@ -7,34 +7,34 @@ use axum::{
 };
 pub(crate) use handler::*;
 
-use crate::{middleware::permission::permission, state::AppState};
+use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/", permission("system:storage:list", get(handler::list)))
+        .route("/", get(handler::list).permission("system:storage:list"))
         .route(
             "/",
-            permission("system:storage:create", post(handler::create)),
+            post(handler::create).permission("system:storage:create"),
         )
         .route(
             "/{id}",
-            permission("system:storage:list", get(handler::find)),
+            get(handler::find).permission("system:storage:list"),
         )
         .route(
             "/{id}",
-            permission("system:storage:update", put(handler::update)),
+            put(handler::update).permission("system:storage:update"),
         )
         .route(
             "/{id}",
-            permission("system:storage:delete", delete(handler::delete)),
+            delete(handler::delete).permission("system:storage:delete"),
         )
         .route(
             "/{id}/status",
-            permission("system:storage:update-status", patch(handler::set_status)),
+            patch(handler::set_status).permission("system:storage:update-status"),
         )
         .route(
             "/{id}/default",
-            permission("system:storage:set-default", put(handler::set_default)),
+            put(handler::set_default).permission("system:storage:set-default"),
         )
 }
 

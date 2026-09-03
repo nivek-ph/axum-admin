@@ -7,43 +7,37 @@ use axum::{
 };
 pub(crate) use handler::*;
 
-use crate::{middleware::permission::permission, state::AppState};
+use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            permission("system:param:list", get(handler::get_sys_params_list)),
+            get(handler::get_sys_params_list).permission("system:param:list"),
         )
         .route(
             "/",
-            permission("system:param:create", post(handler::create_sys_params)),
+            post(handler::create_sys_params).permission("system:param:create"),
         )
         .route(
             "/by-key",
-            permission("system:param:list", get(handler::get_sys_param)),
+            get(handler::get_sys_param).permission("system:param:list"),
         )
         .route(
             "/batch",
-            permission(
-                "system:param:batch-delete",
-                delete(handler::delete_sys_params_by_ids),
-            ),
+            delete(handler::delete_sys_params_by_ids).permission("system:param:batch-delete"),
         )
         .route(
             "/{id}",
-            permission("system:param:get", get(handler::find_sys_params_by_id)),
+            get(handler::find_sys_params_by_id).permission("system:param:get"),
         )
         .route(
             "/{id}",
-            permission("system:param:update", put(handler::update_sys_params_by_id)),
+            put(handler::update_sys_params_by_id).permission("system:param:update"),
         )
         .route(
             "/{id}",
-            permission(
-                "system:param:delete",
-                delete(handler::delete_sys_params_by_id),
-            ),
+            delete(handler::delete_sys_params_by_id).permission("system:param:delete"),
         )
 }
 

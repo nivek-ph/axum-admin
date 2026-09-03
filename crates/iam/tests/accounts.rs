@@ -1,6 +1,7 @@
 use audit::{AuditActor, AuditContext, AuditSource};
 use iam::{
     Iam,
+    access::AccessEvaluationError,
     accounts::{AccountError, CreateAccountInput, GetUserListRequest, UpdateUserInput},
 };
 
@@ -148,6 +149,10 @@ async fn ordinary_administrator_may_edit_and_disable_final_super_account(pool: s
         .await
         .unwrap();
     assert_eq!(iam.accounts.info(205).await.unwrap().enable, 2);
+    assert!(matches!(
+        iam.access.require_active_user(205).await,
+        Err(AccessEvaluationError::UserDisabled)
+    ));
 }
 
 #[sqlx::test(migrations = "../../migrations")]

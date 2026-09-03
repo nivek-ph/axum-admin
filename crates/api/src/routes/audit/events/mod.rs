@@ -7,25 +7,25 @@ use axum::{
 };
 pub use handler::*;
 
-use crate::{middleware::permission::permission, state::AppState};
+use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            permission("system:audit-event:list", get(get_audit_events)),
+            get(get_audit_events).permission("system:audit-event:list"),
         )
         .route(
             "/stats",
-            permission("system:audit-event:list", get(get_audit_stats)),
+            get(get_audit_stats).permission("system:audit-event:list"),
         )
         .route(
             "/analyze",
-            permission("system:audit-event:list", post(analyze_audit_events)),
+            post(analyze_audit_events).permission("system:audit-event:list"),
         )
         .route(
             "/{id}",
-            permission("system:audit-event:list", get(find_audit_event)),
+            get(find_audit_event).permission("system:audit-event:list"),
         )
 }
 

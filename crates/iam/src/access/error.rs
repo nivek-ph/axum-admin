@@ -10,8 +10,6 @@ pub enum CatalogError {
 pub enum AccessEvaluationError {
     #[error("authorization policy evaluation failed")]
     Authorization(#[from] AuthorizationError),
-    #[error("authorization database operation failed")]
-    Database(#[from] sqlx::Error),
     #[error("authorization user does not exist")]
     UserNotFound,
     #[error("authorization user is disabled")]

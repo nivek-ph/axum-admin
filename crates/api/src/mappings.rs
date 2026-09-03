@@ -89,9 +89,6 @@ impl From<iam::access::AccessEvaluationError> for AppError {
             AccessEvaluationError::UserNotFound => SESSION_INVALID.into(),
             AccessEvaluationError::UserDisabled => USER_DISABLED.into(),
             AccessEvaluationError::PermissionDenied => PERMISSION_DENIED.into(),
-            AccessEvaluationError::Database(source) => {
-                AUTHORIZATION_UNAVAILABLE.into_error().with_source(source)
-            }
         }
     }
 }
@@ -493,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn access_evaluation_contract_separates_identity_and_availability_failures() {
+    fn access_evaluation_contract_separates_identity_and_permission_failures() {
         let cases = [
             (
                 AppError::from(iam::access::AccessEvaluationError::UserDisabled),
@@ -504,13 +501,6 @@ mod tests {
                 AppError::from(iam::access::AccessEvaluationError::PermissionDenied),
                 StatusCode::FORBIDDEN,
                 "PERMISSION_DENIED",
-            ),
-            (
-                AppError::from(iam::access::AccessEvaluationError::Database(
-                    sqlx::Error::PoolTimedOut,
-                )),
-                StatusCode::SERVICE_UNAVAILABLE,
-                "AUTHORIZATION_UNAVAILABLE",
             ),
         ];
 

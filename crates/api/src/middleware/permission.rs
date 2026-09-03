@@ -26,14 +26,17 @@ impl PermissionGuardContext {
     }
 }
 
-pub(crate) fn permission(
-    code: &'static str,
-    route: MethodRouter<AppState>,
-) -> MethodRouter<AppState> {
-    route.route_layer(middleware::from_fn_with_state(
-        code,
-        require_declared_permission,
-    ))
+pub(crate) trait PermissionRouteExt {
+    fn permission(self, code: &'static str) -> Self;
+}
+
+impl PermissionRouteExt for MethodRouter<AppState> {
+    fn permission(self, code: &'static str) -> Self {
+        self.route_layer(middleware::from_fn_with_state(
+            code,
+            require_declared_permission,
+        ))
+    }
 }
 
 async fn require_declared_permission(

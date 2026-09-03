@@ -7,28 +7,28 @@ use axum::{
 };
 pub(crate) use handler::*;
 
-use crate::{middleware::permission::permission, state::AppState};
+use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            permission("system:dept:list", get(handler::get_dept_tree)),
+            get(handler::get_dept_tree).permission("system:dept:list"),
         )
         .route(
             "/",
-            permission("system:dept:create", post(handler::create_dept)),
+            post(handler::create_dept).permission("system:dept:create"),
         )
         .route(
             "/{id}",
-            permission("system:dept:get", get(handler::find_dept_by_id)),
+            get(handler::find_dept_by_id).permission("system:dept:get"),
         )
         .route(
             "/{id}",
-            permission("system:dept:update", put(handler::update_dept_by_id)),
+            put(handler::update_dept_by_id).permission("system:dept:update"),
         )
         .route(
             "/{id}",
-            permission("system:dept:delete", delete(handler::delete_dept_by_id)),
+            delete(handler::delete_dept_by_id).permission("system:dept:delete"),
         )
 }

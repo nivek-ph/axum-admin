@@ -14,7 +14,7 @@ use super::{
     AccountPolicyError, AuthorizationError, EffectivePermissionGrant, EffectiveRoleGrant,
     RolePolicyError,
     engine::EnforcementEngine,
-    store::{PolicyStore, SUPER_ADMIN_CODE, normalize_ids, role_subject, user_subject},
+    store::{PolicyStore, SUPER_ADMIN_CODE, normalize_ids},
 };
 
 #[derive(Debug, Clone)]
@@ -60,24 +60,31 @@ impl Authorization {
         self.engine.start_redis_watcher(redis_url).await
     }
 
+    pub(crate) async fn user_status(&self, user_id: i64) -> Option<bool> {
+        self.engine.user_status(user_id).await
+    }
+
+    pub(crate) async fn authorize_permission(
+        &self,
+        user_id: i64,
+        permission: &str,
+    ) -> Result<bool, AuthorizationError> {
+        self.engine.authorize_permission(user_id, permission).await
+    }
+
+    pub(crate) async fn set_user_status(&self, user_id: i64, enabled: bool) {
+        self.engine.set_user_status(user_id, enabled).await;
+    }
+
+    pub(crate) async fn set_role_status(&self, role_id: i64, enabled: bool) {
+        self.engine.set_role_status(role_id, enabled).await;
+    }
+
     pub(crate) async fn is_active_super_admin(
         &self,
         user_id: i64,
     ) -> Result<bool, AuthorizationError> {
-        if !sqlx::query_scalar::<_, bool>(
-            "select coalesce((select enable from sys_users where id = $1), false)",
-        )
-        .bind(user_id)
-        .fetch_one(self.store.pool())
-        .await?
-        {
-            return Ok(false);
-        }
-        let role_ids = self.engine.user_role_ids(user_id).await;
-        let roles = self.store.roles(&role_ids).await?;
-        Ok(roles
-            .values()
-            .any(|role| role.code == SUPER_ADMIN_CODE && role.status == "enabled"))
+        Ok(self.engine.is_active_super_admin(user_id).await)
     }
 
     pub(crate) async fn ensure_access_manager(
@@ -315,15 +322,7 @@ impl Authorization {
     ) -> Result<HashMap<i64, Vec<i64>>, AuthorizationError> {
         let mut result = HashMap::new();
         for user_id in user_ids {
-            let memberships = self.engine.user_role_ids(*user_id).await;
-            let roles = self.store.roles(&memberships).await?;
-            result.insert(
-                *user_id,
-                memberships
-                    .into_iter()
-                    .filter(|id| roles.get(id).is_some_and(|role| role.status == "enabled"))
-                    .collect(),
-            );
+            result.insert(*user_id, self.engine.active_user_role_ids(*user_id).await);
         }
         Ok(result)
     }
@@ -366,21 +365,6 @@ impl Authorization {
             .into_iter()
             .map(|(permission, roles)| EffectivePermissionGrant { permission, roles })
             .collect())
-    }
-
-    pub(crate) async fn enforce_with_active_roles(
-        &self,
-        user_id: i64,
-        permission: &str,
-        active_role_ids: &[i64],
-    ) -> Result<bool, AuthorizationError> {
-        self.engine
-            .enforce(
-                user_subject(user_id),
-                permission,
-                active_role_ids.iter().copied().map(role_subject).collect(),
-            )
-            .await
     }
 
     pub(crate) async fn role_has_members(&self, role_id: i64) -> bool {
