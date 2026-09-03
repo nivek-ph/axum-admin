@@ -437,3 +437,193 @@ fn validate_loaded_policy(
 fn invalid<T>(message: &str) -> Result<T, AuthorizationError> {
     Err(AuthorizationError::Configuration(message.to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeSet, sync::Arc, time::Duration};
+
+    use tokio::{sync::oneshot, time::timeout};
+
+    use super::*;
+
+    async fn insert_user(pool: &sqlx::PgPool, id: i64, name: &str) {
+        sqlx::query(
+            r#"
+            insert into sys_users (id, uuid, username, password_hash, nick_name, header_img, dept_id)
+            values ($1, $2, $2, 'hash', $2, '', 1)
+            "#,
+        )
+        .bind(id)
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn insert_role(pool: &sqlx::PgPool, id: i64, code: &str, status: &str) {
+        sqlx::query(
+            "insert into sys_roles (id, code, name, status, sort) values ($1, $2, $2, $3, 10)",
+        )
+        .bind(id)
+        .bind(code)
+        .bind(status)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn insert_policy(pool: &sqlx::PgPool, ptype: &str, left: &str, right: &str) {
+        sqlx::query(
+            "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5) values ($1, $2, $3, '', '', '', '')",
+        )
+        .bind(ptype)
+        .bind(left)
+        .bind(right)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// `reload` must wait while another task holds `mutation_lock`.
+    /// Removing `mutation_lock` from `reload` causes this test to fail.
+    #[sqlx::test(migrations = "../../../../migrations")]
+    async fn reload_waits_for_mutation_lock(pool: sqlx::PgPool) {
+        let store = Arc::new(PolicyStore::new(pool));
+        let engine = Arc::new(EnforcementEngine::load(store).await.unwrap());
+
+        let guard = engine.mutation_lock.lock().await;
+        let (started_tx, started_rx) = oneshot::channel();
+
+        let mut reload = {
+            let engine = Arc::clone(&engine);
+            tokio::spawn(async move {
+                started_tx.send(()).unwrap();
+                engine.reload().await.unwrap();
+            })
+        };
+
+        started_rx.await.unwrap();
+        assert!(
+            timeout(Duration::from_millis(50), &mut reload)
+                .await
+                .is_err(),
+            "reload must wait while mutation_lock is held",
+        );
+
+        drop(guard);
+        timeout(Duration::from_secs(2), &mut reload)
+            .await
+            .expect("reload did not resume after mutation_lock was released")
+            .unwrap();
+    }
+
+    /// `replace_user_roles` must wait while another task holds `mutation_lock`,
+    /// and its write must be visible in the snapshot after it completes.
+    /// Removing `mutation_lock` from `replace_user_roles` causes this test to fail.
+    #[sqlx::test(migrations = "../../../../migrations")]
+    async fn replace_user_roles_waits_for_mutation_lock(pool: sqlx::PgPool) {
+        insert_user(&pool, 117, "target-user").await;
+        insert_role(&pool, 2, "reader", "enabled").await;
+        insert_policy(&pool, "p", "role:2", "system:user:list").await;
+
+        let store = Arc::new(PolicyStore::new(pool));
+        let engine = Arc::new(EnforcementEngine::load(store).await.unwrap());
+
+        let guard = engine.mutation_lock.lock().await;
+        let (started_tx, started_rx) = oneshot::channel();
+
+        let mut mutation = {
+            let engine = Arc::clone(&engine);
+            tokio::spawn(async move {
+                started_tx.send(()).unwrap();
+                engine
+                    .replace_user_roles(117, BTreeSet::from([2]))
+                    .await
+                    .unwrap();
+            })
+        };
+
+        started_rx.await.unwrap();
+        assert!(
+            timeout(Duration::from_millis(50), &mut mutation)
+                .await
+                .is_err(),
+            "replace_user_roles must wait while mutation_lock is held",
+        );
+
+        drop(guard);
+        timeout(Duration::from_secs(2), &mut mutation)
+            .await
+            .expect("replace_user_roles did not resume after mutation_lock was released")
+            .unwrap();
+
+        assert_eq!(engine.user_role_ids(117).await, BTreeSet::from([2]));
+        assert!(
+            engine
+                .authorize_permission(117, "system:user:list")
+                .await
+                .unwrap(),
+            "role assignment must be visible in the active snapshot",
+        );
+    }
+
+    /// `replace_role_permissions` must wait while another task holds `mutation_lock`,
+    /// and its write must be visible in the snapshot after it completes.
+    /// Removing `mutation_lock` from `replace_role_permissions` causes this test to fail.
+    #[sqlx::test(migrations = "../../../../migrations")]
+    async fn replace_role_permissions_waits_for_mutation_lock(pool: sqlx::PgPool) {
+        insert_user(&pool, 118, "target-user").await;
+        insert_role(&pool, 2, "reader", "enabled").await;
+        insert_policy(&pool, "g", "user:118", "role:2").await;
+
+        let store = Arc::new(PolicyStore::new(pool));
+        let engine = Arc::new(EnforcementEngine::load(store).await.unwrap());
+
+        assert!(
+            !engine
+                .authorize_permission(118, "system:user:list")
+                .await
+                .unwrap(),
+        );
+
+        let guard = engine.mutation_lock.lock().await;
+        let (started_tx, started_rx) = oneshot::channel();
+
+        let mut mutation = {
+            let engine = Arc::clone(&engine);
+            tokio::spawn(async move {
+                started_tx.send(()).unwrap();
+                engine
+                    .replace_role_permissions(2, BTreeSet::from(["system:user:list".to_string()]))
+                    .await
+                    .unwrap();
+            })
+        };
+
+        started_rx.await.unwrap();
+        assert!(
+            timeout(Duration::from_millis(50), &mut mutation)
+                .await
+                .is_err(),
+            "replace_role_permissions must wait while mutation_lock is held",
+        );
+
+        drop(guard);
+        timeout(Duration::from_secs(2), &mut mutation)
+            .await
+            .expect("replace_role_permissions did not resume after mutation_lock was released")
+            .unwrap();
+
+        assert_eq!(
+            engine.role_permissions(2).await,
+            BTreeSet::from(["system:user:list".to_string()]),
+        );
+        assert!(
+            engine
+                .authorize_permission(118, "system:user:list")
+                .await
+                .unwrap(),
+            "permission mutation must be visible in the active snapshot",
+        );
+    }
+}
