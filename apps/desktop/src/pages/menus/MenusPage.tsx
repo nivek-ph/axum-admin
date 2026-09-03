@@ -11,7 +11,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/card'
 
-type ApiBinding = NonNullable<MenuRecord['apiBindings']>[number]
 type MenuRow = MenuRecord & {
   hasChildren: boolean
   level: number
@@ -46,49 +45,6 @@ function collectExpandableIds(items: MenuRecord[]): Set<number> {
   }
   visit(items)
   return ids
-}
-
-function ApiBindingLine({ binding }: { binding: ApiBinding }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 text-sm">
-      <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-center">{binding.method}</code>
-      <code className="min-w-0 flex-1 truncate font-sans" title={binding.pathPattern}>
-        {binding.pathPattern}
-      </code>
-    </div>
-  )
-}
-
-function ApiBindingsCell({ bindings }: { bindings: ApiBinding[] }) {
-  const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
-  if (!bindings.length) return '—'
-  const first = bindings[0]
-  const rest = bindings.slice(1)
-  return (
-    <div className="box-border flex w-72 max-w-72 flex-col gap-1 whitespace-normal">
-      <div className="flex min-w-0 items-center gap-1.5">
-        <div className="min-w-0 flex-1">
-          <ApiBindingLine binding={first} />
-        </div>
-        {rest.length > 0 ? (
-          <Button
-            aria-expanded={expanded}
-            aria-label={expanded ? t('Collapse APIs') : t('+{{count}} APIs', { count: rest.length })}
-            className="h-6 shrink-0 px-1.5 text-xs text-muted-foreground tabular-nums"
-            onClick={() => setExpanded((current) => !current)}
-            size="sm"
-            variant="ghost"
-          >
-            {expanded ? <IconCircleMinus size={14} /> : `+${rest.length}`}
-          </Button>
-        ) : null}
-      </div>
-      {expanded
-        ? rest.map((binding) => <ApiBindingLine binding={binding} key={`${binding.method}:${binding.pathPattern}`} />)
-        : null}
-    </div>
-  )
 }
 
 export function MenusPage() {
@@ -168,11 +124,6 @@ export function MenusPage() {
           <code className="rounded bg-muted px-1.5 py-0.5 text-sm">{row.original.permission || '—'}</code>
         ),
       },
-      {
-        id: 'apiBindings',
-        header: t('API bindings'),
-        cell: ({ row }) => <ApiBindingsCell bindings={row.original.apiBindings ?? []} />,
-      },
     ],
     [collapsedIds, t, toggleCollapsed],
   )
@@ -228,7 +179,7 @@ export function MenusPage() {
             }}
             summary={t('Record total', { count: total })}
             table={table}
-            tableClassName="min-w-[60rem]"
+            tableClassName="min-w-[44rem]"
           />
         </CardContent>
       </Card>

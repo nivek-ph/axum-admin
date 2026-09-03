@@ -38,12 +38,20 @@ This file gives repo-specific guidance for agents working in this project.
 - Read [`docs/architecture/iam.md`](docs/architecture/iam.md) before changing IAM, protected API
   routes, the access catalog, authentication middleware, or Admin Console access workflows.
 - Keep Request Access, Accounts, Roles, Menus, and private Authorization responsibilities distinct.
-  Axum middleware performs token/session work and calls `AccessService::evaluate` exactly once for
-  IAM request admission; HTTP handlers call Accounts or Roles for access administration and never
-  call private Authorization directly.
+  Router-level Authentication performs token/session work and checks User status once. A
+  route-local Permission guard performs one Authorization decision for each protected management
+  method; Self-Service routes have no Permission guard. HTTP handlers call Accounts or Roles for
+  access administration, never extract the private guard context, and never call private
+  Authorization directly.
+- HTTP topology is owned by Axum route registration, not by the Access Catalog. Management methods
+  attach one concrete Permission to their `MethodRouter` with `.permission(code)`; the Access
+  Catalog does not store or expose HTTP method/path bindings, and Router construction must not
+  validate against them.
 - PostgreSQL is authoritative. Casbin's `SqlxAdapter` exclusively persists concrete Role Permission
   policy (`p`) and User-to-Role membership (`g`) through Casbin Management APIs. Do not query or
-  mutate `casbin_rule` directly in application code. Redis only propagates reload notifications.
+  mutate `casbin_rule` directly in application code. Authentication and route-local Permission
+  evaluation read the process-local last-good Authorization snapshot and must not query PostgreSQL.
+  Redis only propagates reload notifications.
 - Access is role-only, additive, and allow-only. A User may have zero, one, or multiple Roles.
   Effective Permissions are the union of concrete Permissions from enabled assigned Roles. Do not
   add Direct Permissions, deny rules, wildcard grants, Role inheritance, configurable Data Scope,
@@ -62,7 +70,9 @@ This file gives repo-specific guidance for agents working in this project.
 
 ### Error Design
 
-- Route and middleware handlers should return `api::AppResult<T>`.
+- Route and middleware handlers should return `api::AppResult<T>`. The route-local Permission
+  middleware is the deliberate exception: it returns `Response` so both authorization errors and
+  early denials remain inside Axum's `Infallible` layer boundary.
 - `crates/api` owns the public HTTP boundary types `AppError`, `AppResult<T>`, and `ApiResponse<T>`.
 - Repeated fixed HTTP contracts may use crate-private `ErrorSpec` constants. Consume them with ordinary `ok_or` and `?`; do not add per-error constructor helpers or extension traits.
 - Keep stable error specs in the owning layer:
@@ -74,7 +84,10 @@ This file gives repo-specific guidance for agents working in this project.
 - Keep user-management and authentication errors distinct:
   - CRUD/user management returns `AccountError` from `crates/iam/src/accounts`.
   - Login uses the route-local `LoginError`; unknown users and incorrect passwords both become `INVALID_CREDENTIALS`.
-  - Auth middleware calls `AccessService::evaluate`; `AccessEvaluationError` maps a missing/deleted token user to `SESSION_INVALID` and a disabled user to `USER_DISABLED`.
+  - Authentication calls `AccessService::require_active_user`; `AccessEvaluationError` maps a
+    missing/deleted token user to `SESSION_INVALID` and a disabled user to `USER_DISABLED`.
+    Route-local Permission guards call `AccessService::authorize_permission`; an ordinary denial
+    maps to `PERMISSION_DENIED`.
 
 ## Frontend
 

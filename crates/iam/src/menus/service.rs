@@ -5,7 +5,7 @@ use std::{
 
 use sqlx::PgPool;
 
-use super::{ApiBinding, MenuError, MenuMeta, MenuView, model::MenuRecord};
+use super::{MenuError, MenuMeta, MenuView, model::MenuRecord};
 use crate::{access::AccessCatalog, authorization::Authorization};
 
 #[derive(Clone)]
@@ -53,7 +53,7 @@ impl MenuService {
 }
 
 async fn load_records(pool: &PgPool) -> Result<Vec<MenuRecord>, sqlx::Error> {
-    let mut records = sqlx::query_as::<_, MenuRecord>(
+    sqlx::query_as::<_, MenuRecord>(
         r#"
         SELECT id, COALESCE(parent_id, 0) AS parent_id, path, name, hidden, component,
                sort, active_name, keep_alive, default_menu, title, icon, close_tab,
@@ -63,21 +63,7 @@ async fn load_records(pool: &PgPool) -> Result<Vec<MenuRecord>, sqlx::Error> {
         "#,
     )
     .fetch_all(pool)
-    .await?;
-
-    let bindings = sqlx::query_as::<_, ApiBinding>(
-        "SELECT menu_id, method, path_pattern FROM sys_menu_apis ORDER BY method, path_pattern",
-    )
-    .fetch_all(pool)
-    .await?;
-    let mut by_menu: HashMap<i64, Vec<ApiBinding>> = HashMap::new();
-    for binding in bindings {
-        by_menu.entry(binding.menu_id).or_default().push(binding);
-    }
-    for record in &mut records {
-        record.api_bindings = by_menu.remove(&record.id).unwrap_or_default();
-    }
-    Ok(records)
+    .await
 }
 
 fn build_tree(
@@ -126,7 +112,6 @@ fn build_children(parent_id: i64, records: &mut HashMap<i64, Vec<MenuRecord>>) -
                 menu_type: record.menu_type,
                 status: record.status,
                 permission: record.permission,
-                api_bindings: record.api_bindings,
                 children: build_children(id, records),
             }
         })
@@ -158,7 +143,6 @@ mod tests {
             menu_type: menu_type.into(),
             status: status.into(),
             permission: None,
-            api_bindings: Vec::new(),
         }
     }
 

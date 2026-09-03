@@ -1,7 +1,4 @@
-use audit::{
-    AuditAction, AuditActor, AuditContext, AuditEvent, AuditReason, AuditResource, AuditResult,
-    AuditSource,
-};
+use audit::{AuditActor, AuditContext, AuditSource};
 use axum::{
     Extension,
     extract::{Request, State},
@@ -15,6 +12,7 @@ use crate::{
     AppResult,
     extractors::{client_ip::ClientIp, current_user::AuthenticatedUser, user_agent::UserAgent},
     mappings::LOGIN_REQUIRED,
+    middleware::permission::PermissionGuardContext,
     request_id::request_id_text,
     state::AppState,
 };
@@ -36,8 +34,6 @@ pub async fn require_auth(
     mut request: Request,
     next: Next,
 ) -> AppResult<Response> {
-    let method = request.method().as_str();
-    let path = request.uri().path();
     let headers = request.headers();
     let token = extract_bearer_token(headers).ok_or(LOGIN_REQUIRED)?;
     let claims = state.tokens.decode_active(token).await?;
@@ -52,35 +48,17 @@ pub async fn require_auth(
             user_agent: agent,
         },
     };
-    match state.access.evaluate(claims.user_id, method, path).await {
-        Ok(()) => {}
-        Err(iam::access::AccessEvaluationError::PermissionDenied { path }) => {
-            record_access_denied(&state.audits, &audit_context, path.clone()).await;
-            return Err(iam::access::AccessEvaluationError::PermissionDenied { path }.into());
-        }
-        Err(error) => return Err(error.into()),
-    }
+    state.access.require_active_user(claims.user_id).await?;
 
     request
         .extensions_mut()
         .insert(AuthenticatedUser { id: claims.user_id });
     request.extensions_mut().insert(audit_context);
+    request.extensions_mut().insert(PermissionGuardContext::new(
+        state.access.clone(),
+        state.audits.clone(),
+    ));
     Ok(next.run(request).await)
-}
-
-async fn record_access_denied(audits: &audit::AuditService, context: &AuditContext, path: String) {
-    audits
-        .record_best_effort(AuditEvent {
-            req_id: context.req_id.clone(),
-            actor: context.actor.clone(),
-            action: AuditAction::AccessDenied,
-            resource: AuditResource::Route(path),
-            result: AuditResult::Denied,
-            reason_code: Some(AuditReason::PermissionDenied),
-            source: context.source.clone(),
-            changes: Vec::new(),
-        })
-        .await;
 }
 
 #[cfg(test)]
@@ -91,7 +69,7 @@ mod tests {
     use axum::{
         body::{Body, to_bytes},
         extract::ConnectInfo,
-        http::{Request, StatusCode},
+        http::{Method, Request, StatusCode},
     };
     use serde_json::Value;
     use tower::ServiceExt;
@@ -121,23 +99,31 @@ mod tests {
     }
 
     async fn protected_response(
-        state: AppState,
-        access_token: &str,
+        app: &axum::Router,
+        access_token: Option<&str>,
+        method: Method,
         path: &str,
     ) -> (StatusCode, Value) {
-        let response = crate::router::router(state)
-            .oneshot(
-                Request::get(path)
-                    .extension(ConnectInfo("127.0.0.1:3000".parse::<SocketAddr>().unwrap()))
-                    .header(AUTHORIZATION, format!("Bearer {access_token}"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .extension(ConnectInfo("127.0.0.1:3000".parse::<SocketAddr>().unwrap()));
+        if let Some(access_token) = access_token {
+            request = request.header(AUTHORIZATION, format!("Bearer {access_token}"));
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
             .await
             .unwrap();
         let status = response.status();
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        (status, serde_json::from_slice(&body).unwrap())
+        let body = if body.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&body).unwrap()
+        };
+        (status, body)
     }
 
     async fn insert_user(pool: &sqlx::PgPool, user_id: i64, username: &str, enabled: bool) {
@@ -158,28 +144,14 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn missing_protected_route_binding_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
-        insert_user(&pool, 98, "unbound-user", true).await;
-        sqlx::query("delete from sys_menu_apis")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let (state, tokens, access_token) = authenticated_state(pool, 98, "unbound-user").await;
-
-        let (status, body) = protected_response(state, &access_token, "/api/roles").await;
-
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(body["code"], "AUTHORIZATION_CONFIG_INVALID");
-        tokens.revoke(&access_token).await.unwrap();
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
     async fn missing_user_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
         let (state, tokens, access_token) = authenticated_state(pool, 99, "missing-user").await;
+        let app = crate::router::router(state);
 
-        let (status, body) = protected_response(state, &access_token, "/api/users/me").await;
+        let (status, body) =
+            protected_response(&app, Some(&access_token), Method::GET, "/api/users/me").await;
 
-        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "response body: {body}");
         assert_eq!(body["code"], "SESSION_INVALID");
         tokens.revoke(&access_token).await.unwrap();
     }
@@ -188,8 +160,10 @@ mod tests {
     async fn disabled_user_keeps_the_stable_http_contract(pool: sqlx::PgPool) {
         insert_user(&pool, 100, "disabled-user", false).await;
         let (state, tokens, access_token) = authenticated_state(pool, 100, "disabled-user").await;
+        let app = crate::router::router(state);
 
-        let (status, body) = protected_response(state, &access_token, "/api/users/me").await;
+        let (status, body) =
+            protected_response(&app, Some(&access_token), Method::GET, "/api/users/me").await;
 
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["code"], "USER_DISABLED");
@@ -197,42 +171,57 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn permission_denial_records_the_expected_audit_classification(pool: sqlx::PgPool) {
-        record_access_denied(
-            &audit::AuditService::new(pool.clone()),
-            &AuditContext {
-                req_id: "req-access-denied-1".to_string(),
-                actor: AuditActor {
-                    id: Some(1),
-                    label: "admin".to_string(),
-                },
-                source: AuditSource {
-                    ip: "127.0.0.1".to_string(),
-                    user_agent: "auth-middleware-test".to_string(),
-                },
-            },
-            "/api/users".to_string(),
-        )
-        .await;
+    async fn authentication_wraps_method_not_allowed_but_not_unknown_paths(pool: sqlx::PgPool) {
+        insert_user(&pool, 101, "layer-order-user", true).await;
+        let (state, tokens, access_token) =
+            authenticated_state(pool, 101, "layer-order-user").await;
+        let app = crate::router::router(state);
 
-        let event: (String, String, String, String, String) = sqlx::query_as(
-            r#"
-            select req_id, action, resource_id, result, reason_code
-            from sys_audit_events
-            "#,
+        let (status, body) = protected_response(&app, None, Method::POST, "/api/users/me").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "LOGIN_REQUIRED");
+
+        let (status, _) =
+            protected_response(&app, Some(&access_token), Method::POST, "/api/users/me").await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+
+        let (status, _) = protected_response(&app, None, Method::GET, "/api/not-a-route").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        tokens.revoke(&access_token).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn zero_role_user_can_use_self_service_but_not_management_routes(pool: sqlx::PgPool) {
+        insert_user(&pool, 102, "zero-role-user", true).await;
+        let (state, tokens, access_token) =
+            authenticated_state(pool.clone(), 102, "zero-role-user").await;
+        let app = crate::router::router(state);
+
+        let (status, body) =
+            protected_response(&app, Some(&access_token), Method::GET, "/api/users/me").await;
+        assert_eq!(status, StatusCode::OK, "response body: {body}");
+
+        let (status, body) =
+            protected_response(&app, Some(&access_token), Method::GET, "/api/users").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body["code"], "PERMISSION_DENIED");
+
+        let path = sqlx::query_scalar::<_, String>(
+            "select resource_id from sys_audit_events where action = 'auth.access_denied'",
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(
-            event,
-            (
-                "req-access-denied-1".to_string(),
-                "auth.access_denied".to_string(),
-                "/api/users".to_string(),
-                "denied".to_string(),
-                "permission_denied".to_string(),
-            )
-        );
+        assert_eq!(path, "/api/users");
+
+        sqlx::query("drop table sys_audit_events")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (status, body) =
+            protected_response(&app, Some(&access_token), Method::HEAD, "/api/users").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.is_null(), "HEAD response body must be empty");
+        tokens.revoke(&access_token).await.unwrap();
     }
 }

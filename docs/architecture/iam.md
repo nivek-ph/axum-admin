@@ -6,15 +6,30 @@ This document is the canonical contract for identity and access management in ax
 
 | Capability | Owns | Does not own |
 | --- | --- | --- |
-| Request Access | Token/session validation and one authorization decision per protected request | Account or Role administration |
+| Request Access | Token/session/User validation and one authorization decision for each protected management request | Account or Role administration |
 | Accounts | User metadata, password lifecycle, department boundary, assigned Role workflow | Permission policy persistence |
 | Roles | Role metadata, lifecycle, and the Role Access workflow | User metadata or direct user grants |
-| Menus | Access Catalog loading and navigation projection | Authorization decisions or policy writes |
+| Menus | Access Catalog loading and navigation projection | Authorization decisions, policy writes, or HTTP topology |
 | Authorization | Casbin model, policy validation, Role membership, effective Permission evaluation, reload propagation | Public HTTP DTOs |
 | Audit | Append-only administrative events | Authoritative IAM state |
 
-Authenticated Axum middleware validates the token and calls `AccessService::evaluate` exactly once.
-Handlers call Accounts or Roles for administration; they never call private Authorization directly.
+Router-level Authentication validates the token/session and checks that the User still exists and is
+enabled. It inserts the authenticated User and crate-private Permission guard dependencies into the
+request. A route-local Permission guard performs one Authorization decision for each protected
+management method. Self-Service Access is a protected route without a Permission guard; it is not a
+special Permission or a separate admission type.
+
+The token/session check uses the session store. User existence and enabled status, User-to-Role
+membership, Role enabled status, and concrete Role Permissions are read from one process-local
+last-good Authorization snapshot. Authentication and Permission evaluation do not query PostgreSQL
+on the request path.
+
+Each management method declares one concrete Permission beside its handler registration with
+`.permission(code)` on its `MethodRouter`. HTTP topology belongs only to Axum route
+registration. The Access Catalog does not store HTTP methods or paths, Router construction does not
+compare routes with PostgreSQL, and Request Access does not resolve Permissions from request paths.
+Handlers call Accounts or Roles for administration; they never extract the private guard context or
+call private Authorization directly.
 
 ## Domain model
 
@@ -132,6 +147,10 @@ PostgreSQL is authoritative. Casbin's `SqlxAdapter` is the only application poli
 boundary. Application code reads and writes `p` and `g` rules through Casbin Management APIs; it
 must not query or modify `casbin_rule` directly.
 
+PostgreSQL retains the Access Catalog directory/page/action tree and its enabled Permission codes,
+but no HTTP method/path bindings. `sys_menu_apis` is not part of the current schema or domain model.
+The code registration is the sole owner of which Permission guards a management handler.
+
 Casbin Management APIs use `SqlxAdapter` autosave, and each individual Adapter mutation keeps its
 own database transaction. A final-set replacement may require one bulk add and one bulk remove; the
 design does not add a global policy lock, cross-store compensation, or speculative conflict
@@ -149,11 +168,13 @@ Audit is intentionally non-atomic with policy. If audit storage fails, the commi
 successful and the service emits a high-priority structured error containing the action, resource,
 and request identifier.
 
-Every process reloads the complete policy into a candidate Enforcer and validates it before swapping
-the active instance. The Redis Watcher is installed on every active and replacement Enforcer, so a
-successful Casbin save publishes a prompt reload notification; periodic reload repairs missed
-notifications. A failed reload retains the last successfully loaded Enforcer. Requests fail closed
-for evaluation errors, but policy freshness is not strictly fail closed.
+Every process reloads the complete policy, User status, and Role status into a candidate snapshot and
+validates it before swapping the active instance. User and Role status mutations take the reload lock,
+update the local snapshot, and publish a Redis reload notification so an in-flight rebuild cannot
+replace newer local status. Casbin policy saves publish the same class of notification. Account and
+Role deletion publish a final notification after the authoritative row is removed. Periodic reload
+repairs missed notifications. A failed reload retains the last successfully loaded snapshot. Requests
+fail closed for evaluation errors, but policy freshness is not strictly fail closed.
 
 Invalid policy at startup is fatal and prevents the application from serving requests.
 
@@ -184,3 +205,8 @@ Acceptance includes Role Access normalization, one/multiple/zero Roles, disabled
 member-protected deletion, protected `super_admin`, ordinary-user denial, navigation from page
 Permissions, action authorization, reload propagation, restart persistence, audit success and
 injected audit failure, and final-membership removal followed by manual recovery.
+
+Request Access verification also covers Authentication on every protected route, Self-Service for a
+zero-Role User, route-local denial and allowance for concrete Permissions, missing guard context
+failing closed, `404`/`405`/`HEAD` layer behavior, stable errors, and best-effort denial audit with
+the actual request path.

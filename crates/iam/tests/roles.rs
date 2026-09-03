@@ -1,5 +1,9 @@
 use audit::{AuditActor, AuditContext, AuditSource};
-use iam::{Iam, access::AccessEvaluationError, roles::RoleError};
+use iam::{
+    Iam,
+    access::AccessEvaluationError,
+    roles::{RoleError, RolePayload},
+};
 
 fn audit_context(actor_id: i64) -> AuditContext {
     AuditContext {
@@ -101,14 +105,24 @@ async fn action_selection_adds_page_and_persists_through_restart(pool: sqlx::PgP
         access.permissions,
         vec!["system:user:create", "system:user:list"]
     );
-    assert!(iam.access.evaluate(303, "GET", "/api/users").await.is_ok());
-    assert!(iam.access.evaluate(303, "POST", "/api/users").await.is_ok());
+    assert!(
+        iam.access
+            .authorize_permission(303, "system:user:list")
+            .await
+            .is_ok()
+    );
+    assert!(
+        iam.access
+            .authorize_permission(303, "system:user:create")
+            .await
+            .is_ok()
+    );
 
     let restarted = Iam::load(pool).await.unwrap();
     assert!(
         restarted
             .access
-            .evaluate(303, "GET", "/api/users")
+            .authorize_permission(303, "system:user:list")
             .await
             .is_ok()
     );
@@ -137,14 +151,65 @@ async fn removing_page_and_actions_removes_navigation_and_operations(pool: sqlx:
         .await
         .unwrap();
     assert!(matches!(
-        iam.access.evaluate(305, "GET", "/api/users").await,
-        Err(AccessEvaluationError::PermissionDenied { .. })
+        iam.access
+            .authorize_permission(305, "system:user:list")
+            .await,
+        Err(AccessEvaluationError::PermissionDenied)
     ));
     assert!(matches!(
-        iam.access.evaluate(305, "POST", "/api/users").await,
-        Err(AccessEvaluationError::PermissionDenied { .. })
+        iam.access
+            .authorize_permission(305, "system:user:create")
+            .await,
+        Err(AccessEvaluationError::PermissionDenied)
     ));
     assert!(iam.menus.current(305).await.unwrap().0.is_empty());
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn disabling_a_role_updates_request_access_without_a_reload(pool: sqlx::PgPool) {
+    insert_user(&pool, 310, "super-user").await;
+    insert_user(&pool, 311, "operator-user").await;
+    insert_role(&pool, 2).await;
+    assign_role(&pool, 310, 1).await;
+    assign_role(&pool, 311, 2).await;
+    let iam = Iam::load(pool).await.unwrap();
+    iam.roles
+        .replace_access(
+            310,
+            2,
+            vec!["system:user:list".to_string()],
+            audit_context(310),
+        )
+        .await
+        .unwrap();
+    assert!(
+        iam.access
+            .authorize_permission(311, "system:user:list")
+            .await
+            .is_ok()
+    );
+
+    iam.roles
+        .update(
+            310,
+            2,
+            RolePayload {
+                code: "operator".to_string(),
+                name: "Operator".to_string(),
+                status: Some("disabled".to_string()),
+                sort: Some(10),
+            },
+            audit_context(310),
+        )
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        iam.access
+            .authorize_permission(311, "system:user:list")
+            .await,
+        Err(AccessEvaluationError::PermissionDenied)
+    ));
 }
 
 #[sqlx::test(migrations = "../../migrations")]

@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn captcha_policy_allows_three_requests_per_ip() {
+    async fn captcha_policy_allows_configured_requests_per_ip() {
         let app = app();
         for _ in 0..CAPTCHA_LIMIT {
             let response = app
@@ -204,7 +204,7 @@ mod tests {
         assert!(response.headers().contains_key("retry-after"));
         assert_eq!(
             response.headers().get("ratelimit-policy").unwrap(),
-            "\"captcha\";q=3;w=60"
+            format!("\"captcha\";q={CAPTCHA_LIMIT};w=60").as_str()
         );
     }
 

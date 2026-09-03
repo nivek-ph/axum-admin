@@ -68,6 +68,9 @@ impl RoleService {
         .bind(payload.sort.unwrap_or(0))
         .fetch_one(&self.pool)
         .await?;
+        self.authorization
+            .set_role_status(role.id, role.status == "enabled")
+            .await;
         self.record_role_audit(
             audit_context,
             AuditAction::CreateRole,
@@ -117,6 +120,9 @@ impl RoleService {
         .bind(id)
         .fetch_one(&self.pool)
         .await?;
+        self.authorization
+            .set_role_status(role.id, role.status == "enabled")
+            .await;
         self.record_role_audit(
             audit_context,
             AuditAction::UpdateRole,
@@ -162,6 +168,7 @@ impl RoleService {
         if deleted == 0 {
             return Err(RoleError::NotFound);
         }
+        self.authorization.notify_reload();
         self.record_role_audit(
             audit_context,
             AuditAction::DeleteRole,

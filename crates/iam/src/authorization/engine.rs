@@ -20,9 +20,18 @@ const REDIS_CHANNEL: &str = "/ava/casbin";
 /// code reaches policy only through these management operations.
 pub(super) struct EnforcementEngine {
     store: Arc<PolicyStore>,
-    policy: RwLock<Enforcer>,
-    reload_lock: Mutex<()>,
+    snapshot: RwLock<AuthorizationSnapshot>,
+    /// Serializes all snapshot mutations (reloads and local writes) so a
+    /// completed reload can never overwrite a more recent local update.
+    mutation_lock: Mutex<()>,
     watcher: StdMutex<Option<SharedWatcher>>,
+}
+
+struct AuthorizationSnapshot {
+    policy: Enforcer,
+    users: HashMap<i64, bool>,
+    enabled_role_ids: HashSet<i64>,
+    super_admin_role_id: i64,
 }
 
 #[derive(Clone)]
@@ -44,11 +53,11 @@ impl Watcher for SharedWatcher {
 
 impl EnforcementEngine {
     pub(super) async fn load(store: Arc<PolicyStore>) -> Result<Self, AuthorizationError> {
-        let policy = build_enforcer(&store).await?;
+        let snapshot = build_snapshot(&store).await?;
         Ok(Self {
             store,
-            policy: RwLock::new(policy),
-            reload_lock: Mutex::new(()),
+            snapshot: RwLock::new(snapshot),
+            mutation_lock: Mutex::new(()),
             watcher: StdMutex::new(None),
         })
     }
@@ -57,7 +66,8 @@ impl EnforcementEngine {
         self: &Arc<Self>,
         redis_url: &str,
     ) -> Result<(), AuthorizationError> {
-        let _reload_guard = self.reload_lock.lock().await;
+        // Network I/O (Redis connection + PING) happens outside the mutation
+        // critical section; only the snapshot/watcher installation is serialized.
         let options = WatcherOptions::default()
             .with_channel(REDIS_CHANNEL.to_string())
             .with_ignore_self(true);
@@ -74,9 +84,11 @@ impl EnforcementEngine {
             });
         }));
         let shared = SharedWatcher(Arc::new(StdMutex::new(watcher)));
-        self.policy
+        let _guard = self.mutation_lock.lock().await;
+        self.snapshot
             .write()
             .await
+            .policy
             .set_watcher(Box::new(shared.clone()));
         let mut installed = self
             .watcher
@@ -102,38 +114,67 @@ impl EnforcementEngine {
     }
 
     pub(super) async fn reload(&self) -> Result<(), AuthorizationError> {
-        let _guard = self.reload_lock.lock().await;
-        let mut next = build_enforcer(&self.store).await?;
+        let _guard = self.mutation_lock.lock().await;
+        let mut next = build_snapshot(&self.store).await?;
         if let Some(watcher) = self
             .watcher
             .lock()
             .map_err(|_| AuthorizationError::WatcherInstallation)?
             .clone()
         {
-            next.set_watcher(Box::new(watcher));
+            next.policy.set_watcher(Box::new(watcher));
         }
-        *self.policy.write().await = next;
+        *self.snapshot.write().await = next;
         Ok(())
     }
 
-    pub(super) async fn enforce(
+    pub(super) async fn user_status(&self, user_id: i64) -> Option<bool> {
+        self.snapshot.read().await.users.get(&user_id).copied()
+    }
+
+    pub(super) async fn is_active_super_admin(&self, user_id: i64) -> bool {
+        let snapshot = self.snapshot.read().await;
+        if snapshot.users.get(&user_id) != Some(&true) {
+            return false;
+        }
+        let super_admin_role_id = snapshot.super_admin_role_id;
+        snapshot.enabled_role_ids.contains(&super_admin_role_id)
+            && snapshot
+                .policy
+                .get_filtered_grouping_policy(0, vec![user_subject(user_id)])
+                .into_iter()
+                .any(|rule| {
+                    rule.get(1).and_then(|value| parse_role_subject(value))
+                        == Some(super_admin_role_id)
+                })
+    }
+
+    pub(super) async fn authorize_permission(
         &self,
-        subject: String,
+        user_id: i64,
         permission: &str,
-        active_roles: Vec<String>,
     ) -> Result<bool, AuthorizationError> {
-        Ok(self
+        let snapshot = self.snapshot.read().await;
+        let subject = user_subject(user_id);
+        let active_roles = snapshot
             .policy
-            .read()
-            .await
+            .get_filtered_grouping_policy(0, vec![subject.clone()])
+            .into_iter()
+            .filter_map(|rule| rule.get(1).and_then(|value| parse_role_subject(value)))
+            .filter(|role_id| snapshot.enabled_role_ids.contains(role_id))
+            .map(role_subject)
+            .collect::<Vec<_>>();
+        Ok(snapshot
+            .policy
             .enforce((subject, permission, active_roles))?)
     }
 
     pub(super) async fn role_permissions(&self, role_id: i64) -> BTreeSet<String> {
         let subject = role_subject(role_id);
-        self.policy
+        self.snapshot
             .read()
             .await
+            .policy
             .get_filtered_policy(0, vec![subject])
             .into_iter()
             .filter_map(|rule| rule.get(1).cloned())
@@ -142,20 +183,34 @@ impl EnforcementEngine {
 
     pub(super) async fn user_role_ids(&self, user_id: i64) -> BTreeSet<i64> {
         let subject = user_subject(user_id);
-        self.policy
+        self.snapshot
             .read()
             .await
+            .policy
             .get_filtered_grouping_policy(0, vec![subject])
             .into_iter()
             .filter_map(|rule| rule.get(1).and_then(|value| parse_role_subject(value)))
             .collect()
     }
 
+    pub(super) async fn active_user_role_ids(&self, user_id: i64) -> Vec<i64> {
+        let snapshot = self.snapshot.read().await;
+        let subject = user_subject(user_id);
+        snapshot
+            .policy
+            .get_filtered_grouping_policy(0, vec![subject])
+            .into_iter()
+            .filter_map(|rule| rule.get(1).and_then(|value| parse_role_subject(value)))
+            .filter(|role_id| snapshot.enabled_role_ids.contains(role_id))
+            .collect()
+    }
+
     pub(super) async fn role_has_members(&self, role_id: i64) -> bool {
         !self
-            .policy
+            .snapshot
             .read()
             .await
+            .policy
             .get_filtered_grouping_policy(1, vec![role_subject(role_id)])
             .is_empty()
     }
@@ -166,7 +221,9 @@ impl EnforcementEngine {
         permissions: BTreeSet<String>,
     ) -> Result<BTreeSet<String>, AuthorizationError> {
         let subject = role_subject(role_id);
-        let mut policy = self.policy.write().await;
+        let _guard = self.mutation_lock.lock().await;
+        let mut snapshot = self.snapshot.write().await;
+        let policy = &mut snapshot.policy;
         let before = policy
             .get_filtered_policy(0, vec![subject.clone()])
             .into_iter()
@@ -195,7 +252,9 @@ impl EnforcementEngine {
         role_ids: BTreeSet<i64>,
     ) -> Result<BTreeSet<i64>, AuthorizationError> {
         let user = user_subject(user_id);
-        let mut policy = self.policy.write().await;
+        let _guard = self.mutation_lock.lock().await;
+        let mut snapshot = self.snapshot.write().await;
+        let policy = &mut snapshot.policy;
         let before = policy
             .get_filtered_grouping_policy(0, vec![user.clone()])
             .into_iter()
@@ -219,28 +278,70 @@ impl EnforcementEngine {
     }
 
     pub(super) async fn remove_user(&self, user_id: i64) -> Result<(), AuthorizationError> {
-        self.policy
-            .write()
-            .await
+        let _guard = self.mutation_lock.lock().await;
+        let mut snapshot = self.snapshot.write().await;
+        snapshot
+            .policy
             .remove_filtered_grouping_policy(0, vec![user_subject(user_id)])
             .await?;
+        snapshot.users.remove(&user_id);
+        drop(snapshot);
+        drop(_guard);
+        self.notify_reload();
         Ok(())
     }
 
     pub(super) async fn remove_role(&self, role_id: i64) -> Result<(), AuthorizationError> {
         let subject = role_subject(role_id);
-        let mut policy = self.policy.write().await;
-        policy
+        let _guard = self.mutation_lock.lock().await;
+        let mut snapshot = self.snapshot.write().await;
+        snapshot
+            .policy
             .remove_filtered_policy(0, vec![subject.clone()])
             .await?;
-        policy
+        snapshot
+            .policy
             .remove_filtered_grouping_policy(1, vec![subject])
             .await?;
+        snapshot.enabled_role_ids.remove(&role_id);
+        drop(snapshot);
+        drop(_guard);
+        self.notify_reload();
         Ok(())
+    }
+
+    pub(super) async fn set_user_status(&self, user_id: i64, enabled: bool) {
+        let _guard = self.mutation_lock.lock().await;
+        self.snapshot.write().await.users.insert(user_id, enabled);
+        drop(_guard);
+        self.notify_reload();
+    }
+
+    pub(super) async fn set_role_status(&self, role_id: i64, enabled: bool) {
+        let guard = self.mutation_lock.lock().await;
+        let mut snapshot = self.snapshot.write().await;
+        if enabled {
+            snapshot.enabled_role_ids.insert(role_id);
+        } else {
+            snapshot.enabled_role_ids.remove(&role_id);
+        }
+        drop(snapshot);
+        drop(guard);
+        self.notify_reload();
+    }
+
+    pub(super) fn notify_reload(&self) {
+        let Ok(watcher) = self.watcher.lock() else {
+            tracing::error!("Casbin watcher lock is poisoned; policy reload was not published");
+            return;
+        };
+        if let Some(mut watcher) = watcher.clone() {
+            watcher.update(EventData::ClearCache);
+        }
     }
 }
 
-async fn build_enforcer(store: &PolicyStore) -> Result<Enforcer, AuthorizationError> {
+async fn build_snapshot(store: &PolicyStore) -> Result<AuthorizationSnapshot, AuthorizationError> {
     let model = DefaultModel::from_str(
         r#"
         [request_definition]
@@ -262,16 +363,27 @@ async fn build_enforcer(store: &PolicyStore) -> Result<Enforcer, AuthorizationEr
     .await
     .map_err(|error| AuthorizationError::Configuration(error.to_string()))?;
     let adapter = SqlxAdapter::new_with_pool(store.pool().clone()).await?;
-    let enforcer = Enforcer::new(model, adapter).await?;
-    validate_loaded_policy(&enforcer, store).await?;
-    Ok(enforcer)
+    let policy = Enforcer::new(model, adapter).await?;
+    let facts = store.policy_facts().await?;
+    validate_loaded_policy(&policy, &facts)?;
+    let enabled_role_ids = facts
+        .roles
+        .iter()
+        .filter_map(|(id, role)| (role.status == "enabled").then_some(*id))
+        .collect();
+    let super_admin_role_id = facts.super_admin_role_id;
+    Ok(AuthorizationSnapshot {
+        policy,
+        users: facts.users,
+        enabled_role_ids,
+        super_admin_role_id,
+    })
 }
 
-async fn validate_loaded_policy(
+fn validate_loaded_policy(
     enforcer: &Enforcer,
-    store: &PolicyStore,
+    facts: &super::store::PolicyFacts,
 ) -> Result<(), AuthorizationError> {
-    let facts = store.policy_facts().await?;
     let mut super_permissions = HashSet::new();
     let mut permissions_by_role = HashMap::<i64, HashSet<String>>::new();
     for rule in enforcer.get_policy() {
@@ -314,7 +426,7 @@ async fn validate_loaded_policy(
         let Some(role_id) = parse_role_subject(&rule[1]) else {
             return invalid("membership targets must use role:<id>");
         };
-        if !facts.users.contains(&user_id) || !facts.roles.contains_key(&role_id) {
+        if !facts.users.contains_key(&user_id) || !facts.roles.contains_key(&role_id) {
             return invalid("membership references an unknown User Account or Access Role");
         }
     }
@@ -326,4 +438,194 @@ async fn validate_loaded_policy(
 
 fn invalid<T>(message: &str) -> Result<T, AuthorizationError> {
     Err(AuthorizationError::Configuration(message.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeSet, sync::Arc, time::Duration};
+
+    use tokio::{sync::oneshot, time::timeout};
+
+    use super::*;
+
+    async fn insert_user(pool: &sqlx::PgPool, id: i64, name: &str) {
+        sqlx::query(
+            r#"
+            insert into sys_users (id, uuid, username, password_hash, nick_name, header_img, dept_id)
+            values ($1, $2, $2, 'hash', $2, '', 1)
+            "#,
+        )
+        .bind(id)
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn insert_role(pool: &sqlx::PgPool, id: i64, code: &str, status: &str) {
+        sqlx::query(
+            "insert into sys_roles (id, code, name, status, sort) values ($1, $2, $2, $3, 10)",
+        )
+        .bind(id)
+        .bind(code)
+        .bind(status)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn insert_policy(pool: &sqlx::PgPool, ptype: &str, left: &str, right: &str) {
+        sqlx::query(
+            "insert into casbin_rule (ptype, v0, v1, v2, v3, v4, v5) values ($1, $2, $3, '', '', '', '')",
+        )
+        .bind(ptype)
+        .bind(left)
+        .bind(right)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// `reload` must wait while another task holds `mutation_lock`.
+    /// Removing `mutation_lock` from `reload` causes this test to fail.
+    #[sqlx::test(migrations = "../../../../migrations")]
+    async fn reload_waits_for_mutation_lock(pool: sqlx::PgPool) {
+        let store = Arc::new(PolicyStore::new(pool));
+        let engine = Arc::new(EnforcementEngine::load(store).await.unwrap());
+
+        let guard = engine.mutation_lock.lock().await;
+        let (started_tx, started_rx) = oneshot::channel();
+
+        let mut reload = {
+            let engine = Arc::clone(&engine);
+            tokio::spawn(async move {
+                started_tx.send(()).unwrap();
+                engine.reload().await.unwrap();
+            })
+        };
+
+        started_rx.await.unwrap();
+        assert!(
+            timeout(Duration::from_millis(50), &mut reload)
+                .await
+                .is_err(),
+            "reload must wait while mutation_lock is held",
+        );
+
+        drop(guard);
+        timeout(Duration::from_secs(2), &mut reload)
+            .await
+            .expect("reload did not resume after mutation_lock was released")
+            .unwrap();
+    }
+
+    /// `replace_user_roles` must wait while another task holds `mutation_lock`,
+    /// and its write must be visible in the snapshot after it completes.
+    /// Removing `mutation_lock` from `replace_user_roles` causes this test to fail.
+    #[sqlx::test(migrations = "../../../../migrations")]
+    async fn replace_user_roles_waits_for_mutation_lock(pool: sqlx::PgPool) {
+        insert_user(&pool, 117, "target-user").await;
+        insert_role(&pool, 2, "reader", "enabled").await;
+        insert_policy(&pool, "p", "role:2", "system:user:list").await;
+
+        let store = Arc::new(PolicyStore::new(pool));
+        let engine = Arc::new(EnforcementEngine::load(store).await.unwrap());
+
+        let guard = engine.mutation_lock.lock().await;
+        let (started_tx, started_rx) = oneshot::channel();
+
+        let mut mutation = {
+            let engine = Arc::clone(&engine);
+            tokio::spawn(async move {
+                started_tx.send(()).unwrap();
+                engine
+                    .replace_user_roles(117, BTreeSet::from([2]))
+                    .await
+                    .unwrap();
+            })
+        };
+
+        started_rx.await.unwrap();
+        assert!(
+            timeout(Duration::from_millis(50), &mut mutation)
+                .await
+                .is_err(),
+            "replace_user_roles must wait while mutation_lock is held",
+        );
+
+        drop(guard);
+        timeout(Duration::from_secs(2), &mut mutation)
+            .await
+            .expect("replace_user_roles did not resume after mutation_lock was released")
+            .unwrap();
+
+        assert_eq!(engine.user_role_ids(117).await, BTreeSet::from([2]));
+        assert!(
+            engine
+                .authorize_permission(117, "system:user:list")
+                .await
+                .unwrap(),
+            "role assignment must be visible in the active snapshot",
+        );
+    }
+
+    /// `replace_role_permissions` must wait while another task holds `mutation_lock`,
+    /// and its write must be visible in the snapshot after it completes.
+    /// Removing `mutation_lock` from `replace_role_permissions` causes this test to fail.
+    #[sqlx::test(migrations = "../../../../migrations")]
+    async fn replace_role_permissions_waits_for_mutation_lock(pool: sqlx::PgPool) {
+        insert_user(&pool, 118, "target-user").await;
+        insert_role(&pool, 2, "reader", "enabled").await;
+        insert_policy(&pool, "g", "user:118", "role:2").await;
+
+        let store = Arc::new(PolicyStore::new(pool));
+        let engine = Arc::new(EnforcementEngine::load(store).await.unwrap());
+
+        assert!(
+            !engine
+                .authorize_permission(118, "system:user:list")
+                .await
+                .unwrap(),
+        );
+
+        let guard = engine.mutation_lock.lock().await;
+        let (started_tx, started_rx) = oneshot::channel();
+
+        let mut mutation = {
+            let engine = Arc::clone(&engine);
+            tokio::spawn(async move {
+                started_tx.send(()).unwrap();
+                engine
+                    .replace_role_permissions(2, BTreeSet::from(["system:user:list".to_string()]))
+                    .await
+                    .unwrap();
+            })
+        };
+
+        started_rx.await.unwrap();
+        assert!(
+            timeout(Duration::from_millis(50), &mut mutation)
+                .await
+                .is_err(),
+            "replace_role_permissions must wait while mutation_lock is held",
+        );
+
+        drop(guard);
+        timeout(Duration::from_secs(2), &mut mutation)
+            .await
+            .expect("replace_role_permissions did not resume after mutation_lock was released")
+            .unwrap();
+
+        assert_eq!(
+            engine.role_permissions(2).await,
+            BTreeSet::from(["system:user:list".to_string()]),
+        );
+        assert!(
+            engine
+                .authorize_permission(118, "system:user:list")
+                .await
+                .unwrap(),
+            "permission mutation must be visible in the active snapshot",
+        );
+    }
 }

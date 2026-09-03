@@ -11,6 +11,7 @@ pub struct ServerConfig {
 }
 
 pub async fn serve(config: ServerConfig, state: AppState) -> std::io::Result<()> {
+    let router = crate::router(state);
     let listener = tokio::net::TcpListener::bind(&config.listen_addr).await?;
     let listen_addr = listener.local_addr()?;
     info!(
@@ -20,7 +21,7 @@ pub async fn serve(config: ServerConfig, state: AppState) -> std::io::Result<()>
     );
     axum::serve(
         listener,
-        crate::router(state).into_make_service_with_connect_info::<SocketAddr>(),
+        router.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
 }

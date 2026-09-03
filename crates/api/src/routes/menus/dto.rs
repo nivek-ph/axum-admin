@@ -58,22 +58,6 @@ impl From<iam::menus::MenuButton> for MenuButtonResponse {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct ApiBindingResponse {
-    pub method: String,
-    #[serde(rename = "pathPattern")]
-    pub path_pattern: String,
-}
-
-impl From<iam::menus::ApiBinding> for ApiBindingResponse {
-    fn from(value: iam::menus::ApiBinding) -> Self {
-        Self {
-            method: value.method,
-            path_pattern: value.path_pattern,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, ToSchema)]
 pub struct MenuResponse {
     pub id: i64,
     #[serde(rename = "parentId")]
@@ -91,8 +75,6 @@ pub struct MenuResponse {
     pub menu_type: String,
     pub status: String,
     pub permission: Option<String>,
-    #[serde(rename = "apiBindings")]
-    pub api_bindings: Vec<ApiBindingResponse>,
     #[schema(no_recursion)]
     pub children: Vec<MenuResponse>,
 }
@@ -132,7 +114,6 @@ impl From<iam::menus::MenuView> for MenuResponse {
             menu_type: v.menu_type,
             status: v.status,
             permission: v.permission,
-            api_bindings: v.api_bindings.into_iter().map(Into::into).collect(),
             children: v.children.into_iter().map(Into::into).collect(),
         }
     }
@@ -176,11 +157,6 @@ mod tests {
             menu_type: "menu".to_string(),
             status: "active".to_string(),
             permission: Some("dashboard:view".to_string()),
-            api_bindings: vec![iam::menus::ApiBinding {
-                menu_id: 1,
-                method: "GET".to_string(),
-                path_pattern: "/api/dashboard".to_string(),
-            }],
             children: Vec::new(),
         });
 
@@ -188,8 +164,7 @@ mod tests {
         assert_eq!(value["parameters"][0]["sysBaseMenuId"], 1);
         assert_eq!(value["parameters"][0]["type"], "query");
         assert_eq!(value["menuBtn"][0]["name"], "refresh");
-        assert_eq!(value["apiBindings"][0]["pathPattern"], "/api/dashboard");
-        assert!(value["apiBindings"][0].get("menu_id").is_none());
+        assert!(value.get("apiBindings").is_none());
     }
 
     #[test]

@@ -1,13 +1,10 @@
 mod menus;
-mod routes;
 #[cfg(test)]
 mod tests;
 
 use std::collections::{BTreeSet, HashSet};
 
 use menus::MenuIndex;
-use routes::RouteIndex;
-pub(crate) use routes::normalize_request_path;
 use sqlx::{FromRow, PgPool};
 
 use super::CatalogError;
@@ -31,17 +28,9 @@ struct AccessNode {
     permission: Option<String>,
 }
 
-#[derive(Debug, Clone, FromRow, PartialEq, Eq)]
-struct AccessBinding {
-    menu_id: i64,
-    method: String,
-    path: String,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct AccessCatalog {
     menus: MenuIndex,
-    routes: RouteIndex,
 }
 
 impl AccessCatalog {
@@ -51,32 +40,12 @@ impl AccessCatalog {
         )
         .fetch_all(pool)
         .await?;
-        let bindings = sqlx::query_as::<_, AccessBinding>(
-            "select menu_id, method, path_pattern as path from sys_menu_apis order by method, path_pattern",
-        )
-        .fetch_all(pool)
-        .await?;
-        Ok(Self::from_parts(nodes, bindings)?)
+        Ok(Self::from_nodes(nodes)?)
     }
 
-    fn from_parts(
-        nodes: Vec<AccessNode>,
-        bindings: Vec<AccessBinding>,
-    ) -> Result<Self, CatalogError> {
+    fn from_nodes(nodes: Vec<AccessNode>) -> Result<Self, CatalogError> {
         let menus = MenuIndex::from_nodes(nodes)?;
-        let routes = RouteIndex::from_bindings(menus.active_route_bindings(bindings)?)?;
-        Ok(Self { menus, routes })
-    }
-
-    /// Requires an uppercase HTTP method and a path normalized by
-    /// [`normalize_request_path`].
-    pub(crate) fn required_permission(
-        &self,
-        normalized_method: &str,
-        normalized_path: &str,
-    ) -> Result<&str, CatalogError> {
-        self.routes
-            .required_permission(normalized_method, normalized_path)
+        Ok(Self { menus })
     }
 
     pub(crate) fn enabled_permissions(&self) -> &HashSet<String> {

@@ -30,13 +30,6 @@ pub struct MenuButton {
     pub desc: String,
 }
 
-#[derive(Debug, Clone, FromRow)]
-pub struct ApiBinding {
-    pub menu_id: i64,
-    pub method: String,
-    pub path_pattern: String,
-}
-
 #[derive(Debug, Clone)]
 pub struct MenuView {
     pub id: i64,
@@ -52,7 +45,6 @@ pub struct MenuView {
     pub menu_type: String,
     pub status: String,
     pub permission: Option<String>,
-    pub api_bindings: Vec<ApiBinding>,
     pub children: Vec<MenuView>,
 }
 
@@ -77,6 +69,4 @@ pub(super) struct MenuRecord {
     pub(super) menu_type: String,
     pub(super) status: String,
     pub(super) permission: Option<String>,
-    #[sqlx(skip)]
-    pub(super) api_bindings: Vec<ApiBinding>,
 }
