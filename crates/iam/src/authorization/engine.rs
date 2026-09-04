@@ -488,7 +488,7 @@ mod tests {
 
     /// `reload` must wait while another task holds `mutation_lock`.
     /// Removing `mutation_lock` from `reload` causes this test to fail.
-    #[sqlx::test(migrations = "../../../../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn reload_waits_for_mutation_lock(pool: sqlx::PgPool) {
         let store = Arc::new(PolicyStore::new(pool));
         let engine = Arc::new(EnforcementEngine::load(store).await.unwrap());
@@ -522,7 +522,7 @@ mod tests {
     /// `replace_user_roles` must wait while another task holds `mutation_lock`,
     /// and its write must be visible in the snapshot after it completes.
     /// Removing `mutation_lock` from `replace_user_roles` causes this test to fail.
-    #[sqlx::test(migrations = "../../../../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn replace_user_roles_waits_for_mutation_lock(pool: sqlx::PgPool) {
         insert_user(&pool, 117, "target-user").await;
         insert_role(&pool, 2, "reader", "enabled").await;
@@ -572,7 +572,7 @@ mod tests {
     /// `replace_role_permissions` must wait while another task holds `mutation_lock`,
     /// and its write must be visible in the snapshot after it completes.
     /// Removing `mutation_lock` from `replace_role_permissions` causes this test to fail.
-    #[sqlx::test(migrations = "../../../../migrations")]
+    #[sqlx::test(migrations = "../../migrations")]
     async fn replace_role_permissions_waits_for_mutation_lock(pool: sqlx::PgPool) {
         insert_user(&pool, 118, "target-user").await;
         insert_role(&pool, 2, "reader", "enabled").await;

@@ -1,84 +1,47 @@
-use axum::http::StatusCode;
+use crate::{
+    AppError,
+    error::{ErrorSpec, error_spec},
+};
 
-use crate::{AppError, error::ErrorSpec};
-
-pub(crate) const INTERNAL_SERVER_ERROR: ErrorSpec =
-    ErrorSpec::internal("INTERNAL_SERVER_ERROR", "internal server error");
-pub(crate) const RATE_LIMITED: ErrorSpec = ErrorSpec::new(
-    StatusCode::TOO_MANY_REQUESTS,
-    "RATE_LIMITED",
-    "too many requests",
-);
-pub(crate) const RATE_LIMIT_UNAVAILABLE: ErrorSpec = ErrorSpec::new(
-    StatusCode::SERVICE_UNAVAILABLE,
-    "RATE_LIMIT_UNAVAILABLE",
-    "rate limit service is unavailable",
-);
-pub(crate) const LOGIN_REQUIRED: ErrorSpec =
-    ErrorSpec::unauthorized("LOGIN_REQUIRED", "login required");
-const TOKEN_INVALID: ErrorSpec = ErrorSpec::unauthorized("TOKEN_INVALID", "session expired");
-const ACCESS_TOKEN_EXPIRED: ErrorSpec =
-    ErrorSpec::unauthorized("ACCESS_TOKEN_EXPIRED", "session expired");
-const REFRESH_TOKEN_INVALID: ErrorSpec =
-    ErrorSpec::unauthorized("REFRESH_TOKEN_INVALID", "session expired");
-const SESSION_INVALID: ErrorSpec = ErrorSpec::unauthorized("SESSION_INVALID", "session expired");
-const PERMISSION_DENIED: ErrorSpec = ErrorSpec::forbidden("PERMISSION_DENIED", "permission denied");
-const AUTHORIZATION_CONFIG_INVALID: ErrorSpec = ErrorSpec::internal(
-    "AUTHORIZATION_CONFIG_INVALID",
-    "authorization configuration is invalid",
-);
-const AUTHORIZATION_UNAVAILABLE: ErrorSpec = ErrorSpec::new(
-    StatusCode::SERVICE_UNAVAILABLE,
-    "AUTHORIZATION_UNAVAILABLE",
-    "authorization service is unavailable",
-);
-pub(crate) const CAPTCHA_REQUIRED: ErrorSpec =
-    ErrorSpec::bad_request("CAPTCHA_REQUIRED", "captcha is required");
-pub(crate) const CAPTCHA_INVALID: ErrorSpec =
-    ErrorSpec::bad_request("CAPTCHA_INVALID", "captcha is invalid or expired");
-pub(crate) const INVALID_CREDENTIALS: ErrorSpec =
-    ErrorSpec::unauthorized("INVALID_CREDENTIALS", "invalid username or password");
-pub(crate) const USER_DISABLED: ErrorSpec =
-    ErrorSpec::forbidden("USER_DISABLED", "user is disabled");
-const USER_NOT_FOUND: ErrorSpec = ErrorSpec::not_found("USER_NOT_FOUND", "user not found");
-const USER_ALREADY_EXISTS: ErrorSpec =
-    ErrorSpec::conflict("USER_ALREADY_EXISTS", "user already exists");
-pub(crate) const INVALID_PASSWORD: ErrorSpec =
-    ErrorSpec::bad_request("INVALID_PASSWORD", "invalid password");
-const INVALID_ROLES: ErrorSpec =
-    ErrorSpec::validation("INVALID_ROLES", "selected roles are invalid");
-const ROLE_NOT_FOUND: ErrorSpec = ErrorSpec::not_found("ROLE_NOT_FOUND", "role not found");
-const ROLE_IMMUTABLE: ErrorSpec =
-    ErrorSpec::failed_precondition("ROLE_IMMUTABLE", "protected role cannot be changed");
-const INVALID_AUDIT_TIME_RANGE: ErrorSpec = ErrorSpec::validation(
-    "INVALID_AUDIT_TIME_RANGE",
-    "audit time range must use RFC 3339 timestamps",
-);
-const AI_PROVIDER_UNAVAILABLE: ErrorSpec = ErrorSpec::new(
-    StatusCode::SERVICE_UNAVAILABLE,
-    "AI_PROVIDER_UNAVAILABLE",
-    "local AI provider is unavailable",
-);
-const AI_RESPONSE_INVALID: ErrorSpec = ErrorSpec::new(
-    StatusCode::BAD_GATEWAY,
-    "AI_RESPONSE_INVALID",
-    "local AI provider returned an invalid response",
-);
-const FILE_TOO_LARGE: ErrorSpec = ErrorSpec::new(
-    StatusCode::PAYLOAD_TOO_LARGE,
-    "FILE_TOO_LARGE",
-    "uploaded file is too large",
-);
-const UPLOAD_NOT_FOUND: ErrorSpec =
-    ErrorSpec::not_found("UPLOAD_NOT_FOUND", "upload session not found");
-const UPLOAD_OFFSET_MISMATCH: ErrorSpec =
-    ErrorSpec::conflict("UPLOAD_OFFSET_MISMATCH", "upload offset does not match");
-const UPLOAD_INCOMPLETE: ErrorSpec =
-    ErrorSpec::conflict("UPLOAD_INCOMPLETE", "upload is incomplete");
-const UPLOAD_IN_PROGRESS: ErrorSpec = ErrorSpec::conflict(
-    "UPLOAD_IN_PROGRESS",
-    "upload operation is already in progress",
-);
+error_spec! {
+    // general
+    pub(crate) INTERNAL_SERVER_ERROR, internal, "internal server error";
+    pub(crate) RATE_LIMITED, too_many_requests, "too many requests";
+    pub(crate) RATE_LIMIT_UNAVAILABLE, service_unavailable, "rate limit service is unavailable";
+    // authentication
+    pub(crate) LOGIN_REQUIRED, unauthorized, "login required";
+    TOKEN_INVALID, unauthorized, "session expired";
+    ACCESS_TOKEN_EXPIRED, unauthorized, "session expired";
+    REFRESH_TOKEN_INVALID, unauthorized, "session expired";
+    SESSION_INVALID, unauthorized, "session expired";
+    pub(crate) INVALID_CREDENTIALS, unauthorized, "invalid username or password";
+    pub(crate) CAPTCHA_REQUIRED, bad_request, "captcha is required";
+    pub(crate) CAPTCHA_INVALID, bad_request, "captcha is invalid or expired";
+    // authorization
+    PERMISSION_DENIED, forbidden, "permission denied";
+    pub(crate) USER_DISABLED, forbidden, "user is disabled";
+    AUTHORIZATION_CONFIG_INVALID, internal, "authorization configuration is invalid";
+    AUTHORIZATION_UNAVAILABLE, service_unavailable, "authorization service is unavailable";
+    // accounts
+    USER_NOT_FOUND, not_found, "user not found";
+    USER_ALREADY_EXISTS, conflict, "user already exists";
+    pub(crate) INVALID_PASSWORD, bad_request, "invalid password";
+    // roles
+    INVALID_ROLES, validation, "selected roles are invalid";
+    ROLE_NOT_FOUND, not_found, "role not found";
+    ROLE_IMMUTABLE, failed_precondition, "protected role cannot be changed";
+    // audit
+    INVALID_AUDIT_TIME_RANGE, validation, "audit time range must use RFC 3339 timestamps";
+    // AI
+    AI_PROVIDER_UNAVAILABLE, service_unavailable, "local AI provider is unavailable";
+    AI_RESPONSE_INVALID, bad_gateway, "local AI provider returned an invalid response";
+    // file storage
+    FILE_TOO_LARGE, payload_too_large, "uploaded file is too large";
+    UPLOAD_NOT_FOUND, not_found, "upload session not found";
+    UPLOAD_OFFSET_MISMATCH, conflict, "upload offset does not match";
+    UPLOAD_INCOMPLETE, conflict, "upload is incomplete";
+    UPLOAD_IN_PROGRESS, conflict, "upload operation is already in progress";
+}
 
 impl From<iam::access::AccessEvaluationError> for AppError {
     fn from(error: iam::access::AccessEvaluationError) -> Self {
@@ -393,6 +356,8 @@ impl From<audit::AuditAnalysisError> for AppError {
 
 #[cfg(test)]
 mod tests {
+    use axum::http::StatusCode;
+
     use super::*;
 
     #[tokio::test]

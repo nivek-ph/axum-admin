@@ -181,6 +181,22 @@ impl ErrorSpec {
         Self::new(StatusCode::PRECONDITION_FAILED, code, message)
     }
 
+    pub(crate) const fn too_many_requests(code: &'static str, message: &'static str) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, code, message)
+    }
+
+    pub(crate) const fn service_unavailable(code: &'static str, message: &'static str) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, code, message)
+    }
+
+    pub(crate) const fn bad_gateway(code: &'static str, message: &'static str) -> Self {
+        Self::new(StatusCode::BAD_GATEWAY, code, message)
+    }
+
+    pub(crate) const fn payload_too_large(code: &'static str, message: &'static str) -> Self {
+        Self::new(StatusCode::PAYLOAD_TOO_LARGE, code, message)
+    }
+
     pub(crate) const fn internal(code: &'static str, message: &'static str) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, code, message)
     }
@@ -273,3 +289,34 @@ impl IntoResponse for AppError {
         (status, Json(body)).into_response()
     }
 }
+
+/// Declare one or more named [`ErrorSpec`] constants with less repetition.
+///
+/// Single form:
+/// ```ignore
+/// error_spec!(pub(crate) RATE_LIMITED, too_many_requests, "too many requests");
+/// ```
+///
+/// Block form (multiple at once, comments allowed between entries):
+/// ```ignore
+/// error_spec! {
+///     pub(crate) RATE_LIMITED, too_many_requests, "too many requests";
+///     SESSION_INVALID, unauthorized, "session expired";
+/// }
+/// ```
+macro_rules! error_spec {
+    // block form: one or more semicolon-terminated entries
+    { $($vis:vis $name:ident, $kind:ident, $message:literal);+ $(;)? } => {
+        $(
+            $vis const $name: $crate::error::ErrorSpec =
+                $crate::error::ErrorSpec::$kind(stringify!($name), $message);
+        )+
+    };
+    // form without braces/semicolon/semicolon-terminated entries
+    ($vis:vis $name:ident, $kind:ident, $message:literal) => {
+        $vis const $name: $crate::error::ErrorSpec =
+            $crate::error::ErrorSpec::$kind(stringify!($name), $message);
+    };
+}
+
+pub(crate) use error_spec;
