@@ -148,8 +148,8 @@ boundary. Application code reads and writes `p` and `g` rules through Casbin Man
 must not query or modify `casbin_rule` directly.
 
 PostgreSQL retains the Access Catalog directory/page/action tree and its enabled Permission codes,
-but no HTTP method/path bindings. `sys_menu_apis` is not part of the current schema or domain model.
-The code registration is the sole owner of which Permission guards a management handler.
+but no HTTP method/path bindings. The code registration is the sole owner of which Permission
+guards a management handler.
 
 Casbin Management APIs use `SqlxAdapter` autosave, and each individual Adapter mutation keeps its
 own database transaction. A final-set replacement may require one bulk add and one bulk remove; the

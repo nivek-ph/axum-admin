@@ -24,7 +24,7 @@ current default from PostgreSQL, so warm function instances do not retain a stal
 ## Existing projects
 
 Repository maintainers can deploy the configured projects through the manual
-[Deploy to Vercel workflow](https://github.com/nivek-ph/axum-admin/actions/workflows/vercel.yml).
+[Deploy to Vercel workflow](https://github.com/nivekph/axum-admin/actions/workflows/vercel.yml).
 
 The workflow asks for:
 

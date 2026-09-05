@@ -53,7 +53,7 @@ describe('Admin Console authentication', () => {
 
     expect(await screen.findByRole('link', { name: 'GitHub' })).toHaveAttribute(
       'href',
-      'https://github.com/nivek-ph/axum-admin',
+      'https://github.com/nivekph/axum-admin',
     )
     expect(screen.getByRole('link', { name: 'GitHub' })).toHaveAttribute('target', '_blank')
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Sign in' }))

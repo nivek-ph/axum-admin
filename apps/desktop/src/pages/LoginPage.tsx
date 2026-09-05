@@ -26,7 +26,7 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
-const GITHUB_REPOSITORY_URL = 'https://github.com/nivek-ph/axum-admin'
+const GITHUB_REPOSITORY_URL = 'https://github.com/nivekph/axum-admin'
 
 export function LoginPage() {
   const { t } = useTranslation()

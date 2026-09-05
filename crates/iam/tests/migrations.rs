@@ -35,34 +35,3 @@ async fn initial_migrations_create_role_only_access_model(pool: sqlx::PgPool) {
     .unwrap();
     assert_eq!(missing_super_admin_permissions, 0);
 }
-
-#[sqlx::test]
-async fn menu_api_binding_table_is_removed_when_upgrading_an_existing_schema(pool: sqlx::PgPool) {
-    sqlx::raw_sql(include_str!("../../../migrations/0001_schema.sql"))
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::raw_sql(include_str!("../../../migrations/0002_seed.sql"))
-        .execute(&pool)
-        .await
-        .unwrap();
-    let before =
-        sqlx::query_scalar::<_, Option<String>>("select to_regclass('public.sys_menu_apis')::text")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert!(before.is_some());
-
-    sqlx::raw_sql(include_str!(
-        "../../../migrations/0003_drop_menu_api_bindings.sql"
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
-    let after =
-        sqlx::query_scalar::<_, Option<String>>("select to_regclass('public.sys_menu_apis')::text")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert!(after.is_none());
-}

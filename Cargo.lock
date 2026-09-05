@@ -462,9 +462,9 @@ dependencies = [
 
 [[package]]
 name = "axum-otel"
-version = "0.33.1"
+version = "0.33.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87276e303963a083df8fb3bf5c7b933ef9018393c9b7be95d92e043c19e07603"
+checksum = "8fa8fcde4fd38a76e80c181d6eb3c237bc9aa84e43ba7af3c3891db2117cd647"
 dependencies = [
  "axum",
  "opentelemetry",
@@ -2896,9 +2896,9 @@ dependencies = [
 
 [[package]]
 name = "otel-init"
-version = "0.33.1"
+version = "0.33.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f97970a88d9082ed5ea807b7a2560acefd1ee0da09780a7b30485400c5bbe835"
+checksum = "5e6faf4db5144f8ceb77d044b6cc8770c4cece72012eea049abf031393f907f9"
 dependencies = [
  "anyhow",
  "opentelemetry",
@@ -4970,9 +4970,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-otel"
-version = "0.33.1"
+version = "0.33.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59744db73b43afd08ff4d8832facaab2ffffa7fa58c32bf4668585cde9e76540"
+checksum = "11194251150be362fda89524fb27ff456604368708fae820297e28e9d5bc816c"
 dependencies = [
  "anyhow",
  "config",

@@ -38,7 +38,7 @@ metadata = { path = "crates/metadata" }
 anyhow = "1"
 argon2 = { version = "0.6.0-rc.8", features = ["getrandom", "password-hash"] }
 axum = { version = "0.8.9", features = ["json"] }
-axum-otel = "0.33.1"
+axum-otel = "0.33.2"
 captcha-rs = "0.5"
 casbin = { version = "2.20", features = ["watcher"] }
 clap = { version = "4", features = ["derive", "env"] }
@@ -95,7 +95,7 @@ tower-rate-limiter = { version = "0.1.6", default-features = false, features = [
 ] }
 tracing = "0.1"
 tracing-error = "0.2"
-tracing-otel = { version = "0.33.1", features = ["env"] }
+tracing-otel = { version = "0.33.2", features = ["env"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 utoipa = "5"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }

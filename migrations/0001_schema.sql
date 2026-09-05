@@ -85,15 +85,6 @@ WHERE permission IS NOT NULL;
 
 CREATE INDEX idx_sys_menus_parent ON sys_menus(parent_id);
 
-CREATE TABLE sys_menu_apis (
-    menu_id BIGINT NOT NULL REFERENCES sys_menus(id) ON DELETE CASCADE,
-    method TEXT NOT NULL CHECK (method = upper(method)),
-    path_pattern TEXT NOT NULL CHECK (path_pattern LIKE '/api%'),
-    PRIMARY KEY (method, path_pattern)
-);
-
-CREATE INDEX idx_sys_menu_apis_menu ON sys_menu_apis(menu_id);
-
 CREATE TABLE sys_audit_events (
     id BIGSERIAL PRIMARY KEY,
     req_id TEXT NOT NULL,
