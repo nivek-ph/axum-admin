@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use super::{
     AccountAccessView, AccountError, CreateAccountInput, EffectivePermissionSource,
-    EffectiveRoleSource, GetUserListRequest, LoginAccount, RefreshIdentity, RefreshIdentityError,
-    SetSelfInfoRequest, SetSelfSettingRequest, UpdateUserInput, UserInfoView, UserRecord,
+    EffectiveRoleSource, LoginAccount, RefreshIdentity, RefreshIdentityError, SetSelfInfoRequest,
+    SetSelfSettingRequest, UpdateUserInput, UserInfoView, UserListQuery, UserRecord,
 };
 use crate::{
     authorization::{Authorization, ReplaceUserRoles},
@@ -39,7 +39,7 @@ impl Accounts {
     pub async fn list(
         &self,
         actor_user_id: i64,
-        query: GetUserListRequest,
+        query: UserListQuery,
     ) -> Result<(Vec<UserInfoView>, i64), AccountError> {
         let boundary = self.boundary(actor_user_id).await?;
         let include_roles = matches!(boundary, AccountBoundary::All);
@@ -456,7 +456,7 @@ async fn super_admin_role_id(pool: &sqlx::PgPool) -> Result<i64, sqlx::Error> {
 async fn get_user_list(
     pool: &sqlx::PgPool,
     authorization: &Authorization,
-    query: GetUserListRequest,
+    query: UserListQuery,
     boundary: AccountBoundary,
     include_roles: bool,
 ) -> Result<(Vec<UserInfoView>, i64), AccountError> {

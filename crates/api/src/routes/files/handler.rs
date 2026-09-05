@@ -23,7 +23,7 @@ pub async fn get_file_list_by_query(
     State(state): State<AppState>,
     Query(payload): Query<FileListRequest>,
 ) -> AppResult<Json<ApiResponse<FileListData>>> {
-    let (list, total, page, page_size) = state.files.list(payload.into()).await?;
+    let (list, total, page, page_size) = state.files.list(payload).await?;
     let list = list
         .into_iter()
         .map(|file| FileResponse::from_stored(&state.public_base_url, file))

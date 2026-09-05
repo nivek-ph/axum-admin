@@ -2,7 +2,7 @@ use audit::{AuditActor, AuditContext, AuditSource};
 use iam::{
     Iam,
     access::AccessEvaluationError,
-    accounts::{AccountError, CreateAccountInput, GetUserListRequest, UpdateUserInput},
+    accounts::{AccountError, CreateAccountInput, UpdateUserInput, UserListQuery},
 };
 
 fn audit_context(actor_id: i64) -> AuditContext {
@@ -19,8 +19,8 @@ fn audit_context(actor_id: i64) -> AuditContext {
     }
 }
 
-fn list_request() -> GetUserListRequest {
-    GetUserListRequest {
+fn list_request() -> UserListQuery {
+    UserListQuery {
         page: 1,
         page_size: 20,
         keyword: None,

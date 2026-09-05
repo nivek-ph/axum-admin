@@ -1,13 +1,42 @@
 # API DTO ownership
 
-`crates/api` owns HTTP response DTOs and request DTOs whose wire shape differs from the owning capability's behavior input. Known response bodies use concrete `ToSchema` types; `serde_json::Value` is reserved for genuinely open JSON fields.
+`crates/api` owns HTTP response DTOs and request DTOs when the wire shape differs from the
+owning capability's behavior input. Known response bodies use concrete `ToSchema` types;
+`serde_json::Value` is reserved for genuinely open JSON fields.
 
-Capability crates keep plain behavior inputs without HTTP Query, camelCase serde renames, `IntoParams`, or OpenAPI schema derives. Routes own the wire DTOs and convert with `From` / `Into` into capability inputs.
+## When to keep one type
 
-Current intentional exception:
+If the HTTP request and capability input are field-for-field identical, reuse the capability
+type. Route modules may expose a local type alias so handlers keep importing from their
+`dto` module:
 
-- `audit`: the audit list query still carries HTTP/OpenAPI derives and is reused by `routes/audit/events/dto.rs` as a type alias. Migrate it the same way when next touching that surface.
+```rust
+pub type ParameterListRequest = metadata::parameters::ParamListQuery;
+pub type RoleRequest = iam::roles::RolePayload;
+```
 
-IAM request and response DTOs are API-owned. Routes convert them into Accounts and Roles behavior inputs.
+Capability crates may retain `serde` / `utoipa` derives in that case. Do not invent a second
+struct plus a pure field-copy `From` impl just to push HTTP derives out of the capability crate.
 
-Do not add a capability-side OpenAPI derive unless this document is updated with an explicit exception. Capability models and response views must not derive OpenAPI schemas merely for route documentation.
+## When to keep two types
+
+Maintain a separate API DTO only when the boundary does real work, for example:
+
+- plaintext password on the wire vs `password_hash` in the capability
+- legacy aliases / compatibility fields that the capability should not see
+- validation, normalization, or filtering before the capability call
+- different field types or business meaning
+- response projection that differs from the internal model
+
+## Current identical-input aliases
+
+- `metadata::dictionaries::DictionaryListQuery`
+- `metadata::parameters::{ParamListQuery, ParameterInput}`
+- `file-storage::files::FileListQuery`
+- `audit::AuditQuery`
+- `iam::accounts::UserListQuery`
+- `iam::roles::RolePayload`
+
+Do not add a capability-side OpenAPI derive for a response/view type merely for route
+documentation. Capability models that are not reused as wire inputs should stay free of
+HTTP/OpenAPI derives.

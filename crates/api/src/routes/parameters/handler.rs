@@ -21,7 +21,7 @@ pub async fn create_sys_params(
     State(state): State<AppState>,
     Json(payload): Json<ParameterRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.parameters.create(payload.into()).await?;
+    state.parameters.create(payload).await?;
 
     Ok(Json(ApiResponse::new("OK", "created", None)))
 }
@@ -40,7 +40,7 @@ pub async fn update_sys_params_by_id(
     Path(id): Path<i64>,
     Json(payload): Json<ParameterRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.parameters.update(id, payload.into()).await?;
+    state.parameters.update(id, payload).await?;
 
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -77,7 +77,7 @@ pub async fn get_sys_params_list(
     State(state): State<AppState>,
     Query(payload): Query<ParameterListRequest>,
 ) -> AppResult<Json<ApiResponse<ParameterListData>>> {
-    let (list, total, page, page_size) = state.parameters.list(payload.into()).await?;
+    let (list, total, page, page_size) = state.parameters.list(payload).await?;
 
     let list = list
         .into_iter()

@@ -85,7 +85,7 @@ pub async fn get_sys_dictionary_list(
 ) -> AppResult<Json<ApiResponse<Vec<DictionaryResponse>>>> {
     let list = state
         .dictionaries
-        .list(payload.into())
+        .list(payload)
         .await?
         .into_iter()
         .map(DictionaryResponse::from)

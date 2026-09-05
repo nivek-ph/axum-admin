@@ -38,7 +38,7 @@ pub async fn list_users(
 ) -> AppResult<Json<ApiResponse<UserListData>>> {
     let page = payload.page.max(1);
     let page_size = payload.page_size.max(1);
-    let (list, total) = state.accounts.list(user.id, payload.into()).await?;
+    let (list, total) = state.accounts.list(user.id, payload).await?;
     Ok(Json(ApiResponse::ok(UserListData {
         list: list.into_iter().map(UserResponse::from).collect(),
         total,

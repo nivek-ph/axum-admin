@@ -1,45 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-#[derive(Debug, Clone, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct ParameterListRequest {
-    pub page: Option<i64>,
-    #[serde(rename = "pageSize")]
-    pub page_size: Option<i64>,
-    pub name: Option<String>,
-    pub key: Option<String>,
-}
-
-impl From<ParameterListRequest> for metadata::parameters::ParamListQuery {
-    fn from(value: ParameterListRequest) -> Self {
-        Self {
-            page: value.page,
-            page_size: value.page_size,
-            name: value.name,
-            key: value.key,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct ParameterRequest {
-    pub name: String,
-    pub key: String,
-    pub value: String,
-    pub desc: String,
-}
-
-impl From<ParameterRequest> for metadata::parameters::ParameterInput {
-    fn from(value: ParameterRequest) -> Self {
-        Self {
-            name: value.name,
-            key: value.key,
-            value: value.value,
-            desc: value.desc,
-        }
-    }
-}
+pub type ParameterListRequest = metadata::parameters::ParamListQuery;
+pub type ParameterRequest = metadata::parameters::ParameterInput;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]

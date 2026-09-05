@@ -1,38 +1,7 @@
 use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct UserListRequest {
-    pub page: i64,
-    #[serde(rename = "pageSize")]
-    pub page_size: i64,
-    pub keyword: Option<String>,
-    pub username: Option<String>,
-    #[serde(rename = "nickName")]
-    pub nick_name: Option<String>,
-    pub phone: Option<String>,
-    pub email: Option<String>,
-    #[serde(rename = "orderKey")]
-    pub order_key: Option<String>,
-    pub desc: Option<bool>,
-}
-
-impl From<UserListRequest> for iam::accounts::GetUserListRequest {
-    fn from(value: UserListRequest) -> Self {
-        Self {
-            page: value.page,
-            page_size: value.page_size,
-            keyword: value.keyword,
-            username: value.username,
-            nick_name: value.nick_name,
-            phone: value.phone,
-            email: value.email,
-            order_key: value.order_key,
-            desc: value.desc,
-        }
-    }
-}
+pub type UserListRequest = iam::accounts::UserListQuery;
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct UpdateSelfRequest {
