@@ -94,11 +94,7 @@ pub async fn change_password(
         return Err(crate::mappings::INVALID_PASSWORD.into());
     }
     let password_hash = state.passwords.hash_password(&payload.new_password)?;
-    revoke_sessions_and_persist_password(
-        &state,
-        iam::accounts::PreparedPasswordUpdate::new(user.id, password_hash),
-    )
-    .await?;
+    replace_password(&state, user.id, password_hash).await?;
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
 
@@ -195,23 +191,18 @@ pub async fn reset_user_password(
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     state.accounts.require_visible_user(user.id, id).await?;
     let password_hash = state.passwords.hash_password(&payload.password)?;
-    revoke_sessions_and_persist_password(
-        &state,
-        iam::accounts::PreparedPasswordUpdate::new(id, password_hash),
-    )
-    .await?;
+    replace_password(&state, id, password_hash).await?;
     Ok(Json(ApiResponse::new("OK", "password reset", None)))
 }
 
-async fn revoke_sessions_and_persist_password(
-    state: &AppState,
-    prepared: iam::accounts::PreparedPasswordUpdate,
-) -> AppResult<()> {
+/// Revoke active sessions before persisting the new hash so stolen sessions
+/// cannot keep working after an admin reset or self-service change.
+async fn replace_password(state: &AppState, user_id: i64, password_hash: String) -> AppResult<()> {
+    state.tokens.revoke_user_sessions(user_id).await?;
     state
-        .tokens
-        .revoke_user_sessions(prepared.user_id())
+        .accounts
+        .update_password(user_id, password_hash)
         .await?;
-    state.accounts.persist_password_update(prepared).await?;
     Ok(())
 }
 
