@@ -31,8 +31,26 @@ compare routes with PostgreSQL, and Request Access does not resolve Permissions 
 Handlers call Accounts or Roles for administration; they never extract the private guard context or
 call private Authorization directly.
 
-## Domain model
+## Authorization module shape
 
+The Authorization capability is implemented under `crates/iam/src/authorization/` as three types.
+Their responsibilities are already distinct; keep the current names.
+
+| Type | File | Responsibility |
+| --- | --- | --- |
+| `Authorization` | `service.rs` | Public capability facade: compose store + engine + audit, enforce access-admin rules, orchestrate policy mutations with best-effort audit |
+| `EnforcementEngine` | `engine.rs` | Process-local last-good snapshot (Casbin enforcer, User enable map, enabled Roles), Permission evaluation, Casbin Management mutations, reload/watcher |
+| `PolicyStore` | `store.rs` | Authoritative PostgreSQL reads for User/Role facts and Access Catalog Permission facts used to build and validate snapshots; does not read or write `casbin_rule` |
+
+`Authorization` is a coordinator, not a thin rename of `PolicyStore`. `service.rs` is acceptable as the
+home of that facade; do not rename the file to `policy.rs` (that collides with `PolicyStore`) or fold
+the type into `mod.rs` merely to eliminate a `service.rs` filename.
+
+`EnforcementEngine` is more than “run Casbin enforce”: it owns the mutable in-memory snapshot and the
+Casbin Management write path. That remains one module because snapshot reads, local status overlays,
+and policy writes share the same mutation/reload lock.
+
+EOF
 ### User and Role
 
 A User may have zero, one, or multiple Roles. Membership is a Casbin `g` rule:
