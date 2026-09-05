@@ -34,7 +34,7 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route(
             "/{id}/default",
-            put(handler::set_default_storage).permission("system:storage:set-default"),
+            put(handler::set_default).permission("system:storage:set-default"),
         )
 }
 
