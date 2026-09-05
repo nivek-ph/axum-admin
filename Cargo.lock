@@ -1230,13 +1230,10 @@ dependencies = [
  "jiff-sqlx",
  "mime_guess",
  "opendal",
- "serde",
- "serde_json",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "utoipa",
  "uuid",
 ]
 
@@ -2400,7 +2397,6 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror 2.0.18",
- "utoipa",
 ]
 
 [[package]]
