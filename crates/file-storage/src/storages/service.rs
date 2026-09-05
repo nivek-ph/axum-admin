@@ -38,6 +38,7 @@ pub struct StorageService {
 }
 
 impl StorageService {
+    /// Loads the storage service from the database.
     pub async fn load(pool: PgPool) -> Result<Self, StorageError> {
         let records = fetch_all(&pool).await?;
 
@@ -74,11 +75,13 @@ impl StorageService {
         Ok(record.id)
     }
 
+    /// Retrieves the storage backend for a given storage ID.
     pub(crate) async fn backend_for_id(&self, id: i64) -> Result<StorageBackend, StorageError> {
         let record = fetch_one(&self.pool, id).await?;
         storage_from_record(&record)
     }
 
+    /// Lists all storages matching the given query.
     pub async fn list(&self, query: StorageQuery) -> Result<Vec<StorageView>, StorageError> {
         let sql = format!(
             r#"{STORAGE_SELECT}
@@ -98,6 +101,7 @@ impl StorageService {
         fetch_one(&self.pool, id).await?.try_into()
     }
 
+    /// Creates a new storage with the given payload.
     pub async fn create(&self, payload: StorageInput) -> Result<StorageView, StorageError> {
         validate_input(&payload)?;
         let config = config_from_input(&payload, None)?;
@@ -219,6 +223,7 @@ impl StorageService {
         Ok(())
     }
 
+    /// Sets the given storage as the default storage.
     pub async fn set_default(&self, id: i64) -> Result<(), StorageError> {
         let mut transaction = self.pool.begin().await?;
         lock_storage_lifecycle(&mut transaction).await?;
@@ -240,6 +245,7 @@ impl StorageService {
         Ok(())
     }
 
+    /// Deletes the storage with the given ID.
     pub async fn delete(&self, id: i64) -> Result<(), StorageError> {
         let mut transaction = self.pool.begin().await?;
         lock_storage_lifecycle(&mut transaction).await?;
@@ -269,6 +275,7 @@ impl StorageService {
     }
 }
 
+/// Validates the given storage input.
 fn validate_input(payload: &StorageInput) -> Result<(), StorageError> {
     let name = payload.name.trim();
     if name.is_empty() || name.chars().count() > 100 {
