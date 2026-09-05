@@ -2,7 +2,7 @@ use sqlx::{PgConnection, PgPool, Postgres, pool::PoolConnection};
 
 use crate::files::{FileError, FileService};
 
-pub(crate) enum ClaimConflict {
+pub(in crate::files) enum ClaimConflict {
     OffsetMismatch,
     InProgress,
 }
@@ -16,7 +16,7 @@ impl ClaimConflict {
     }
 }
 
-pub(crate) struct UploadOperationClaim<'a> {
+pub(in crate::files) struct UploadOperationClaim<'a> {
     service: &'a FileService,
     id: String,
     token: String,
@@ -24,7 +24,7 @@ pub(crate) struct UploadOperationClaim<'a> {
 }
 
 impl<'a> UploadOperationClaim<'a> {
-    pub(crate) async fn acquire(
+    pub(in crate::files) async fn acquire(
         service: &'a FileService,
         id: &str,
         token: String,
@@ -54,30 +54,30 @@ impl<'a> UploadOperationClaim<'a> {
         Ok(claim)
     }
 
-    pub(crate) fn token(&self) -> &str {
+    pub(in crate::files) fn token(&self) -> &str {
         &self.token
     }
 
-    pub(crate) fn connection(&mut self) -> &mut PgConnection {
+    pub(in crate::files) fn connection(&mut self) -> &mut PgConnection {
         self.object_io
             .as_mut()
             .expect("active upload claim should own its object I/O lock")
             .connection()
     }
 
-    pub(crate) async fn heartbeat(&mut self) -> Result<(), FileError> {
+    pub(in crate::files) async fn heartbeat(&mut self) -> Result<(), FileError> {
         let id = self.id.clone();
         let token = self.token.clone();
         FileService::refresh_upload_operation(self.connection(), &id, &token).await
     }
 
-    pub(crate) async fn release_object_io(&mut self) {
+    pub(in crate::files) async fn release_object_io(&mut self) {
         if let Some(object_io) = self.object_io.take() {
             object_io.release().await;
         }
     }
 
-    pub(crate) async fn abandon(mut self) {
+    pub(in crate::files) async fn abandon(mut self) {
         self.release_object_io().await;
         self.service
             .release_upload_operation(&self.id, &self.token)
@@ -85,13 +85,13 @@ impl<'a> UploadOperationClaim<'a> {
     }
 }
 
-pub(crate) struct UploadObjectIoGuard {
+pub(in crate::files) struct UploadObjectIoGuard {
     connection: Option<PoolConnection<Postgres>>,
     upload_id: String,
 }
 
 impl UploadObjectIoGuard {
-    pub(crate) async fn try_acquire(
+    pub(in crate::files) async fn try_acquire(
         pool: &PgPool,
         upload_id: &str,
     ) -> Result<Option<Self>, sqlx::Error> {
@@ -115,13 +115,13 @@ impl UploadObjectIoGuard {
         }))
     }
 
-    pub(crate) fn connection(&mut self) -> &mut PgConnection {
+    pub(in crate::files) fn connection(&mut self) -> &mut PgConnection {
         self.connection
             .as_deref_mut()
             .expect("upload object I/O guard should own its connection")
     }
 
-    pub(crate) async fn release(mut self) {
+    pub(in crate::files) async fn release(mut self) {
         let Some(mut connection) = self.connection.take() else {
             return;
         };

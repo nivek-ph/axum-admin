@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use opendal::{Operator, Writer, services};
 
-use crate::storages::{S3Credentials, StorageBackendConfig};
+use super::model::{S3Credentials, StorageBackendConfig};
 
 const LOCAL_URL_PREFIX: &str = "/uploads";
 
@@ -32,7 +32,7 @@ pub(crate) struct StorageBackend {
 }
 
 impl StorageBackend {
-    pub(crate) fn validate_config(config: &StorageBackendConfig) -> Result<(), ObjectStorageError> {
+    pub(super) fn validate_config(config: &StorageBackendConfig) -> Result<(), ObjectStorageError> {
         match config {
             StorageBackendConfig::Local { root } => {
                 required(root, "root", "local")?;
@@ -59,7 +59,7 @@ impl StorageBackend {
         }
     }
 
-    pub(crate) fn from_config(config: &StorageBackendConfig) -> Result<Self, ObjectStorageError> {
+    pub(super) fn from_config(config: &StorageBackendConfig) -> Result<Self, ObjectStorageError> {
         match config {
             StorageBackendConfig::Local { root } => Self::local(root),
             StorageBackendConfig::S3 {
@@ -82,7 +82,7 @@ impl StorageBackend {
         }
     }
 
-    pub(crate) fn local(root: &str) -> Result<Self, ObjectStorageError> {
+    pub(super) fn local(root: &str) -> Result<Self, ObjectStorageError> {
         let root = root.trim();
         if root.is_empty() {
             return Err(ObjectStorageError::Missing("root", "local"));
@@ -181,7 +181,7 @@ mod tests {
     use opendal::{Operator, services};
 
     use super::{ObjectStorageError, StorageBackend};
-    use crate::storages::{S3Credentials, StorageBackendConfig};
+    use crate::storages::model::{S3Credentials, StorageBackendConfig};
 
     fn credentials() -> S3Credentials {
         S3Credentials {

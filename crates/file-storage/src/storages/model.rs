@@ -11,13 +11,13 @@ pub enum StorageDriver {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct S3Credentials {
-    pub(crate) access_key: String,
-    pub(crate) secret_key: String,
+pub(super) struct S3Credentials {
+    pub(super) access_key: String,
+    pub(super) secret_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum StorageBackendConfig {
+pub(super) enum StorageBackendConfig {
     Local {
         root: String,
     },
@@ -33,14 +33,14 @@ pub(crate) enum StorageBackendConfig {
 }
 
 impl StorageBackendConfig {
-    pub(crate) fn driver(&self) -> StorageDriver {
+    pub(super) fn driver(&self) -> StorageDriver {
         match self {
             Self::Local { .. } => StorageDriver::Local,
             Self::S3 { .. } => StorageDriver::S3,
         }
     }
 
-    pub(crate) fn same_location(&self, other: &Self) -> bool {
+    pub(super) fn same_location(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Local { root: left }, Self::Local { root: right }) => left == right,
             (
@@ -74,35 +74,35 @@ impl StorageBackendConfig {
         }
     }
 
-    pub(crate) fn root(&self) -> Option<&str> {
+    pub(super) fn root(&self) -> Option<&str> {
         match self {
             Self::Local { root } => Some(root),
             Self::S3 { root, .. } => root.as_deref(),
         }
     }
 
-    pub(crate) fn bucket(&self) -> Option<&str> {
+    pub(super) fn bucket(&self) -> Option<&str> {
         match self {
             Self::Local { .. } => None,
             Self::S3 { bucket, .. } => Some(bucket),
         }
     }
 
-    pub(crate) fn region(&self) -> Option<&str> {
+    pub(super) fn region(&self) -> Option<&str> {
         match self {
             Self::Local { .. } => None,
             Self::S3 { region, .. } => Some(region),
         }
     }
 
-    pub(crate) fn endpoint(&self) -> Option<&str> {
+    pub(super) fn endpoint(&self) -> Option<&str> {
         match self {
             Self::Local { .. } => None,
             Self::S3 { endpoint, .. } => endpoint.as_deref(),
         }
     }
 
-    pub(crate) fn public_base_url(&self) -> Option<&str> {
+    pub(super) fn public_base_url(&self) -> Option<&str> {
         match self {
             Self::Local { .. } => None,
             Self::S3 {
@@ -111,14 +111,14 @@ impl StorageBackendConfig {
         }
     }
 
-    pub(crate) fn credentials(&self) -> Option<&S3Credentials> {
+    pub(super) fn credentials(&self) -> Option<&S3Credentials> {
         match self {
             Self::Local { .. } => None,
             Self::S3 { credentials, .. } => Some(credentials),
         }
     }
 
-    pub(crate) fn virtual_host_style(&self) -> bool {
+    pub(super) fn virtual_host_style(&self) -> bool {
         match self {
             Self::Local { .. } => false,
             Self::S3 {
@@ -225,7 +225,7 @@ pub enum StorageBackendView {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub(crate) struct StorageRecord {
+pub(super) struct StorageRecord {
     pub id: i64,
     pub name: String,
     pub code: String,

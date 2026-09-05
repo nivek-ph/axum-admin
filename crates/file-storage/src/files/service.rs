@@ -11,12 +11,12 @@ use crate::storages::{StorageBackend, StorageService};
 
 pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024;
 pub const UPLOAD_CHUNK_BYTES: usize = 4 * 1024 * 1024;
-pub(crate) const UPLOAD_SESSION_TTL_SECONDS: i64 = 60 * 60;
+pub(super) const UPLOAD_SESSION_TTL_SECONDS: i64 = 60 * 60;
 
 #[derive(Clone)]
 pub struct FileService {
-    pub(crate) pool: PgPool,
-    pub(crate) storages: StorageService,
+    pub(super) pool: PgPool,
+    pub(super) storages: StorageService,
 }
 
 #[derive(sqlx::FromRow)]
@@ -240,7 +240,7 @@ impl FileService {
         Ok(session)
     }
 
-    pub(crate) async fn refresh_upload_operation(
+    pub(super) async fn refresh_upload_operation(
         connection: &mut PgConnection,
         id: &str,
         token: &str,
@@ -266,7 +266,7 @@ impl FileService {
         }
     }
 
-    pub(crate) async fn release_upload_operation(&self, id: &str, token: &str) {
+    pub(super) async fn release_upload_operation(&self, id: &str, token: &str) {
         let mut connection = match self.pool.acquire().await {
             Ok(connection) => connection,
             Err(error) => {
@@ -297,7 +297,7 @@ impl FileService {
         }
     }
 
-    pub(crate) async fn cleanup_upload_parts(
+    pub(super) async fn cleanup_upload_parts(
         &self,
         file_id: i64,
         storage_id: i64,
@@ -317,7 +317,7 @@ impl FileService {
         Ok(())
     }
 
-    pub(crate) async fn reap_stale_uploads(&self) -> Result<(), FileError> {
+    pub(super) async fn reap_stale_uploads(&self) -> Result<(), FileError> {
         let uploads = sqlx::query_as::<_, StaleUpload>(
             r#"
             select id, storage_id, object_name
@@ -405,12 +405,12 @@ impl FileService {
         }
     }
 
-    pub(crate) async fn storage_for(&self, id: i64) -> Result<StorageBackend, FileError> {
+    pub(super) async fn storage_for(&self, id: i64) -> Result<StorageBackend, FileError> {
         Ok(self.storages.backend_for_id(id).await?)
     }
 }
 
-pub(crate) async fn completed_upload(
+pub(super) async fn completed_upload(
     pool: &PgPool,
     id: &str,
 ) -> Result<Option<StoredFile>, sqlx::Error> {
@@ -426,7 +426,7 @@ pub(crate) async fn completed_upload(
     .await
 }
 
-pub(crate) async fn upload_operation_state(
+pub(super) async fn upload_operation_state(
     pool: &PgPool,
     id: &str,
 ) -> Result<Option<(i64, i64, String)>, FileError> {

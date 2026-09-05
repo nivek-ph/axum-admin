@@ -3,8 +3,9 @@ use std::str::FromStr;
 use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
 
 use super::{
-    ObjectStorageError, S3Credentials, StorageBackend, StorageBackendConfig, StorageBackendInput,
-    StorageDriver, StorageError, StorageInput, StorageQuery, StorageView, model::StorageRecord,
+    ObjectStorageError, StorageBackend, StorageBackendInput, StorageDriver, StorageError,
+    StorageInput, StorageQuery, StorageView,
+    model::{S3Credentials, StorageBackendConfig, StorageRecord},
 };
 
 const STORAGE_LIFECYCLE_LOCK: i64 = 0x4156_415f_5354_4f52;
