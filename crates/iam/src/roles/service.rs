@@ -37,7 +37,7 @@ impl RoleService {
 
     pub async fn list(&self, actor_user_id: i64) -> Result<Vec<RoleSummary>, RoleError> {
         self.authorization
-            .ensure_role_manager(actor_user_id)
+            .require_role_manager(actor_user_id)
             .await?;
         Ok(
             sqlx::query_as("select id, code, name, status, sort from sys_roles order by sort, id")
@@ -53,7 +53,7 @@ impl RoleService {
         audit_context: AuditContext,
     ) -> Result<RoleSummary, RoleError> {
         self.authorization
-            .ensure_role_manager(actor_user_id)
+            .require_role_manager(actor_user_id)
             .await?;
         let role: RoleSummary = sqlx::query_as(
             r#"
@@ -97,7 +97,7 @@ impl RoleService {
         audit_context: AuditContext,
     ) -> Result<RoleSummary, RoleError> {
         self.authorization
-            .ensure_mutable_role(actor_user_id, id)
+            .require_mutable_role(actor_user_id, id)
             .await?;
         let before = find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
         if payload.code != before.code {
@@ -152,7 +152,7 @@ impl RoleService {
         audit_context: AuditContext,
     ) -> Result<(), RoleError> {
         self.authorization
-            .ensure_mutable_role(actor_user_id, id)
+            .require_mutable_role(actor_user_id, id)
             .await?;
         let before = find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
         let before_permissions = self.authorization.role_permissions(id).await?;
@@ -168,7 +168,7 @@ impl RoleService {
         if deleted == 0 {
             return Err(RoleError::NotFound);
         }
-        self.authorization.notify_reload();
+        self.authorization.notify_policy_changed();
         self.record_role_audit(
             audit_context,
             AuditAction::DeleteRole,
@@ -197,7 +197,7 @@ impl RoleService {
 
     pub async fn access(&self, actor_user_id: i64, id: i64) -> Result<RoleAccessView, RoleError> {
         self.authorization
-            .ensure_role_manager(actor_user_id)
+            .require_role_manager(actor_user_id)
             .await?;
         let role = find(&self.pool, id).await?.ok_or(RoleError::NotFound)?;
         let tree = MenuService::from_catalog(

@@ -15,7 +15,7 @@ use crate::{
     security(("bearer_auth" = [])),
     responses((status = 200, description = "Current user info", body = ApiResponse<UserInfoData>))
 )]
-pub async fn get_user_info(
+pub async fn get_current_user(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> AppResult<Json<ApiResponse<UserInfoData>>> {
@@ -31,7 +31,7 @@ pub async fn get_user_info(
     params(UserListRequest),
     responses((status = 200, description = "User list", body = ApiResponse<UserListData>))
 )]
-pub async fn get_user_list_by_query(
+pub async fn list_users(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     Query(payload): Query<UserListRequest>,
@@ -55,7 +55,7 @@ pub async fn get_user_list_by_query(
     request_body = RegisterUserRequest,
     responses((status = 200, description = "User registered", body = ApiResponse<EmptyData>))
 )]
-pub async fn admin_register(
+pub async fn create_user(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     Extension(audit_context): Extension<audit::AuditContext>,
@@ -111,7 +111,7 @@ pub async fn change_password(
     request_body = UpdateUserRequest,
     responses((status = 200, description = "User updated", body = ApiResponse<EmptyData>))
 )]
-pub async fn set_user_info_by_id(
+pub async fn update_user(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     Path(id): Path<i64>,
@@ -129,14 +129,14 @@ pub async fn set_user_info_by_id(
     request_body = UpdateSelfRequest,
     responses((status = 200, description = "Current user updated", body = ApiResponse<EmptyData>))
 )]
-pub async fn set_self_info(
+pub async fn update_current_user(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     Json(payload): Json<UpdateSelfRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     state
         .accounts
-        .set_self_info(user.id, payload.into())
+        .update_current_user(user.id, payload.into())
         .await?;
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -149,14 +149,14 @@ pub async fn set_self_info(
     request_body = UpdateSelfSettingsRequest,
     responses((status = 200, description = "User settings updated", body = ApiResponse<EmptyData>))
 )]
-pub async fn set_self_setting(
+pub async fn update_current_user_settings(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     Json(payload): Json<UpdateSelfSettingsRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
     state
         .accounts
-        .set_self_setting(user.id, payload.into())
+        .update_current_user_settings(user.id, payload.into())
         .await?;
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
@@ -169,7 +169,7 @@ pub async fn set_self_setting(
     params(("id" = i64, Path, description = "User ID")),
     responses((status = 200, description = "User deleted", body = ApiResponse<EmptyData>))
 )]
-pub async fn delete_user_by_id(
+pub async fn delete_user(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     Path(id): Path<i64>,
@@ -187,13 +187,13 @@ pub async fn delete_user_by_id(
     request_body = ResetPasswordRequest,
     responses((status = 200, description = "Password reset", body = ApiResponse<EmptyData>))
 )]
-pub async fn reset_password_by_id(
+pub async fn reset_user_password(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     Path(id): Path<i64>,
     Json(payload): Json<ResetPasswordRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state.accounts.validate_password_reset(user.id, id).await?;
+    state.accounts.require_visible_user(user.id, id).await?;
     let password_hash = state.passwords.hash_password(&payload.password)?;
     revoke_sessions_and_persist_password(
         &state,
@@ -224,7 +224,7 @@ async fn revoke_sessions_and_persist_password(
     request_body = SetUserRolesRequest,
     responses((status = 200, description = "User roles updated", body = ApiResponse<EmptyData>))
 )]
-pub async fn set_user_roles_by_id(
+pub async fn replace_user_roles(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     Extension(audit_context): Extension<audit::AuditContext>,

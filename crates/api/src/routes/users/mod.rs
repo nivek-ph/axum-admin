@@ -11,29 +11,23 @@ use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/me", get(get_user_info).put(set_self_info))
+        .route("/me", get(get_current_user).put(update_current_user))
         .route("/me/password", put(change_password))
-        .route("/me/settings", put(set_self_setting))
-        .route(
-            "/",
-            get(get_user_list_by_query).permission("system:user:list"),
-        )
-        .route("/", post(admin_register).permission("system:user:create"))
+        .route("/me/settings", put(update_current_user_settings))
+        .route("/", get(list_users).permission("system:user:list"))
+        .route("/", post(create_user).permission("system:user:create"))
+        .route("/{id}", put(update_user).permission("system:user:update"))
         .route(
             "/{id}",
-            put(set_user_info_by_id).permission("system:user:update"),
-        )
-        .route(
-            "/{id}",
-            delete(delete_user_by_id).permission("system:user:delete"),
+            delete(delete_user).permission("system:user:delete"),
         )
         .route(
             "/{id}/password/reset",
-            post(reset_password_by_id).permission("system:user:reset-password"),
+            post(reset_user_password).permission("system:user:reset-password"),
         )
         .route(
             "/{id}/roles",
-            put(set_user_roles_by_id).permission("system:user:assign-roles"),
+            put(replace_user_roles).permission("system:user:assign-roles"),
         )
         .route(
             "/{id}/access",

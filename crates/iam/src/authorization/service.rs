@@ -80,8 +80,8 @@ impl Authorization {
         self.engine.set_role_status(role_id, enabled).await;
     }
 
-    pub(crate) fn notify_reload(&self) {
-        self.engine.notify_reload();
+    pub(crate) fn notify_policy_changed(&self) {
+        self.engine.notify_policy_changed();
     }
 
     pub(crate) async fn is_active_super_admin(
@@ -91,7 +91,7 @@ impl Authorization {
         Ok(self.engine.is_active_super_admin(user_id).await)
     }
 
-    pub(crate) async fn ensure_access_manager(
+    pub(crate) async fn require_access_manager(
         &self,
         actor_user_id: i64,
         target_user_id: i64,
@@ -103,7 +103,7 @@ impl Authorization {
         Ok(())
     }
 
-    pub(crate) async fn ensure_role_manager(
+    pub(crate) async fn require_role_manager(
         &self,
         actor_user_id: i64,
     ) -> Result<(), RolePolicyError> {
@@ -118,12 +118,12 @@ impl Authorization {
         }
     }
 
-    pub(crate) async fn ensure_mutable_role(
+    pub(crate) async fn require_mutable_role(
         &self,
         actor_user_id: i64,
         role_id: i64,
     ) -> Result<(), RolePolicyError> {
-        self.ensure_role_manager(actor_user_id).await?;
+        self.require_role_manager(actor_user_id).await?;
         let role = self
             .store
             .role(role_id)
@@ -155,7 +155,7 @@ impl Authorization {
         &self,
         request: ReplaceRoleAccess,
     ) -> Result<(), RolePolicyError> {
-        self.ensure_mutable_role(request.actor_user_id, request.role_id)
+        self.require_mutable_role(request.actor_user_id, request.role_id)
             .await?;
         let after = request.permissions.iter().cloned().collect::<Vec<_>>();
         let before = self
@@ -331,9 +331,8 @@ impl Authorization {
         Ok(result)
     }
 
-    pub(crate) async fn effective_permissions_for(
+    pub(crate) async fn permissions_for_roles(
         &self,
-        _user_id: i64,
         active_role_ids: &[i64],
     ) -> Result<BTreeSet<String>, AuthorizationError> {
         let mut permissions = BTreeSet::new();
