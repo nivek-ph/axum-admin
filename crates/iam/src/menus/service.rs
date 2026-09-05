@@ -32,7 +32,7 @@ impl MenuService {
         let active_role_ids = self.authorization.active_user_role_ids(user_id).await?;
         let effective_permissions = self
             .authorization
-            .effective_permissions_for(user_id, &active_role_ids)
+            .permissions_for_roles(&active_role_ids)
             .await?;
         let menu_ids = self
             .access_catalog

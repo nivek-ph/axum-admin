@@ -106,6 +106,16 @@ This file gives repo-specific guidance for agents working in this project.
 - Avoid helper functions that are only used once unless they clarify a complex block.
 - When using `format!`, inline variables in `{}` when possible.
 - Prefer exhaustive `match` arms over wildcard arms when the enum is local and meaningful.
+- Prefer resource-oriented handler names (`list_`, `get_`, `create_`, `update_`,
+  `delete_`, `replace_`). Do not encode HTTP mechanics such as `by_id` or `by_query`
+  in function names.
+- Use verb prefixes by side effect:
+  - `is_` / `has_`: boolean checks
+  - `require_`: precondition guards that return an error and do not mutate
+  - `validate_`: input or invariant checks that do not mutate
+  - `ensure_`: make a state true, may insert or update
+  - `create` / `update` / `delete` / `replace`: explicit mutations
+  - `load` / `get` / `find` / `list`: reads
 - Run formatting after Rust edits:
 
 ```bash

@@ -287,7 +287,7 @@ impl EnforcementEngine {
         snapshot.users.remove(&user_id);
         drop(snapshot);
         drop(_guard);
-        self.notify_reload();
+        self.notify_policy_changed();
         Ok(())
     }
 
@@ -306,7 +306,7 @@ impl EnforcementEngine {
         snapshot.enabled_role_ids.remove(&role_id);
         drop(snapshot);
         drop(_guard);
-        self.notify_reload();
+        self.notify_policy_changed();
         Ok(())
     }
 
@@ -314,7 +314,7 @@ impl EnforcementEngine {
         let _guard = self.mutation_lock.lock().await;
         self.snapshot.write().await.users.insert(user_id, enabled);
         drop(_guard);
-        self.notify_reload();
+        self.notify_policy_changed();
     }
 
     pub(super) async fn set_role_status(&self, role_id: i64, enabled: bool) {
@@ -327,10 +327,10 @@ impl EnforcementEngine {
         }
         drop(snapshot);
         drop(guard);
-        self.notify_reload();
+        self.notify_policy_changed();
     }
 
-    pub(super) fn notify_reload(&self) {
+    pub(super) fn notify_policy_changed(&self) {
         let Ok(watcher) = self.watcher.lock() else {
             tracing::error!("Casbin watcher lock is poisoned; policy reload was not published");
             return;

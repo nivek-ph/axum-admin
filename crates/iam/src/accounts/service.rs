@@ -178,7 +178,8 @@ impl Accounts {
         target_user_id: i64,
         payload: UpdateUserInput,
     ) -> Result<(), AccountError> {
-        self.ensure_visible(actor_user_id, target_user_id).await?;
+        self.require_visible_user(actor_user_id, target_user_id)
+            .await?;
         if let Some(target_department_id) = payload.dept_id {
             match self.boundary(actor_user_id).await? {
                 AccountBoundary::All => {}
@@ -221,7 +222,7 @@ impl Accounts {
         Ok(())
     }
 
-    pub async fn set_self_info(
+    pub async fn update_current_user(
         &self,
         user_id: i64,
         payload: SetSelfInfoRequest,
@@ -247,7 +248,7 @@ impl Accounts {
         Ok(())
     }
 
-    pub async fn set_self_setting(
+    pub async fn update_current_user_settings(
         &self,
         user_id: i64,
         payload: SetSelfSettingRequest,
@@ -265,7 +266,8 @@ impl Accounts {
         actor_user_id: i64,
         target_user_id: i64,
     ) -> Result<(), AccountError> {
-        self.ensure_visible(actor_user_id, target_user_id).await?;
+        self.require_visible_user(actor_user_id, target_user_id)
+            .await?;
         self.authorization.remove_user(target_user_id).await?;
         let deleted = sqlx::query("delete from sys_users where id = $1")
             .bind(target_user_id)
@@ -275,16 +277,40 @@ impl Accounts {
         if deleted == 0 {
             return Err(AccountError::NotFound);
         }
-        self.authorization.notify_reload();
+        self.authorization.notify_policy_changed();
         Ok(())
     }
 
-    pub async fn validate_password_reset(
+    pub async fn require_visible_user(
         &self,
         actor_user_id: i64,
         target_user_id: i64,
     ) -> Result<(), AccountError> {
-        self.ensure_visible(actor_user_id, target_user_id).await
+        let visible = match self.boundary(actor_user_id).await? {
+            AccountBoundary::All => {
+                sqlx::query_scalar::<_, bool>(
+                    "select exists(select 1 from sys_users where id = $1)",
+                )
+                .bind(target_user_id)
+                .fetch_one(&self.pool)
+                .await?
+            }
+            AccountBoundary::Department(dept_id) => {
+                sqlx::query_scalar::<_, bool>(
+                    "select exists(select 1 from sys_users where id = $1 and dept_id = $2)",
+                )
+                .bind(target_user_id)
+                .bind(dept_id)
+                .fetch_one(&self.pool)
+                .await?
+            }
+            AccountBoundary::SelfOnly(user_id) => user_id == target_user_id,
+        };
+        if visible {
+            Ok(())
+        } else {
+            Err(AccountError::NotFound)
+        }
     }
 
     pub async fn persist_password_update(
@@ -306,7 +332,7 @@ impl Accounts {
         target_user_id: i64,
     ) -> Result<AccountAccessView, AccountError> {
         self.authorization
-            .ensure_access_manager(actor_user_id, target_user_id)
+            .require_access_manager(actor_user_id, target_user_id)
             .await?;
         let role_ids = self.authorization.user_role_ids(target_user_id).await?;
         let assigned_roles = load_roles(&self.pool, &role_ids).await?;
@@ -377,38 +403,6 @@ impl Accounts {
             Ok(AccountBoundary::Department(dept_id))
         } else {
             Ok(AccountBoundary::SelfOnly(actor_user_id))
-        }
-    }
-
-    async fn ensure_visible(
-        &self,
-        actor_user_id: i64,
-        target_user_id: i64,
-    ) -> Result<(), AccountError> {
-        let visible = match self.boundary(actor_user_id).await? {
-            AccountBoundary::All => {
-                sqlx::query_scalar::<_, bool>(
-                    "select exists(select 1 from sys_users where id = $1)",
-                )
-                .bind(target_user_id)
-                .fetch_one(&self.pool)
-                .await?
-            }
-            AccountBoundary::Department(dept_id) => {
-                sqlx::query_scalar::<_, bool>(
-                    "select exists(select 1 from sys_users where id = $1 and dept_id = $2)",
-                )
-                .bind(target_user_id)
-                .bind(dept_id)
-                .fetch_one(&self.pool)
-                .await?
-            }
-            AccountBoundary::SelfOnly(user_id) => user_id == target_user_id,
-        };
-        if visible {
-            Ok(())
-        } else {
-            Err(AccountError::NotFound)
         }
     }
 }
