@@ -1,8 +1,27 @@
 use file_storage::files::{FileListQuery, ImportFileUrl, RenameFile, StartUpload, UploadSession};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
-pub type FileListRequest = FileListQuery;
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct FileListRequest {
+    pub page: i64,
+    #[serde(rename = "pageSize")]
+    pub page_size: i64,
+    pub keyword: Option<String>,
+    pub category: Option<String>,
+}
+
+impl From<FileListRequest> for FileListQuery {
+    fn from(value: FileListRequest) -> Self {
+        Self {
+            page: value.page,
+            page_size: value.page_size,
+            keyword: value.keyword,
+            category: value.category,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ImportFileUrlRequest {
