@@ -50,7 +50,8 @@ the type into `mod.rs` merely to eliminate a `service.rs` filename.
 Casbin Management write path. That remains one module because snapshot reads, local status overlays,
 and policy writes share the same mutation/reload lock.
 
-EOF
+## Domain model
+
 ### User and Role
 
 A User may have zero, one, or multiple Roles. Membership is a Casbin `g` rule:
