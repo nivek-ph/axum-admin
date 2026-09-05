@@ -2,7 +2,7 @@ use std::path::Path;
 
 use sqlx::PgPool;
 
-use super::FileService;
+use super::service::FileService;
 use crate::files::{FileError, FileListQuery, ImportFileUrl, RenameFile, StoredFile};
 
 impl FileService {
@@ -106,7 +106,7 @@ fn normalized_extension(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
-pub(super) fn safe_extension(value: &str) -> String {
+pub(crate) fn safe_extension(value: &str) -> String {
     let ext = normalized_extension(value);
     if ext.len() <= 16
         && ext
