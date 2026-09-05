@@ -5,18 +5,20 @@ use uuid::Uuid;
 use super::{
     FileError, StartUpload, StoredFile, UploadSession,
     catalog::safe_extension,
-    upload::{ClaimConflict, UploadObjectIoGuard, UploadOperationClaim},
+    upload::{
+        ClaimConflict, UPLOAD_SESSION_TTL_SECONDS, UploadObjectIoGuard, UploadOperationClaim,
+        release_upload_operation,
+    },
 };
 use crate::storages::{StorageBackend, StorageService};
 
 pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024;
 pub const UPLOAD_CHUNK_BYTES: usize = 4 * 1024 * 1024;
-pub(crate) const UPLOAD_SESSION_TTL_SECONDS: i64 = 60 * 60;
 
 #[derive(Clone)]
 pub struct FileService {
-    pub(crate) pool: PgPool,
-    pub(crate) storages: StorageService,
+    pub(super) pool: PgPool,
+    pub(super) storages: StorageService,
 }
 
 #[derive(sqlx::FromRow)]
@@ -154,12 +156,13 @@ impl FileService {
         let storage = match self.storage_for(session.storage_id).await {
             Ok(storage) => storage,
             Err(error) => {
-                self.release_upload_operation(id, &token).await;
+                release_upload_operation(&self.pool, id, &token).await;
                 return Err(error);
             }
         };
         let mut claim =
-            UploadOperationClaim::acquire(self, id, token, ClaimConflict::OffsetMismatch).await?;
+            UploadOperationClaim::acquire(&self.pool, id, token, ClaimConflict::OffsetMismatch)
+                .await?;
         let part = upload_part(&session.id, offset, claim.token());
         if let Err(error) = storage.operator.write(&part, bytes.to_vec()).await {
             if let Err(cleanup_error) = storage.operator.delete(&part).await
@@ -240,64 +243,7 @@ impl FileService {
         Ok(session)
     }
 
-    pub(crate) async fn refresh_upload_operation(
-        connection: &mut PgConnection,
-        id: &str,
-        token: &str,
-    ) -> Result<(), FileError> {
-        let updated = sqlx::query(
-            r#"
-            update uploaded_file_sessions
-            set operation_started_at = now()
-            where id = $1
-              and operation_token = $2
-              and operation_started_at >= now() - make_interval(secs => $3)
-            "#,
-        )
-        .bind(id)
-        .bind(token)
-        .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
-        .execute(connection)
-        .await?;
-        if updated.rows_affected() == 1 {
-            Ok(())
-        } else {
-            Err(FileError::UploadInProgress)
-        }
-    }
-
-    pub(crate) async fn release_upload_operation(&self, id: &str, token: &str) {
-        let mut connection = match self.pool.acquire().await {
-            Ok(connection) => connection,
-            Err(error) => {
-                tracing::error!(upload_id = id, %error, "failed to acquire a connection to release upload operation claim");
-                return;
-            }
-        };
-        Self::release_upload_operation_on(&mut connection, id, token).await;
-    }
-
-    async fn release_upload_operation_on(connection: &mut PgConnection, id: &str, token: &str) {
-        if let Err(error) = sqlx::query(
-            r#"
-            update uploaded_file_sessions
-            set
-                operation_state = 'uploading',
-                operation_token = null,
-                operation_started_at = null
-            where id = $1 and operation_token = $2
-            "#,
-        )
-        .bind(id)
-        .bind(token)
-        .execute(connection)
-        .await
-        {
-            tracing::error!(upload_id = id, %error, "failed to release upload operation claim");
-        }
-    }
-
-    pub(crate) async fn cleanup_upload_parts(
+    pub(super) async fn cleanup_upload_parts(
         &self,
         file_id: i64,
         storage_id: i64,
@@ -317,7 +263,7 @@ impl FileService {
         Ok(())
     }
 
-    pub(crate) async fn reap_stale_uploads(&self) -> Result<(), FileError> {
+    pub(super) async fn reap_stale_uploads(&self) -> Result<(), FileError> {
         let uploads = sqlx::query_as::<_, StaleUpload>(
             r#"
             select id, storage_id, object_name
@@ -380,14 +326,14 @@ impl FileService {
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => {
                 object_io.release().await;
-                self.release_upload_operation(&upload.id, &token).await;
+                release_upload_operation(&self.pool, &upload.id, &token).await;
                 return Err(error.into());
             }
         }
         let prefix = format!(".uploads/{}/", upload.id);
         if let Err(error) = storage.operator.delete_with(&prefix).recursive(true).await {
             object_io.release().await;
-            self.release_upload_operation(&upload.id, &token).await;
+            release_upload_operation(&self.pool, &upload.id, &token).await;
             return Err(error.into());
         }
         let deleted = sqlx::query(
@@ -405,12 +351,12 @@ impl FileService {
         }
     }
 
-    pub(crate) async fn storage_for(&self, id: i64) -> Result<StorageBackend, FileError> {
+    pub(super) async fn storage_for(&self, id: i64) -> Result<StorageBackend, FileError> {
         Ok(self.storages.backend_for_id(id).await?)
     }
 }
 
-pub(crate) async fn completed_upload(
+pub(super) async fn completed_upload(
     pool: &PgPool,
     id: &str,
 ) -> Result<Option<StoredFile>, sqlx::Error> {
@@ -426,7 +372,7 @@ pub(crate) async fn completed_upload(
     .await
 }
 
-pub(crate) async fn upload_operation_state(
+pub(super) async fn upload_operation_state(
     pool: &PgPool,
     id: &str,
 ) -> Result<Option<(i64, i64, String)>, FileError> {

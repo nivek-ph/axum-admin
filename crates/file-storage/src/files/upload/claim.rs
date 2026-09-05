@@ -1,6 +1,8 @@
 use sqlx::{PgConnection, PgPool, Postgres, pool::PoolConnection};
 
-use crate::files::{FileError, FileService};
+use crate::files::FileError;
+
+pub(crate) const UPLOAD_SESSION_TTL_SECONDS: i64 = 60 * 60;
 
 pub(crate) enum ClaimConflict {
     OffsetMismatch,
@@ -17,7 +19,7 @@ impl ClaimConflict {
 }
 
 pub(crate) struct UploadOperationClaim<'a> {
-    service: &'a FileService,
+    pool: &'a PgPool,
     id: String,
     token: String,
     object_io: Option<UploadObjectIoGuard>,
@@ -25,24 +27,24 @@ pub(crate) struct UploadOperationClaim<'a> {
 
 impl<'a> UploadOperationClaim<'a> {
     pub(crate) async fn acquire(
-        service: &'a FileService,
+        pool: &'a PgPool,
         id: &str,
         token: String,
         conflict: ClaimConflict,
     ) -> Result<Self, FileError> {
-        let object_io = match UploadObjectIoGuard::try_acquire(&service.pool, id).await {
+        let object_io = match UploadObjectIoGuard::try_acquire(pool, id).await {
             Ok(Some(object_io)) => object_io,
             Ok(None) => {
-                service.release_upload_operation(id, &token).await;
+                release_upload_operation(pool, id, &token).await;
                 return Err(conflict.error());
             }
             Err(error) => {
-                service.release_upload_operation(id, &token).await;
+                release_upload_operation(pool, id, &token).await;
                 return Err(error.into());
             }
         };
         let mut claim = Self {
-            service,
+            pool,
             id: id.to_string(),
             token,
             object_io: Some(object_io),
@@ -68,7 +70,7 @@ impl<'a> UploadOperationClaim<'a> {
     pub(crate) async fn heartbeat(&mut self) -> Result<(), FileError> {
         let id = self.id.clone();
         let token = self.token.clone();
-        FileService::refresh_upload_operation(self.connection(), &id, &token).await
+        refresh_upload_operation(self.connection(), &id, &token).await
     }
 
     pub(crate) async fn release_object_io(&mut self) {
@@ -79,12 +81,65 @@ impl<'a> UploadOperationClaim<'a> {
 
     pub(crate) async fn abandon(mut self) {
         self.release_object_io().await;
-        self.service
-            .release_upload_operation(&self.id, &self.token)
-            .await;
+        release_upload_operation(self.pool, &self.id, &self.token).await;
     }
 }
 
+pub(crate) async fn refresh_upload_operation(
+    connection: &mut PgConnection,
+    id: &str,
+    token: &str,
+) -> Result<(), FileError> {
+    let updated = sqlx::query(
+        r#"
+        update uploaded_file_sessions
+        set operation_started_at = now()
+        where id = $1
+          and operation_token = $2
+          and operation_started_at >= now() - make_interval(secs => $3)
+        "#,
+    )
+    .bind(id)
+    .bind(token)
+    .bind(UPLOAD_SESSION_TTL_SECONDS as f64)
+    .execute(connection)
+    .await?;
+    if updated.rows_affected() == 1 {
+        Ok(())
+    } else {
+        Err(FileError::UploadInProgress)
+    }
+}
+
+/// Releases an upload operation claim.
+pub(crate) async fn release_upload_operation(pool: &PgPool, id: &str, token: &str) {
+    let mut connection = match pool.acquire().await {
+        Ok(connection) => connection,
+        Err(error) => {
+            tracing::error!(upload_id = id, %error, "failed to acquire a connection to release upload operation claim");
+            return;
+        }
+    };
+    if let Err(error) = sqlx::query(
+        r#"
+        update uploaded_file_sessions
+        set
+            operation_state = 'uploading',
+            operation_token = null,
+            operation_started_at = null
+        where id = $1 and operation_token = $2
+        "#,
+    )
+    .bind(id)
+    .bind(token)
+    .execute(&mut *connection)
+    .await
+    {
+        tracing::error!(upload_id = id, %error, "failed to release upload operation claim");
+    }
+}
+
+/// A guard for an upload object I/O lock.
 pub(crate) struct UploadObjectIoGuard {
     connection: Option<PoolConnection<Postgres>>,
     upload_id: String,
