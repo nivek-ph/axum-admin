@@ -2,7 +2,7 @@ use sqlx::{PgConnection, PgPool, Postgres, pool::PoolConnection};
 
 use crate::files::{FileError, FileService};
 
-pub(super) enum ClaimConflict {
+pub(crate) enum ClaimConflict {
     OffsetMismatch,
     InProgress,
 }
@@ -16,7 +16,7 @@ impl ClaimConflict {
     }
 }
 
-pub(super) struct UploadOperationClaim<'a> {
+pub(crate) struct UploadOperationClaim<'a> {
     service: &'a FileService,
     id: String,
     token: String,
@@ -24,7 +24,7 @@ pub(super) struct UploadOperationClaim<'a> {
 }
 
 impl<'a> UploadOperationClaim<'a> {
-    pub(super) async fn acquire(
+    pub(crate) async fn acquire(
         service: &'a FileService,
         id: &str,
         token: String,
@@ -54,30 +54,30 @@ impl<'a> UploadOperationClaim<'a> {
         Ok(claim)
     }
 
-    pub(super) fn token(&self) -> &str {
+    pub(crate) fn token(&self) -> &str {
         &self.token
     }
 
-    pub(super) fn connection(&mut self) -> &mut PgConnection {
+    pub(crate) fn connection(&mut self) -> &mut PgConnection {
         self.object_io
             .as_mut()
             .expect("active upload claim should own its object I/O lock")
             .connection()
     }
 
-    pub(super) async fn heartbeat(&mut self) -> Result<(), FileError> {
+    pub(crate) async fn heartbeat(&mut self) -> Result<(), FileError> {
         let id = self.id.clone();
         let token = self.token.clone();
         FileService::refresh_upload_operation(self.connection(), &id, &token).await
     }
 
-    pub(super) async fn release_object_io(&mut self) {
+    pub(crate) async fn release_object_io(&mut self) {
         if let Some(object_io) = self.object_io.take() {
             object_io.release().await;
         }
     }
 
-    pub(super) async fn abandon(mut self) {
+    pub(crate) async fn abandon(mut self) {
         self.release_object_io().await;
         self.service
             .release_upload_operation(&self.id, &self.token)
@@ -85,13 +85,13 @@ impl<'a> UploadOperationClaim<'a> {
     }
 }
 
-pub(super) struct UploadObjectIoGuard {
+pub(crate) struct UploadObjectIoGuard {
     connection: Option<PoolConnection<Postgres>>,
     upload_id: String,
 }
 
 impl UploadObjectIoGuard {
-    pub(super) async fn try_acquire(
+    pub(crate) async fn try_acquire(
         pool: &PgPool,
         upload_id: &str,
     ) -> Result<Option<Self>, sqlx::Error> {
@@ -115,13 +115,13 @@ impl UploadObjectIoGuard {
         }))
     }
 
-    pub(super) fn connection(&mut self) -> &mut PgConnection {
+    pub(crate) fn connection(&mut self) -> &mut PgConnection {
         self.connection
             .as_deref_mut()
             .expect("upload object I/O guard should own its connection")
     }
 
-    pub(super) async fn release(mut self) {
+    pub(crate) async fn release(mut self) {
         let Some(mut connection) = self.connection.take() else {
             return;
         };
