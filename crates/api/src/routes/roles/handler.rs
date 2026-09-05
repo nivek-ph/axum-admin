@@ -32,10 +32,7 @@ pub async fn create_role(
     Extension(audit_context): Extension<audit::AuditContext>,
     Json(payload): Json<RoleRequest>,
 ) -> AppResult<Json<ApiResponse<RoleData>>> {
-    let role = state
-        .roles
-        .create(user.id, payload.into(), audit_context)
-        .await?;
+    let role = state.roles.create(user.id, payload, audit_context).await?;
     Ok(Json(ApiResponse::ok(RoleData { role: role.into() })))
 }
 
@@ -49,7 +46,7 @@ pub async fn update_role(
 ) -> AppResult<Json<ApiResponse<RoleData>>> {
     let role = state
         .roles
-        .update(user.id, id, payload.into(), audit_context)
+        .update(user.id, id, payload, audit_context)
         .await?;
     Ok(Json(ApiResponse::ok(RoleData { role: role.into() })))
 }

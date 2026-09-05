@@ -2,8 +2,10 @@ mod error;
 mod service;
 
 pub use error::{AccountError, RefreshIdentityError};
+use serde::Deserialize;
 pub use service::Accounts;
 use sqlx::FromRow;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::roles::RoleSummary;
 
@@ -97,9 +99,11 @@ pub struct UpdateUserInput {
     pub dept_id: Option<i64>,
 }
 
-#[derive(Debug, Clone)]
-pub struct SetSelfInfoRequest {
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateCurrentUserInput {
+    #[serde(rename = "nickName")]
     pub nick_name: Option<String>,
+    #[serde(rename = "headerImg")]
     pub header_img: Option<String>,
     pub phone: Option<String>,
     pub email: Option<String>,
@@ -110,15 +114,19 @@ pub struct SetSelfSettingRequest {
     pub origin_setting: serde_json::Value,
 }
 
-#[derive(Debug, Clone)]
-pub struct GetUserListRequest {
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct UserListQuery {
     pub page: i64,
+    #[serde(rename = "pageSize")]
     pub page_size: i64,
     pub keyword: Option<String>,
     pub username: Option<String>,
+    #[serde(rename = "nickName")]
     pub nick_name: Option<String>,
     pub phone: Option<String>,
     pub email: Option<String>,
+    #[serde(rename = "orderKey")]
     pub order_key: Option<String>,
     pub desc: Option<bool>,
 }

@@ -38,7 +38,7 @@ pub async fn list_users(
 ) -> AppResult<Json<ApiResponse<UserListData>>> {
     let page = payload.page.max(1);
     let page_size = payload.page_size.max(1);
-    let (list, total) = state.accounts.list(user.id, payload.into()).await?;
+    let (list, total) = state.accounts.list(user.id, payload).await?;
     Ok(Json(ApiResponse::ok(UserListData {
         list: list.into_iter().map(UserResponse::from).collect(),
         total,
@@ -130,10 +130,7 @@ pub async fn update_current_user(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<UpdateSelfRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state
-        .accounts
-        .update_current_user(user.id, payload.into())
-        .await?;
+    state.accounts.update_current_user(user.id, payload).await?;
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
 

@@ -3,24 +3,7 @@ use utoipa::ToSchema;
 
 use crate::routes::menus::dto::MenuResponse;
 
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct RoleRequest {
-    pub code: String,
-    pub name: String,
-    pub status: Option<String>,
-    pub sort: Option<i32>,
-}
-
-impl From<RoleRequest> for iam::roles::RolePayload {
-    fn from(value: RoleRequest) -> Self {
-        Self {
-            code: value.code,
-            name: value.name,
-            status: value.status,
-            sort: value.sort,
-        }
-    }
-}
+pub type RoleRequest = iam::roles::RolePayload;
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RoleAccessRequest {

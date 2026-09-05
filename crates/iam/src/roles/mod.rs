@@ -2,8 +2,10 @@ mod error;
 mod service;
 
 pub use error::RoleError;
+use serde::Deserialize;
 pub use service::RoleService;
 use sqlx::FromRow;
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct RoleSummary {
@@ -21,7 +23,7 @@ pub struct RoleAccessView {
     pub protected: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct RolePayload {
     pub code: String,
     pub name: String,
