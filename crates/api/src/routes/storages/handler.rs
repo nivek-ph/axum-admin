@@ -108,7 +108,7 @@ pub async fn update_status(
     params(("id" = i64, Path, description = "Storage ID")),
     responses((status = 200, description = "Default storage updated", body = ApiResponse<EmptyData>))
 )]
-pub async fn replace_default(
+pub async fn set_default_storage(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {

@@ -83,7 +83,7 @@ impl Modify for SecurityAddon {
         crate::routes::storages::create,
         crate::routes::storages::update,
         crate::routes::storages::update_status,
-        crate::routes::storages::replace_default,
+        crate::routes::storages::set_default_storage,
         crate::routes::storages::delete,
         crate::routes::parameters::list_parameters,
         crate::routes::parameters::create_parameter,
