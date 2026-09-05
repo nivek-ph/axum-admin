@@ -19,7 +19,7 @@ use crate::{ApiResponse, AppResult, EmptyData, state::AppState};
     params(FileListRequest),
     responses((status = 200, description = "File list", body = ApiResponse<FileListData>))
 )]
-pub async fn get_file_list_by_query(
+pub async fn list_files(
     State(state): State<AppState>,
     Query(payload): Query<FileListRequest>,
 ) -> AppResult<Json<ApiResponse<FileListData>>> {
@@ -44,7 +44,7 @@ pub async fn get_file_list_by_query(
     params(("id" = i64, Path, description = "File ID")),
     responses((status = 200, description = "File deleted", body = ApiResponse<EmptyData>))
 )]
-pub async fn delete_file_by_id(
+pub async fn delete_file(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
@@ -61,7 +61,7 @@ pub async fn delete_file_by_id(
     request_body = RenameFileRequest,
     responses((status = 200, description = "File renamed", body = ApiResponse<EmptyData>))
 )]
-pub async fn edit_file_name_by_id(
+pub async fn rename_file(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<RenameFileRequest>,

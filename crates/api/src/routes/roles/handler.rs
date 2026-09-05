@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[utoipa::path(get, path = "/roles", tag = "role", security(("bearer_auth" = [])))]
-pub async fn get_roles(
+pub async fn list_roles(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> AppResult<Json<ApiResponse<RoleListData>>> {
@@ -74,7 +74,7 @@ pub async fn get_role_access(
 }
 
 #[utoipa::path(put, path = "/roles/{id}/access", tag = "role", security(("bearer_auth" = [])), request_body = RoleAccessRequest)]
-pub async fn set_role_access(
+pub async fn replace_role_access(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     Extension(audit_context): Extension<audit::AuditContext>,

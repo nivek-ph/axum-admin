@@ -11,7 +11,7 @@ use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(handler::get_roles).permission("system:role:list"))
+        .route("/", get(handler::list_roles).permission("system:role:list"))
         .route(
             "/",
             post(handler::create_role).permission("system:role:create"),
@@ -30,7 +30,7 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route(
             "/{id}/access",
-            put(handler::set_role_access).permission("system:role:access-update"),
+            put(handler::replace_role_access).permission("system:role:access-update"),
         )
 }
 

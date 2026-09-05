@@ -19,7 +19,7 @@ use crate::{ApiResponse, AppResult, EmptyData, state::AppState};
     request_body = DictionaryRequest,
     responses((status = 200, description = "Dictionary created", body = ApiResponse<EmptyData>))
 )]
-pub async fn create_sys_dictionary(
+pub async fn create_dictionary(
     State(state): State<AppState>,
     Json(payload): Json<DictionaryRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
@@ -37,7 +37,7 @@ pub async fn create_sys_dictionary(
     request_body = DictionaryRequest,
     responses((status = 200, description = "Dictionary updated", body = ApiResponse<EmptyData>))
 )]
-pub async fn update_sys_dictionary_by_id(
+pub async fn update_dictionary(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<DictionaryRequest>,
@@ -55,7 +55,7 @@ pub async fn update_sys_dictionary_by_id(
     params(("id" = i64, Path, description = "Dictionary ID")),
     responses((status = 200, description = "Dictionary detail", body = ApiResponse<DictionaryDetailData>))
 )]
-pub async fn find_sys_dictionary_by_id(
+pub async fn find_dictionary(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<DictionaryDetailData>>> {
@@ -79,7 +79,7 @@ pub async fn find_sys_dictionary_by_id(
     params(DictionaryListRequest),
     responses((status = 200, description = "Dictionary list", body = ApiResponse<Vec<DictionaryResponse>>))
 )]
-pub async fn get_sys_dictionary_list(
+pub async fn list_dictionaries(
     State(state): State<AppState>,
     Query(payload): Query<DictionaryListRequest>,
 ) -> AppResult<Json<ApiResponse<Vec<DictionaryResponse>>>> {
@@ -101,7 +101,7 @@ pub async fn get_sys_dictionary_list(
     params(("id" = i64, Path, description = "Dictionary ID")),
     responses((status = 200, description = "Dictionary deleted", body = ApiResponse<EmptyData>))
 )]
-pub async fn delete_sys_dictionary_by_id(
+pub async fn delete_dictionary(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
@@ -117,7 +117,7 @@ pub async fn delete_sys_dictionary_by_id(
     params(("id" = i64, Path, description = "Dictionary ID")),
     responses((status = 200, description = "Dictionary export", body = ApiResponse<DictionaryExportValue>))
 )]
-pub async fn export_sys_dictionary_by_id(
+pub async fn export_dictionary(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<DictionaryExportValue>>> {
@@ -137,7 +137,7 @@ pub async fn export_sys_dictionary_by_id(
     request_body = ImportDictionaryRequest,
     responses((status = 200, description = "Dictionary imported", body = ApiResponse<EmptyData>))
 )]
-pub async fn import_sys_dictionary(
+pub async fn import_dictionary(
     State(state): State<AppState>,
     Json(payload): Json<ImportDictionaryRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
@@ -293,7 +293,7 @@ pub async fn get_dictionary_tree_by_type(
     ),
     responses((status = 200, description = "Dictionary node children", body = ApiResponse<DictionaryTreeData>))
 )]
-pub async fn get_dictionary_tree_node_children(
+pub async fn list_dictionary_tree_node_children(
     State(state): State<AppState>,
     Path((dictionary_id, node_id)): Path<(i64, i64)>,
 ) -> AppResult<Json<ApiResponse<DictionaryTreeData>>> {

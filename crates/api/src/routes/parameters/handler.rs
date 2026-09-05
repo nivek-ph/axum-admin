@@ -17,7 +17,7 @@ use crate::{ApiResponse, AppResult, EmptyData, state::AppState};
     request_body = ParameterRequest,
     responses((status = 200, description = "Parameter created", body = ApiResponse<EmptyData>))
 )]
-pub async fn create_sys_params(
+pub async fn create_parameter(
     State(state): State<AppState>,
     Json(payload): Json<ParameterRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
@@ -35,7 +35,7 @@ pub async fn create_sys_params(
     request_body = ParameterRequest,
     responses((status = 200, description = "Parameter updated", body = ApiResponse<EmptyData>))
 )]
-pub async fn update_sys_params_by_id(
+pub async fn update_parameter(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<ParameterRequest>,
@@ -53,7 +53,7 @@ pub async fn update_sys_params_by_id(
     params(("id" = i64, Path, description = "Parameter ID")),
     responses((status = 200, description = "Parameter detail", body = ApiResponse<ParameterDetailData>))
 )]
-pub async fn find_sys_params_by_id(
+pub async fn find_parameter(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<ParameterDetailData>>> {
@@ -73,7 +73,7 @@ pub async fn find_sys_params_by_id(
     params(ParameterListRequest),
     responses((status = 200, description = "Parameter list", body = ApiResponse<ParameterListData>))
 )]
-pub async fn get_sys_params_list(
+pub async fn list_parameters(
     State(state): State<AppState>,
     Query(payload): Query<ParameterListRequest>,
 ) -> AppResult<Json<ApiResponse<ParameterListData>>> {
@@ -99,7 +99,7 @@ pub async fn get_sys_params_list(
     params(("id" = i64, Path, description = "Parameter ID")),
     responses((status = 200, description = "Parameter deleted", body = ApiResponse<EmptyData>))
 )]
-pub async fn delete_sys_params_by_id(
+pub async fn delete_parameter(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
@@ -115,7 +115,7 @@ pub async fn delete_sys_params_by_id(
     params(IdsRequest),
     responses((status = 200, description = "Parameters deleted", body = ApiResponse<EmptyData>))
 )]
-pub async fn delete_sys_params_by_ids(
+pub async fn delete_parameters(
     State(state): State<AppState>,
     Query(payload): Query<IdsRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
@@ -131,7 +131,7 @@ pub async fn delete_sys_params_by_ids(
     params(ParameterByKeyRequest),
     responses((status = 200, description = "Parameter value", body = ApiResponse<ParameterByKeyData>))
 )]
-pub async fn get_sys_param(
+pub async fn get_parameter_by_key(
     State(state): State<AppState>,
     Query(payload): Query<ParameterByKeyRequest>,
 ) -> AppResult<Json<ApiResponse<ParameterByKeyData>>> {

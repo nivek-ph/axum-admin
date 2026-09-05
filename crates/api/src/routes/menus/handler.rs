@@ -13,7 +13,7 @@ use crate::{ApiResponse, AppResult, extractors::current_user::CurrentUser, state
         (status = 401, description = "Unauthorized")
     )
 )]
-pub async fn get_menu(
+pub async fn get_current_menus(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> AppResult<Json<ApiResponse<MenuData>>> {
@@ -32,7 +32,7 @@ pub async fn get_menu(
     security(("bearer_auth" = [])),
     responses((status = 200, description = "Menu tree", body = ApiResponse<MenuTreeData>))
 )]
-pub async fn get_base_menu_tree(
+pub async fn get_menu_tree(
     State(state): State<AppState>,
 ) -> AppResult<Json<ApiResponse<MenuTreeData>>> {
     let menus = state

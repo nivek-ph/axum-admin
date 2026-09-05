@@ -17,7 +17,7 @@ use crate::{ApiResponse, AppResult, state::AppState};
     params(AuditEventListRequest),
     responses((status = 200, description = "Audit event list", body = ApiResponse<AuditEventListData>))
 )]
-pub async fn get_audit_events(
+pub async fn list_audit_events(
     State(state): State<AppState>,
     Query(query): Query<AuditEventListRequest>,
 ) -> AppResult<Json<ApiResponse<AuditEventListData>>> {

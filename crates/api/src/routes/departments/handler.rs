@@ -16,7 +16,7 @@ use crate::{ApiResponse, AppResult, EmptyData, state::AppState};
     security(("bearer_auth" = [])),
     responses((status = 200, description = "Department tree", body = ApiResponse<DeptTreeData>))
 )]
-pub async fn get_dept_tree(
+pub async fn get_department_tree(
     State(state): State<AppState>,
 ) -> AppResult<Json<ApiResponse<DeptTreeData>>> {
     let tree = state
@@ -37,7 +37,7 @@ pub async fn get_dept_tree(
     params(("id" = i64, Path, description = "Department ID")),
     responses((status = 200, description = "Department detail", body = ApiResponse<DeptDetailData>))
 )]
-pub async fn find_dept_by_id(
+pub async fn find_department(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<DeptDetailData>>> {
@@ -56,7 +56,7 @@ pub async fn find_dept_by_id(
     request_body = DeptPayload,
     responses((status = 200, description = "Department created", body = ApiResponse<EmptyData>))
 )]
-pub async fn create_dept(
+pub async fn create_department(
     State(state): State<AppState>,
     Json(payload): Json<DeptPayload>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
@@ -73,7 +73,7 @@ pub async fn create_dept(
     request_body = DeptPayload,
     responses((status = 200, description = "Department updated", body = ApiResponse<EmptyData>))
 )]
-pub async fn update_dept_by_id(
+pub async fn update_department(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<DeptPayload>,
@@ -90,7 +90,7 @@ pub async fn update_dept_by_id(
     params(("id" = i64, Path, description = "Department ID")),
     responses((status = 200, description = "Department deleted", body = ApiResponse<EmptyData>))
 )]
-pub async fn delete_dept_by_id(
+pub async fn delete_department(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
