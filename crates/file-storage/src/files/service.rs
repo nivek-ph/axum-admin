@@ -5,7 +5,7 @@ use uuid::Uuid;
 use super::{
     FileError, StartUpload, StoredFile, UploadSession,
     catalog::safe_extension,
-    upload::{ClaimConflict, UploadObjectIoGuard, UploadOperationClaim},
+    claim::{ClaimConflict, UploadObjectIoGuard, UploadOperationClaim},
 };
 use crate::storages::{StorageBackend, StorageService};
 

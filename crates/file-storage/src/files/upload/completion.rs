@@ -5,11 +5,11 @@ use uuid::Uuid;
 use crate::{
     files::{
         FileError, FileService, StoredFile, UploadSession,
+        claim::{ClaimConflict, UploadOperationClaim},
         service::{
             MAX_UPLOAD_BYTES, UPLOAD_CHUNK_BYTES, UPLOAD_SESSION_TTL_SECONDS, completed_upload,
             upload_operation_state,
         },
-        upload::{ClaimConflict, UploadOperationClaim},
     },
     storages::StorageBackend,
 };
