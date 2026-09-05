@@ -5,9 +5,8 @@ use uuid::Uuid;
 
 use super::{
     AccountAccessView, AccountError, CreateAccountInput, EffectivePermissionSource,
-    EffectiveRoleSource, GetUserListRequest, LoginAccount, PreparedPasswordUpdate, RefreshIdentity,
-    RefreshIdentityError, SetSelfInfoRequest, SetSelfSettingRequest, UpdateUserInput, UserInfoView,
-    UserRecord,
+    EffectiveRoleSource, GetUserListRequest, LoginAccount, RefreshIdentity, RefreshIdentityError,
+    SetSelfInfoRequest, SetSelfSettingRequest, UpdateUserInput, UserInfoView, UserRecord,
 };
 use crate::{
     authorization::{Authorization, ReplaceUserRoles},
@@ -313,11 +312,11 @@ impl Accounts {
         }
     }
 
-    pub async fn persist_password_update(
+    pub async fn update_password(
         &self,
-        prepared: PreparedPasswordUpdate,
+        user_id: i64,
+        password_hash: String,
     ) -> Result<(), AccountError> {
-        let (user_id, password_hash) = prepared.into_parts();
         sqlx::query("update sys_users set password_hash = $1, updated_at = now() where id = $2")
             .bind(password_hash)
             .bind(user_id)
