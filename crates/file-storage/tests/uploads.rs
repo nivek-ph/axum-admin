@@ -8,7 +8,7 @@ use file_storage::{
         FileError, FileListQuery, FileService, ImportFileUrl, MAX_UPLOAD_BYTES, StartUpload,
         StoredFile,
     },
-    storages::{StorageBackendInput, StorageInput},
+    storages::{StorageBackendInput, StorageInput, StorageService},
 };
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
@@ -17,16 +17,22 @@ fn upload_dir() -> PathBuf {
     std::env::temp_dir().join(format!("ava-file-upload-test-{}", Uuid::new_v4()))
 }
 
+async fn load_files(pool: sqlx::PgPool) -> FileService {
+    let storages = StorageService::load(pool.clone())
+        .await
+        .expect("storage service should load");
+    let files = FileService::new(pool, storages);
+    files.recover().await;
+    files
+}
+
 async fn managed_service(pool: &sqlx::PgPool, root: &Path) -> FileService {
     sqlx::query("update sys_storages set root = $1 where is_default")
         .bind(root.to_string_lossy().as_ref())
         .execute(pool)
         .await
         .expect("default storage root should update");
-    FileService::managed(pool.clone())
-        .await
-        .expect("managed file storage should load")
-        .0
+    load_files(pool.clone()).await
 }
 
 async fn cleanup_dir(path: &Path) {
@@ -241,10 +247,7 @@ async fn object_io_lock_reuses_its_single_business_connection(pool: sqlx::PgPool
     .execute(&single_connection_pool)
     .await
     .expect("upload session should become stale");
-    FileService::managed(single_connection_pool.clone())
-        .await
-        .expect("startup cleanup should leave the business connection available");
-
+    load_files(single_connection_pool.clone()).await;
     single_connection_pool.close().await;
     cleanup_dir(&upload_dir).await;
 }
@@ -373,9 +376,7 @@ async fn metadata_delete_failure_leaves_a_retryable_pending_delete(pool: sqlx::P
         .execute(&pool)
         .await
         .expect("delete failure trigger should be removed");
-    FileService::managed(pool.clone())
-        .await
-        .expect("service startup should resume pending deletion");
+    load_files(pool.clone()).await;
     let remaining: i64 = sqlx::query_scalar("select count(*) from uploaded_files where id = $1")
         .bind(stored.id)
         .fetch_one(&pool)
@@ -388,9 +389,11 @@ async fn metadata_delete_failure_leaves_a_retryable_pending_delete(pool: sqlx::P
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn object_delete_failure_leaves_a_retryable_pending_delete(pool: sqlx::PgPool) {
-    let (service, storages) = FileService::managed(pool.clone())
+    let storages = StorageService::load(pool.clone())
         .await
-        .expect("managed storage should load");
+        .expect("storage service should load");
+    let service = FileService::new(pool.clone(), storages.clone());
+    service.recover().await;
     let storage = storages
         .create(StorageInput {
             name: "Unavailable S3".to_string(),
@@ -582,10 +585,7 @@ async fn startup_reaps_abandoned_upload_sessions_and_parts(pool: sqlx::PgPool) {
     .await
     .expect("upload session should become stale");
 
-    FileService::managed(pool.clone())
-        .await
-        .expect("service startup should reap stale uploads");
-
+    load_files(pool.clone()).await;
     let session_count: i64 =
         sqlx::query_scalar("select count(*) from uploaded_file_sessions where id = $1")
             .bind(&session.id)
@@ -644,11 +644,7 @@ async fn startup_reaps_the_final_object_from_an_abandoned_completion(pool: sqlx:
     .await
     .expect("completion should become stale");
 
-    let restarted = FileService::managed(pool)
-        .await
-        .expect("service startup should reap the stale completion")
-        .0;
-
+    let restarted = load_files(pool).await;
     assert!(!upload_dir.join(final_object).exists());
     assert!(matches!(
         restarted.upload_status(&session.id).await,
@@ -707,10 +703,7 @@ async fn startup_does_not_reap_an_upload_with_active_object_io(pool: sqlx::PgPoo
         .await
         .expect("active object I/O lock should be held");
 
-    FileService::managed(pool.clone())
-        .await
-        .expect("service startup should skip active object I/O");
-
+    load_files(pool.clone()).await;
     let session_count: i64 =
         sqlx::query_scalar("select count(*) from uploaded_file_sessions where id = $1")
             .bind(&session.id)
@@ -724,9 +717,7 @@ async fn startup_does_not_reap_an_upload_with_active_object_io(pool: sqlx::PgPoo
         .close()
         .await
         .expect("active object I/O connection should close");
-    FileService::managed(pool)
-        .await
-        .expect("next service startup should reap abandoned object I/O");
+    load_files(pool).await;
     assert!(!upload_dir.join(final_object).exists());
 
     cleanup_dir(&upload_dir).await;

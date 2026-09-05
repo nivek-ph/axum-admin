@@ -34,9 +34,11 @@ async fn test_state(pool: sqlx::PgPool) -> api::AppState {
         .expect("IAM test state should load");
     let audits = audit::AuditService::new(pool.clone());
     let departments = DepartmentService::new(pool.clone());
-    let (files, storages) = file_storage::files::FileService::managed(pool.clone())
+    let storages = file_storage::storages::StorageService::load(pool.clone())
         .await
         .expect("test storage should load");
+    let files = file_storage::files::FileService::new(pool.clone(), storages.clone());
+    files.recover().await;
     api::AppState {
         redis,
         public_base_url: "http://127.0.0.1:3000".to_string(),

@@ -58,9 +58,11 @@ async fn build_state(
     let dictionaries = DictionaryService::new(pool.clone());
     let parameters = ParameterService::new(pool.clone());
     let audit_analyzer = AuditAnalyzer::new(&config.ollama_base_url, &config.ollama_model);
-    let (files, storages) = FileService::managed(pool.clone())
+    let storages = file_storage::storages::StorageService::load(pool.clone())
         .await
-        .context("managed file storage should initialize")?;
+        .context("storage service should load")?;
+    let files = FileService::new(pool.clone(), storages.clone());
+    files.recover().await;
 
     // 2. authorization catalog (needed by IAM services below)
     let iam = iam::Iam::load(pool.clone())

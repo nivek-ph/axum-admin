@@ -91,7 +91,7 @@ impl FileService {
         Ok(())
     }
 
-    pub(crate) async fn recover_pending_work(&self) {
+    pub async fn recover(&self) {
         if let Err(error) = self.reap_stale_uploads().await {
             tracing::error!(%error, "failed to load stale uploads");
         }

@@ -7,7 +7,7 @@ use super::{
     catalog::safe_extension,
     upload::{ClaimConflict, UploadObjectIoGuard, UploadOperationClaim},
 };
-use crate::storages::{StorageBackend, StorageError, StorageService};
+use crate::storages::{StorageBackend, StorageService};
 
 pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024;
 pub const UPLOAD_CHUNK_BYTES: usize = 4 * 1024 * 1024;
@@ -27,14 +27,8 @@ struct StaleUpload {
 }
 
 impl FileService {
-    pub async fn managed(pool: PgPool) -> Result<(Self, StorageService), StorageError> {
-        let storages = StorageService::load(pool.clone()).await?;
-        let service = Self {
-            pool,
-            storages: storages.clone(),
-        };
-        service.recover_pending_work().await;
-        Ok((service, storages))
+    pub fn new(pool: PgPool, storages: StorageService) -> Self {
+        Self { pool, storages }
     }
 
     pub async fn start_upload(&self, payload: StartUpload) -> Result<UploadSession, FileError> {
