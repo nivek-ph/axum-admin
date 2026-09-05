@@ -34,7 +34,7 @@ Maintain a separate API DTO only when the boundary does real work, for example:
 - `metadata::parameters::{ParamListQuery, ParameterInput}`
 - `file-storage::files::FileListQuery`
 - `audit::AuditQuery`
-- `iam::accounts::UserListQuery`
+- `iam::accounts::{UserListQuery, UpdateCurrentUserInput}`
 - `iam::roles::RolePayload`
 
 Do not add a capability-side OpenAPI derive for a response/view type merely for route

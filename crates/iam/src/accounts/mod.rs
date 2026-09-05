@@ -5,7 +5,7 @@ pub use error::{AccountError, RefreshIdentityError};
 use serde::Deserialize;
 pub use service::Accounts;
 use sqlx::FromRow;
-use utoipa::IntoParams;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::roles::RoleSummary;
 
@@ -99,9 +99,11 @@ pub struct UpdateUserInput {
     pub dept_id: Option<i64>,
 }
 
-#[derive(Debug, Clone)]
-pub struct SetSelfInfoRequest {
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateCurrentUserInput {
+    #[serde(rename = "nickName")]
     pub nick_name: Option<String>,
+    #[serde(rename = "headerImg")]
     pub header_img: Option<String>,
     pub phone: Option<String>,
     pub email: Option<String>,

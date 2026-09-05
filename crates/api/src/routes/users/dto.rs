@@ -2,27 +2,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub type UserListRequest = iam::accounts::UserListQuery;
-
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct UpdateSelfRequest {
-    #[serde(rename = "nickName")]
-    pub nick_name: Option<String>,
-    #[serde(rename = "headerImg")]
-    pub header_img: Option<String>,
-    pub phone: Option<String>,
-    pub email: Option<String>,
-}
-
-impl From<UpdateSelfRequest> for iam::accounts::SetSelfInfoRequest {
-    fn from(value: UpdateSelfRequest) -> Self {
-        Self {
-            nick_name: value.nick_name,
-            header_img: value.header_img,
-            phone: value.phone,
-            email: value.email,
-        }
-    }
-}
+pub type UpdateSelfRequest = iam::accounts::UpdateCurrentUserInput;
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct UpdateSelfSettingsRequest {

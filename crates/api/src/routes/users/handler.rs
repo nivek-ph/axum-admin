@@ -130,10 +130,7 @@ pub async fn update_current_user(
     CurrentUser(user): CurrentUser,
     Json(payload): Json<UpdateSelfRequest>,
 ) -> AppResult<Json<ApiResponse<EmptyData>>> {
-    state
-        .accounts
-        .update_current_user(user.id, payload.into())
-        .await?;
+    state.accounts.update_current_user(user.id, payload).await?;
     Ok(Json(ApiResponse::new("OK", "updated", None)))
 }
 

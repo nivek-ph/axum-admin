@@ -5,8 +5,9 @@ use uuid::Uuid;
 
 use super::{
     AccountAccessView, AccountError, CreateAccountInput, EffectivePermissionSource,
-    EffectiveRoleSource, LoginAccount, RefreshIdentity, RefreshIdentityError, SetSelfInfoRequest,
-    SetSelfSettingRequest, UpdateUserInput, UserInfoView, UserListQuery, UserRecord,
+    EffectiveRoleSource, LoginAccount, RefreshIdentity, RefreshIdentityError,
+    SetSelfSettingRequest, UpdateCurrentUserInput, UpdateUserInput, UserInfoView, UserListQuery,
+    UserRecord,
 };
 use crate::{
     authorization::{Authorization, ReplaceUserRoles},
@@ -224,7 +225,7 @@ impl Accounts {
     pub async fn update_current_user(
         &self,
         user_id: i64,
-        payload: SetSelfInfoRequest,
+        payload: UpdateCurrentUserInput,
     ) -> Result<(), AccountError> {
         sqlx::query(
             r#"
