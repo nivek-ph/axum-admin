@@ -2,8 +2,7 @@ use std::ops::Range;
 
 use opendal::{ErrorKind, FuturesBytesStream, Reader};
 
-use super::FileService;
-use crate::files::FileError;
+use crate::files::{FileError, FileService};
 
 #[derive(sqlx::FromRow)]
 struct FileDeletion {
@@ -92,7 +91,7 @@ impl FileService {
         Ok(())
     }
 
-    pub(super) async fn recover_pending_work(&self) {
+    pub(crate) async fn recover_pending_work(&self) {
         if let Err(error) = self.reap_stale_uploads().await {
             tracing::error!(%error, "failed to load stale uploads");
         }

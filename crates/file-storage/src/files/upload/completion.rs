@@ -2,12 +2,15 @@ use opendal::{ErrorKind, Writer};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use super::{
-    ClaimConflict, FileService, UPLOAD_CHUNK_BYTES, UPLOAD_SESSION_TTL_SECONDS,
-    UploadOperationClaim, completed_upload, upload_operation_state,
-};
 use crate::{
-    files::{FileError, StoredFile, UploadSession},
+    files::{
+        FileError, FileService, StoredFile, UploadSession,
+        service::{
+            MAX_UPLOAD_BYTES, UPLOAD_CHUNK_BYTES, UPLOAD_SESSION_TTL_SECONDS, completed_upload,
+            upload_operation_state,
+        },
+        upload::{ClaimConflict, UploadOperationClaim},
+    },
     storages::StorageBackend,
 };
 
@@ -80,7 +83,7 @@ impl PendingObject {
         let size = self
             .size
             .checked_add(bytes.len())
-            .filter(|size| *size <= super::MAX_UPLOAD_BYTES)
+            .filter(|size| *size <= MAX_UPLOAD_BYTES)
             .ok_or(FileError::TooLarge)?;
         if let Some(writer) = self.writer.as_mut() {
             writer.write(bytes.to_vec()).await?;

@@ -2,26 +2,21 @@ use opendal::ErrorKind;
 use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 
-use super::{FileError, StartUpload, StoredFile, UploadSession};
+use super::{
+    FileError, StartUpload, StoredFile, UploadSession,
+    catalog::safe_extension,
+    upload::{ClaimConflict, UploadObjectIoGuard, UploadOperationClaim},
+};
 use crate::storages::{StorageBackend, StorageError, StorageService};
-
-mod catalog;
-mod claim;
-mod completion;
-mod objects;
-
-use catalog::safe_extension;
-use claim::{ClaimConflict, UploadObjectIoGuard, UploadOperationClaim};
-pub use objects::LocalFileReader;
 
 pub const MAX_UPLOAD_BYTES: usize = 1024 * 1024 * 1024;
 pub const UPLOAD_CHUNK_BYTES: usize = 4 * 1024 * 1024;
-const UPLOAD_SESSION_TTL_SECONDS: i64 = 60 * 60;
+pub(crate) const UPLOAD_SESSION_TTL_SECONDS: i64 = 60 * 60;
 
 #[derive(Clone)]
 pub struct FileService {
-    pool: PgPool,
-    storages: StorageService,
+    pub(crate) pool: PgPool,
+    pub(crate) storages: StorageService,
 }
 
 #[derive(sqlx::FromRow)]
@@ -251,7 +246,7 @@ impl FileService {
         Ok(session)
     }
 
-    async fn refresh_upload_operation(
+    pub(crate) async fn refresh_upload_operation(
         connection: &mut PgConnection,
         id: &str,
         token: &str,
@@ -277,7 +272,7 @@ impl FileService {
         }
     }
 
-    async fn release_upload_operation(&self, id: &str, token: &str) {
+    pub(crate) async fn release_upload_operation(&self, id: &str, token: &str) {
         let mut connection = match self.pool.acquire().await {
             Ok(connection) => connection,
             Err(error) => {
@@ -308,7 +303,7 @@ impl FileService {
         }
     }
 
-    async fn cleanup_upload_parts(
+    pub(crate) async fn cleanup_upload_parts(
         &self,
         file_id: i64,
         storage_id: i64,
@@ -328,7 +323,7 @@ impl FileService {
         Ok(())
     }
 
-    async fn reap_stale_uploads(&self) -> Result<(), FileError> {
+    pub(crate) async fn reap_stale_uploads(&self) -> Result<(), FileError> {
         let uploads = sqlx::query_as::<_, StaleUpload>(
             r#"
             select id, storage_id, object_name
@@ -416,12 +411,15 @@ impl FileService {
         }
     }
 
-    async fn storage_for(&self, id: i64) -> Result<StorageBackend, FileError> {
+    pub(crate) async fn storage_for(&self, id: i64) -> Result<StorageBackend, FileError> {
         Ok(self.storages.backend_for_id(id).await?)
     }
 }
 
-async fn completed_upload(pool: &PgPool, id: &str) -> Result<Option<StoredFile>, sqlx::Error> {
+pub(crate) async fn completed_upload(
+    pool: &PgPool,
+    id: &str,
+) -> Result<Option<StoredFile>, sqlx::Error> {
     sqlx::query_as::<_, StoredFile>(
         r#"
         select id, storage_id, name, url, ext, tag, category, updated_at
@@ -434,7 +432,7 @@ async fn completed_upload(pool: &PgPool, id: &str) -> Result<Option<StoredFile>,
     .await
 }
 
-async fn upload_operation_state(
+pub(crate) async fn upload_operation_state(
     pool: &PgPool,
     id: &str,
 ) -> Result<Option<(i64, i64, String)>, FileError> {
