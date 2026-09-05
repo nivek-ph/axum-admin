@@ -5,7 +5,9 @@ use std::{
 
 use file_storage::{
     files::{FileService, StartUpload, StoredFile},
-    storages::{StorageBackendInput, StorageBackendView, StorageError, StorageInput},
+    storages::{
+        StorageBackendInput, StorageBackendView, StorageError, StorageInput, StorageService,
+    },
 };
 use uuid::Uuid;
 
@@ -24,6 +26,19 @@ fn local_input(code: &str, root: &Path) -> StorageInput {
         sort: 10,
         description: "test storage".to_string(),
     }
+}
+
+async fn load_storages(pool: sqlx::PgPool) -> StorageService {
+    StorageService::load(pool)
+        .await
+        .expect("storage service should load")
+}
+
+async fn load_files(pool: sqlx::PgPool) -> (FileService, StorageService) {
+    let storages = load_storages(pool.clone()).await;
+    let files = FileService::new(pool, storages.clone());
+    files.recover().await;
+    (files, storages)
 }
 
 async fn set_default_root(pool: &sqlx::PgPool, root: &Path) {
@@ -64,9 +79,7 @@ async fn upload_file(service: &FileService, name: &str, bytes: &[u8]) -> StoredF
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn migration_seeds_the_local_default(pool: sqlx::PgPool) {
-    let (_, storages) = FileService::managed(pool)
-        .await
-        .expect("managed storage should load");
+    let storages = load_storages(pool).await;
 
     let list = storages
         .list(Default::default())
@@ -88,21 +101,19 @@ async fn managed_startup_does_not_create_an_unused_local_root(pool: sqlx::PgPool
     set_default_root(&pool, &root).await;
     assert!(!root.exists());
 
-    FileService::managed(pool)
-        .await
-        .expect("managed storage should load without preparing the local root");
+    let _ = load_files(pool).await;
 
     assert!(!root.exists());
 }
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn concurrent_loads_share_the_seeded_default(pool: sqlx::PgPool) {
-    let first = FileService::managed(pool.clone());
-    let second = FileService::managed(pool.clone());
+    let first = StorageService::load(pool.clone());
+    let second = StorageService::load(pool.clone());
     let (first, second) = tokio::join!(first, second);
 
-    first.expect("first managed storage should load");
-    second.expect("second managed storage should load");
+    first.expect("first storage service should load");
+    second.expect("second storage service should load");
     let local_count: i64 =
         sqlx::query_scalar("select count(*) from sys_storages where code = 'local'")
             .fetch_one(&pool)
@@ -122,9 +133,7 @@ async fn default_switch_is_observed_by_an_already_running_file_service(pool: sql
     let first_root = upload_dir("first");
     let second_root = upload_dir("second");
     set_default_root(&pool, &first_root).await;
-    let (files, storages) = FileService::managed(pool.clone())
-        .await
-        .expect("managed storage should load");
+    let (files, storages) = load_files(pool.clone()).await;
     let second = storages
         .create(local_input("secondary", &second_root))
         .await
@@ -159,9 +168,7 @@ async fn upload_start_is_serialized_with_storage_lifecycle_changes(pool: sqlx::P
     let first_root = upload_dir("upload-race-first");
     let second_root = upload_dir("upload-race-second");
     set_default_root(&pool, &first_root).await;
-    let (files, storages) = FileService::managed(pool.clone())
-        .await
-        .expect("managed storage should load");
+    let (files, storages) = load_files(pool.clone()).await;
     let first_id = storages
         .list(Default::default())
         .await
@@ -303,9 +310,7 @@ async fn protected_and_referenced_configurations_cannot_be_removed(pool: sqlx::P
     let default_root = upload_dir("protected-default");
     let secondary_root = upload_dir("protected-secondary");
     set_default_root(&pool, &default_root).await;
-    let (files, storages) = FileService::managed(pool)
-        .await
-        .expect("managed storage should load");
+    let (files, storages) = load_files(pool).await;
     let default = storages
         .list(Default::default())
         .await
@@ -371,9 +376,7 @@ async fn default_selection_and_disable_preserve_an_enabled_default(pool: sqlx::P
     let default_root = upload_dir("concurrent-default");
     let secondary_root = upload_dir("concurrent-secondary");
     set_default_root(&pool, &default_root).await;
-    let (_, storages) = FileService::managed(pool.clone())
-        .await
-        .expect("managed storage should load");
+    let storages = load_storages(pool.clone()).await;
     let secondary = storages
         .create(local_input("secondary", &secondary_root))
         .await
@@ -403,9 +406,7 @@ async fn default_selection_and_disable_preserve_an_enabled_default(pool: sqlx::P
 async fn storage_location_is_immutable_but_metadata_can_change(pool: sqlx::PgPool) {
     let root = upload_dir("immutable-location");
     set_default_root(&pool, &root).await;
-    let (_, storages) = FileService::managed(pool.clone())
-        .await
-        .expect("managed storage should load");
+    let storages = load_storages(pool.clone()).await;
     let storage = storages
         .list(Default::default())
         .await
@@ -434,9 +435,7 @@ async fn storage_location_is_immutable_but_metadata_can_change(pool: sqlx::PgPoo
 async fn s3_credentials_are_stored_but_never_returned(pool: sqlx::PgPool) {
     let root = upload_dir("credentials");
     set_default_root(&pool, &root).await;
-    let (_, storages) = FileService::managed(pool.clone())
-        .await
-        .expect("managed storage should load");
+    let storages = load_storages(pool.clone()).await;
     let input = StorageInput {
         name: "Object storage".to_string(),
         code: "object_store".to_string(),
@@ -491,9 +490,7 @@ async fn s3_credentials_are_stored_but_never_returned(pool: sqlx::PgPool) {
 async fn s3_credentials_are_required(pool: sqlx::PgPool) {
     let root = upload_dir("required-credentials");
     set_default_root(&pool, &root).await;
-    let (_, storages) = FileService::managed(pool.clone())
-        .await
-        .expect("managed storage should load");
+    let storages = load_storages(pool.clone()).await;
     let input = StorageInput {
         name: "Object storage".to_string(),
         code: "s3_without_credentials".to_string(),
@@ -538,7 +535,7 @@ async fn managed_storage_rejects_s3_without_database_credentials(pool: sqlx::PgP
     .expect("invalid S3 fixture should insert directly");
 
     assert!(matches!(
-        FileService::managed(pool).await,
+        StorageService::load(pool).await,
         Err(StorageError::InvalidConfiguration(
             file_storage::storages::ObjectStorageError::MissingCredentials
         ))
