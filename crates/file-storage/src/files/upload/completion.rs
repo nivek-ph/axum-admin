@@ -5,11 +5,11 @@ use uuid::Uuid;
 use crate::{
     files::{
         FileError, FileService, StoredFile, UploadSession,
-        service::{
-            MAX_UPLOAD_BYTES, UPLOAD_CHUNK_BYTES, UPLOAD_SESSION_TTL_SECONDS, completed_upload,
-            upload_operation_state,
+        service::{MAX_UPLOAD_BYTES, UPLOAD_CHUNK_BYTES, completed_upload, upload_operation_state},
+        upload::{
+            ClaimConflict, UPLOAD_SESSION_TTL_SECONDS, UploadOperationClaim,
+            refresh_upload_operation, release_upload_operation,
         },
-        upload::{ClaimConflict, UploadOperationClaim},
     },
     storages::StorageBackend,
 };
@@ -195,12 +195,12 @@ impl FileService {
         let storage = match self.storage_for(session.storage_id).await {
             Ok(storage) => storage,
             Err(error) => {
-                self.release_upload_operation(id, &token).await;
+                release_upload_operation(&self.pool, id, &token).await;
                 return Err(error);
             }
         };
         let mut claim =
-            UploadOperationClaim::acquire(self, id, token.clone(), ClaimConflict::InProgress)
+            UploadOperationClaim::acquire(&self.pool, id, token.clone(), ClaimConflict::InProgress)
                 .await?;
         if previous_object_name != session.object_name
             && let Err(error) = storage.operator.delete(&previous_object_name).await
@@ -379,13 +379,13 @@ impl FileService {
                 }
                 upload.write_chunk(&bytes).await?;
                 offset += part.size;
-                Self::refresh_upload_operation(connection, &session.id, token).await?;
+                refresh_upload_operation(connection, &session.id, token).await?;
             }
             if offset != session.total_size {
                 return Err(FileError::UploadCorrupt);
             }
             upload.close_object().await?;
-            Self::refresh_upload_operation(connection, &session.id, token).await
+            refresh_upload_operation(connection, &session.id, token).await
         }
         .await;
         match result {
