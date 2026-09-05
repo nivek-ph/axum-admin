@@ -111,6 +111,7 @@ pub(crate) async fn refresh_upload_operation(
     }
 }
 
+/// Releases an upload operation claim.
 pub(crate) async fn release_upload_operation(pool: &PgPool, id: &str, token: &str) {
     let mut connection = match pool.acquire().await {
         Ok(connection) => connection,
@@ -138,6 +139,7 @@ pub(crate) async fn release_upload_operation(pool: &PgPool, id: &str, token: &st
     }
 }
 
+/// A guard for an upload object I/O lock.
 pub(crate) struct UploadObjectIoGuard {
     connection: Option<PoolConnection<Postgres>>,
     upload_id: String,
