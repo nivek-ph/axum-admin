@@ -13,7 +13,7 @@ pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            get(get_audit_events).permission("system:audit-event:list"),
+            get(list_audit_events).permission("system:audit-event:list"),
         )
         .route(
             "/stats",
@@ -41,7 +41,7 @@ mod tests {
 
     fn handler_routes() -> Router<AppState> {
         Router::new()
-            .route("/", get(get_audit_events))
+            .route("/", get(list_audit_events))
             .route("/stats", get(get_audit_stats))
             .route("/analyze", post(analyze_audit_events))
             .route("/{id}", get(find_audit_event))

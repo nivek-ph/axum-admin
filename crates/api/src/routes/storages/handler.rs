@@ -91,7 +91,7 @@ pub async fn update(
     request_body = StorageStatusRequest,
     responses((status = 200, description = "Storage status updated", body = ApiResponse<EmptyData>))
 )]
-pub async fn set_status(
+pub async fn update_status(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(payload): Json<StorageStatusRequest>,

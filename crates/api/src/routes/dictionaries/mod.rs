@@ -13,15 +13,15 @@ pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            get(handler::get_sys_dictionary_list).permission("system:dictionary:list"),
+            get(handler::list_dictionaries).permission("system:dictionary:list"),
         )
         .route(
             "/",
-            post(handler::create_sys_dictionary).permission("system:dictionary:create"),
+            post(handler::create_dictionary).permission("system:dictionary:create"),
         )
         .route(
             "/import",
-            post(handler::import_sys_dictionary).permission("system:dictionary:import"),
+            post(handler::import_dictionary).permission("system:dictionary:import"),
         )
         .route(
             "/by-type/{dictionary_type}/tree",
@@ -29,19 +29,19 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route(
             "/{id}",
-            get(handler::find_sys_dictionary_by_id).permission("system:dictionary:list"),
+            get(handler::find_dictionary).permission("system:dictionary:list"),
         )
         .route(
             "/{id}",
-            put(handler::update_sys_dictionary_by_id).permission("system:dictionary:update"),
+            put(handler::update_dictionary).permission("system:dictionary:update"),
         )
         .route(
             "/{id}",
-            delete(handler::delete_sys_dictionary_by_id).permission("system:dictionary:delete"),
+            delete(handler::delete_dictionary).permission("system:dictionary:delete"),
         )
         .route(
             "/{id}/export",
-            get(handler::export_sys_dictionary_by_id).permission("system:dictionary:export"),
+            get(handler::export_dictionary).permission("system:dictionary:export"),
         )
         .route(
             "/{id}/tree",
@@ -67,7 +67,7 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route(
             "/{id}/tree/{node_id}/children",
-            get(handler::get_dictionary_tree_node_children).permission("system:dictionary:list"),
+            get(handler::list_dictionary_tree_node_children).permission("system:dictionary:list"),
         )
         .route(
             "/{id}/tree/{node_id}/path",
@@ -89,18 +89,18 @@ mod tests {
         Router::new()
             .route(
                 "/",
-                get(handler::get_sys_dictionary_list).post(handler::create_sys_dictionary),
+                get(handler::list_dictionaries).post(handler::create_dictionary),
             )
-            .route("/import", post(handler::import_sys_dictionary))
+            .route("/import", post(handler::import_dictionary))
             .route(
                 "/{id}",
-                get(handler::find_sys_dictionary_by_id).put(handler::update_sys_dictionary_by_id),
+                get(handler::find_dictionary).put(handler::update_dictionary),
             )
             .route(
                 "/{id}/tree",
                 get(handler::get_dictionary_tree).post(handler::create_dictionary_tree_node),
             )
-            .route("/{id}/export", get(handler::export_sys_dictionary_by_id))
+            .route("/{id}/export", get(handler::export_dictionary))
     }
 
     async fn json(response: axum::response::Response) -> serde_json::Value {

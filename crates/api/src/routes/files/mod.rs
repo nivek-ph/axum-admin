@@ -14,10 +14,7 @@ use crate::{middleware::permission::PermissionRouteExt, state::AppState};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route(
-            "/",
-            get(handler::get_file_list_by_query).permission("system:file:list"),
-        )
+        .route("/", get(handler::list_files).permission("system:file:list"))
         .route(
             "/import-url",
             post(handler::import_url).permission("system:file:import-url"),
@@ -42,11 +39,11 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route(
             "/{id}",
-            delete(handler::delete_file_by_id).permission("system:file:delete"),
+            delete(handler::delete_file).permission("system:file:delete"),
         )
         .route(
             "/{id}/name",
-            patch(handler::edit_file_name_by_id).permission("system:file:rename"),
+            patch(handler::rename_file).permission("system:file:rename"),
         )
 }
 

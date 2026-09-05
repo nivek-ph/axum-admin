@@ -30,7 +30,7 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route(
             "/{id}/status",
-            patch(handler::set_status).permission("system:storage:update-status"),
+            patch(handler::update_status).permission("system:storage:update-status"),
         )
         .route(
             "/{id}/default",
@@ -52,7 +52,7 @@ mod tests {
     fn handler_routes() -> Router<AppState> {
         Router::new()
             .route("/", get(handler::list).post(handler::create))
-            .route("/{id}/status", patch(handler::set_status))
+            .route("/{id}/status", patch(handler::update_status))
     }
 
     async fn json_body(response: axum::response::Response) -> serde_json::Value {

@@ -13,22 +13,22 @@ pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/",
-            get(handler::get_dept_tree).permission("system:dept:list"),
+            get(handler::get_department_tree).permission("system:dept:list"),
         )
         .route(
             "/",
-            post(handler::create_dept).permission("system:dept:create"),
+            post(handler::create_department).permission("system:dept:create"),
         )
         .route(
             "/{id}",
-            get(handler::find_dept_by_id).permission("system:dept:get"),
+            get(handler::find_department).permission("system:dept:get"),
         )
         .route(
             "/{id}",
-            put(handler::update_dept_by_id).permission("system:dept:update"),
+            put(handler::update_department).permission("system:dept:update"),
         )
         .route(
             "/{id}",
-            delete(handler::delete_dept_by_id).permission("system:dept:delete"),
+            delete(handler::delete_department).permission("system:dept:delete"),
         )
 }
